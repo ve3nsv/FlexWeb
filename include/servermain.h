@@ -19,6 +19,7 @@
 #include "icomcommander.h"
 #include "kenwoodcommander.h"
 #include "yaesucommander.h"
+#include "flexcommander.h"
 #include "rigstate.h"
 #include "freqmemory.h"
 #include "rigidentities.h"

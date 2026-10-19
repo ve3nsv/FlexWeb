@@ -290,6 +290,9 @@ void servermain::makeRig()
             case manufYaesu:
                 radio->rig = new yaesuCommander(radio->guid);
                 break;
+            case manufFlexRadio:
+                radio->rig = new flexCommander(radio->guid);
+                break;
             default:
                 qCritical() << "Unknown Manufacturer, aborting...";
                 break;

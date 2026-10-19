@@ -1,6 +1,6 @@
 # wfweb
 
-**Control your Icom radio from any browser — phone, tablet, or desktop.**
+**Control your Icom, Kenwood, Yaesu or FlexRadio radio from any browser — phone, tablet, or desktop.**
 
 wfweb turns your transceiver into a web-accessible station. Waterfall, SSB, CW decoding, FT8/FT4, JS8 messaging, FreeDV digital voice, [RADE](https://youtu.be/Rj9E1CAQ9Ls), and AX.25 packet (APRS, connected QSOs, file transfer) — all in the browser, no client software required.
 
@@ -131,6 +131,18 @@ For Icoms with a built-in Ethernet port (IC-7300 Mk2, IC-9700, IC-7610, …) or 
 ```
 
 Replace the IP and credentials with your radio's settings. If your radio uses a non-default CI-V address, add `--civ 0x<addr>`.
+
+#### FlexRadio (FLEX-6000 / FLEX-8000 / Aurora)
+
+A Flex is controlled entirely over the network, so there is nothing to plug in: give wfweb the radio's address and manufacturer 3.
+
+```bash
+./wfweb --manufacturer 3 --lan 192.168.1.50   # or --lan auto to find it by its discovery broadcast
+```
+
+wfweb joins the radio as a SmartSDR GUI client (alongside SmartSDR, Maestro or AetherSDR if they are connected) and opens its own panadapter and slice. VFO A is that slice; the scope is its panadapter; receive audio is the slice's `remote_audio_rx` stream; the browser microphone goes to the radio as DAX TX audio (wfweb sets `transmit dax=1` while the browser mic is in use, as it switches DATA MOD to LAN on an Icom). Tuning, mode and filter (FIL1-3 map to SmartSDR's preset widths), AF gain, AGC threshold (RF gain), squelch, NB/NR/ANF, preamp/attenuator (panadapter RF gain), RX antenna, RIT, RF power, monitor, speech processor, ATU tune, CW speed and CWX keying, PTT and the S, Po and SWR meters all work; modes are LSB, USB, CW, AM, SAM, FM, NFM, DIGU, DIGL, RTTY and DFM.
+
+Not supported yet: a second slice as VFO B / split, memories (wfweb's own memory list is used), FreeDV waveforms built into the radio, and SmartLink — wfweb talks to the radio on the LAN, so run it on the station network and reach the browser page from anywhere. Power on/off is not offered from the page. The FlexRadio support uses the SmartSDR protocol work of [AetherSDR](https://github.com/aethersdr/AetherSDR).
 
 ### 3. Docker
 
@@ -575,6 +587,7 @@ JS8 weak-signal messaging uses a WebAssembly build of [JS8Call-improved](https:/
 The CW decoder uses [ggmorse](https://github.com/ggerganov/ggmorse) by Georgi Gerganov.
 FreeDV digital voice uses [codec2](https://github.com/drowe67/codec2) by David Rowe VK5DGR and contributors, and [radae_nopy](https://github.com/peterbmarks/radae_nopy) by Peter Marks VK5APM (a standalone C implementation of the RADE Radio Autoencoder).
 AX.25 packet — modems, framing, link control, APRS, and YAPP — is powered by [Direwolf](https://github.com/wb2osz/direwolf) by John Langner WB2OSZ.
+FlexRadio support follows the SmartSDR TCP / VITA-49 protocol handling of [AetherSDR](https://github.com/aethersdr/AetherSDR) (GPLv3).
 MP3 recording uses [lamejs](https://github.com/zhuker/lamejs), a JavaScript port of the [LAME](https://lame.sourceforge.io) encoder (LGPL).
 
 ---
