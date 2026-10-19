@@ -103,7 +103,7 @@ def test_connect_sequence(flex):
     assert radio.find("stream create type=dax_tx")
     assert radio.find("display panafall create")
     assert radio.find("slice create pan=0x40000000")
-    assert radio.find("display pan set 0x40000000 xpixels=1024 ypixels=161")
+    assert radio.find("display pan set 0x40000000 xpixels=1024 ypixels=1201")
 
 
 def test_info(flex):

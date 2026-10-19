@@ -6,6 +6,7 @@
 #include <QtEndian>
 #include <cmath>
 #include <cstdlib>
+#include <algorithm>
 
 #include "rigidentities.h"
 #include "logcategories.h"
@@ -289,6 +290,9 @@ void flexCommander::resetSession()
     transmitting = false;
     meters.clear();
     fft.reset();
+    noiseFloorDbm = -999.0f;
+    udpSeen.clear();
+    udpStats.clear();
     txAccumulator.clear();
 }
 
@@ -383,6 +387,10 @@ void flexCommander::tcpReadyRead()
 
 void flexCommander::processLine(const QString& line)
 {
+    if (!line.contains(QLatin1String("|meter ")) && !line.startsWith(QLatin1String("R")))
+        qDebug(logRigTraffic()).noquote() << "Flex <" << line.trimmed();
+    else if (line.startsWith(QLatin1String("R")) && !line.contains(QLatin1String("|0|")))
+        qDebug(logRigTraffic()).noquote() << "Flex <" << line.trimmed();
     const message msg = parseLine(line);
     switch (msg.type) {
     case msgType::Version:
@@ -582,12 +590,12 @@ void flexCommander::configurePan()
     if (panId.isEmpty() || panConfigured)
         return;
     panConfigured = true;
-    // One FFT bin per wfweb scope point; vertical pixels = amplitude steps so
-    // a bin's pixel value maps straight onto wfweb's 0..spectAmpMax scale.
-    const int width = rigCaps.spectLenMax ? rigCaps.spectLenMax : 1024;
-    const int height = (rigCaps.spectAmpMax ? rigCaps.spectAmpMax : 160) + 1;
-    sendCmd(QString("display pan set %1 xpixels=%2 ypixels=%3").arg(panId).arg(width).arg(height));
-    sendCmd(QString("display pan set %1 min_dbm=-140 max_dbm=-40").arg(panId));
+    // One FFT bin per wfweb scope point. The vertical scale is a wide, fine
+    // dBm range; handleFft() turns it into wfweb's counts against the noise
+    // floor. Before the caps load, rigCaps holds no sizes yet.
+    const int width = (haveRigCaps && rigCaps.spectLenMax) ? int(rigCaps.spectLenMax) : 1024;
+    sendCmd(QString("display pan set %1 xpixels=%2 ypixels=%3").arg(panId).arg(width).arg(kPanYPixels));
+    sendCmd(QString("display pan set %1 min_dbm=%2 max_dbm=%3").arg(panId).arg(kPanMinDbm).arg(kPanMaxDbm));
     sendCmd(QString("display pan set %1 fps=%2 average=40").arg(panId).arg(scopeFps));
 }
 
@@ -607,7 +615,9 @@ void flexCommander::handleStatus(const message& msg)
         handlePanStatus(normalizedId(obj.mid(12).trimmed()), msg.kvs);
         return;
     }
-    if (obj == QLatin1String("transmit") || obj.startsWith(QLatin1String("transmit "))) {
+    // Only the live transmit object: "transmit band N ..." lines carry each
+    // band's stored settings (rfpower etc.) and would make the page jump.
+    if (obj == QLatin1String("transmit")) {
         handleTransmitStatus(msg.kvs);
         return;
     }
@@ -725,10 +735,18 @@ void flexCommander::handlePanStatus(const QString& id, const QMap<QString, QStri
         known.insert(it.key(), it.value());
     if (id != panId)
         return;
+    if (kvs.contains("center") || kvs.contains("bandwidth") || kvs.contains("x_pixels") || kvs.contains("y_pixels"))
+        qInfo(logRig()).noquote() << "Flex: panadapter" << panId
+                                  << (kvs.contains("center") ? "center=" + kvs.value("center") : QString())
+                                  << (kvs.contains("bandwidth") ? "bandwidth=" + kvs.value("bandwidth") : QString())
+                                  << (kvs.contains("x_pixels") ? "x_pixels=" + kvs.value("x_pixels") : QString())
+                                  << (kvs.contains("y_pixels") ? "y_pixels=" + kvs.value("y_pixels") : QString());
     if (kvs.contains("center")) panCenterMHz = kvs.value("center").toDouble();
     if (kvs.contains("bandwidth")) panBandwidthMHz = kvs.value("bandwidth").toDouble();
     if (kvs.contains("x_pixels")) panXPixels = kvs.value("x_pixels").toInt();
     if (kvs.contains("y_pixels")) panYPixels = kvs.value("y_pixels").toInt();
+    if (kvs.contains("min_dbm")) panMinDbm = kvs.value("min_dbm").toDouble();
+    if (kvs.contains("max_dbm")) panMaxDbm = kvs.value("max_dbm").toDouble();
     if (kvs.contains("rfgain")) {
         panRfGain = kvs.value("rfgain").toInt();
         reportCurrent(funcPreamp);
@@ -788,36 +806,101 @@ void flexCommander::udpReadyRead()
         d.resize(int(udp->pendingDatagramSize()));
         udp->readDatagram(d.data(), d.size());
         const vitaPacket p = parseVita(d);
-        if (!p.valid || !p.hasClassId || p.oui != FLEX_OUI)
+        if (!p.valid || !p.hasClassId || p.oui != FLEX_OUI) {
+            ++udpStats["other"];
             continue;
+        }
+
+        // Diagnostics: name each stream the first time it shows up, and
+        // summarise what arrived every 10 s (see logUdpStats).
+        const quint64 key = (quint64(p.pcc) << 32) | p.streamId;
+        if (!udpSeen.contains(key)) {
+            udpSeen.insert(key);
+            qInfo(logRig()).noquote() << QString("Flex: first UDP packet pcc=0x%1 stream=0x%2 bytes=%3%4")
+                .arg(p.pcc, 4, 16, QChar('0')).arg(p.streamId, 8, 16, QChar('0')).arg(d.size())
+                .arg(p.pcc == PCC_FFT ? (p.streamId == panStreamId ? " (our panadapter)" : QString(" (not our pan %1)").arg(panId))
+                     : (p.streamId == rxStreamId && rxStreamId) ? " (our RX audio)" : "");
+        }
+        if (!udpStatsTimer.isValid())
+            udpStatsTimer.start();
+        if (udpStatsTimer.elapsed() >= 10000) {
+            logUdpStats();
+            udpStatsTimer.restart();
+        }
 
         switch (p.pcc) {
         case PCC_FFT:
+            ++udpStats[p.streamId == panStreamId ? "fft" : "fft-other-pan"];
             if (p.streamId == panStreamId) handleFft(d, p);
             break;
+        case PCC_WATERFALL:
+            ++udpStats["waterfall"];
+            break;
         case PCC_METER:
+            ++udpStats["meter"];
             handleMeters(d, p);
             break;
         case PCC_IF_NARROW:
         case PCC_IF_NARROW_REDUCED:
+            ++udpStats["audio"];
             if (rxStreamId == 0 || p.streamId == rxStreamId) handleRxAudio(d, p);
             break;
         default:
-            break;   // waterfall tiles: wfweb draws its own waterfall from the FFT
+            ++udpStats[QString("pcc-0x%1").arg(p.pcc, 4, 16, QChar('0'))];
+            break;
         }
     }
+}
+
+void flexCommander::logUdpStats()
+{
+    QStringList parts;
+    for (auto it = udpStats.constBegin(); it != udpStats.constEnd(); ++it)
+        parts << QString("%1=%2").arg(it.key()).arg(it.value());
+    qInfo(logRig()).noquote() << "Flex: UDP in last 10 s:" << (parts.isEmpty() ? QString("nothing") : parts.join(' '))
+                              << QString("| scope frames sent %1, dropped %2 (pan %3 center %4 bw %5 MHz, %6x%7, caps %8)")
+                                     .arg(scopeFramesSent).arg(scopeFramesDropped).arg(panId.isEmpty() ? "none" : panId)
+                                     .arg(panCenterMHz, 0, 'f', 6).arg(panBandwidthMHz, 0, 'f', 6)
+                                     .arg(panXPixels).arg(panYPixels).arg(haveRigCaps ? "yes" : "no");
+    udpStats.clear();
+    scopeFramesSent = 0;
+    scopeFramesDropped = 0;
 }
 
 void flexCommander::handleFft(const QByteArray& d, const vitaPacket& p)
 {
     if (!fft.feed(d, p))
         return;
-    if (!haveRigCaps || panBandwidthMHz <= 0.0)
+    if (!haveRigCaps || panBandwidthMHz <= 0.0) {
+        ++scopeFramesDropped;
         return;
+    }
+    ++scopeFramesSent;
 
     const QVector<quint16>& bins = fft.bins();
-    const int ampMax = rigCaps.spectAmpMax ? rigCaps.spectAmpMax : 160;
-    const int yMax = (panYPixels > 1 ? panYPixels : ampMax + 1) - 1;
+    if (bins.isEmpty())
+        return;
+    const int ampMax = rigCaps.spectAmpMax ? int(rigCaps.spectAmpMax) : 160;
+    const int yMax = (panYPixels > 1 ? panYPixels : kPanYPixels) - 1;
+    const double range = panMaxDbm - panMinDbm;
+
+    // Bin pixel -> dBm (pixel 0 = max_dbm).
+    QVector<float> dbm(bins.size());
+    for (int i = 0; i < bins.size(); ++i) {
+        const int y = qBound(0, int(bins[i]), yMax);
+        dbm[i] = float(panMaxDbm - (yMax > 0 ? double(y) / yMax : 1.0) * range);
+    }
+
+    // wfweb's scope and waterfall are drawn for an Icom, whose wave data
+    // spans about 45 dB over 0..spectAmpMax with the noise floor near the
+    // bottom. Track the floor (median bin, smoothed) and place it 6 dB up
+    // that scale, so any band and antenna look like the rig the page expects.
+    QVector<float> sorted = dbm;
+    std::nth_element(sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end());
+    const float median = sorted[sorted.size() / 2];
+    noiseFloorDbm = (noiseFloorDbm < -900.0f) ? median : noiseFloorDbm + 0.1f * (median - noiseFloorDbm);
+    const float base = noiseFloorDbm - 6.0f;
+    const float countsPerDb = float(ampMax) / 45.0f;
 
     scopeData sd;
     sd.valid = true;
@@ -829,11 +912,8 @@ void flexCommander::handleFft(const QByteArray& d, const vitaPacket& p)
     sd.endFreq = panCenterMHz + panBandwidthMHz / 2.0;
     sd.data.resize(bins.size());
     for (int i = 0; i < bins.size(); ++i) {
-        // Pixel 0 = max_dbm (strongest). Rescale in case the radio settled on
-        // a different y_pixels than we asked for.
-        const int y = qBound(0, int(bins[i]), yMax);
-        const int amp = (yMax > 0) ? (ampMax - (y * ampMax) / yMax) : 0;
-        sd.data[i] = char(uchar(qBound(0, amp, 255)));
+        const int amp = int(std::lround((dbm[i] - base) * countsPerDb));
+        sd.data[i] = char(uchar(qBound(0, amp, ampMax)));
     }
     queue->receiveValue(funcScopeWaveData, QVariant::fromValue(sd), 0);
 }

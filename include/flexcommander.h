@@ -26,6 +26,7 @@
 #include <QUdpSocket>
 #include <QHostAddress>
 #include <QTimer>
+#include <QSet>
 #include <QElapsedTimer>
 #include <functional>
 
@@ -92,6 +93,7 @@ private:
     void handleFft(const QByteArray& d, const flexProtocol::vitaPacket& p);
     void handleMeters(const QByteArray& d, const flexProtocol::vitaPacket& p);
     void handleRxAudio(const QByteArray& d, const flexProtocol::vitaPacket& p);
+    void logUdpStats();
 
     // wfweb glue
     void determineRigCaps();
@@ -182,6 +184,19 @@ private:
     bool panConfigured = false;
     QHash<QString, QMap<QString, QString>> panStates;   // every pan's last status, by id
     flexProtocol::fftAssembler fft;
+    static constexpr int kPanYPixels = 1201;      // 0.1 dB per pixel over the range below
+    static constexpr int kPanMinDbm = -150;
+    static constexpr int kPanMaxDbm = -30;
+    double panMinDbm = kPanMinDbm;
+    double panMaxDbm = kPanMaxDbm;
+    float noiseFloorDbm = -999.0f;
+
+    // Diagnostics (logged every 10 s)
+    QSet<quint64> udpSeen;
+    QMap<QString, int> udpStats;
+    QElapsedTimer udpStatsTimer;
+    int scopeFramesSent = 0;
+    int scopeFramesDropped = 0;
 
     // Meters
     struct meterDef { QString src; int num = -1; QString name; QString unit; };
