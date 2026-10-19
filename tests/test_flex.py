@@ -97,7 +97,7 @@ def test_connect_sequence(flex):
     radio, _ = flex
     cmds = radio.commands
     # Order matters to the radio: GUI client first, then our own receiver.
-    assert cmds.index("client program wfweb") < cmds.index(next(c for c in cmds if c.startswith("client gui")))
+    assert cmds.index("sub slice all") < cmds.index(next(c for c in cmds if c.startswith("client gui")))
     assert radio.find("client udpport")
     assert radio.find("stream create type=remote_audio_rx compression=none")
     assert radio.find("stream create type=dax_tx")

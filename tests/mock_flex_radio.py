@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import math
+import random
 import struct
 import time
 
@@ -60,6 +61,7 @@ class MockFlexRadio:
         self.client_addr: tuple[str, int] | None = None
         self.slice: dict[str, str] = {}
         self.pan: dict[str, str] = {}
+        self.pan_scale: dict[str, str] = {}   # size/range in effect, not echoed
         self.transmit = {"rfpower": "100", "dax": "0", "mon": "0", "speech_processor_enable": "0"}
         self.transmitting = False
         self.s_dbm = -63.0          # S9 + 10 dB
@@ -175,14 +177,22 @@ class MockFlexRadio:
         if cmd == "slice list":
             return 0, ""
         if cmd.startswith("display panafall create"):
-            self._pan_status(center="14.200000", bandwidth="0.200000", x_pixels=100, y_pixels=20,
+            self.pan_scale = {}
+            self._pan_status(center="14.200000", bandwidth="0.200000", x_pixels=50, y_pixels=20,
+                             min_dbm="-125.00", max_dbm="-40.00",
                              rfgain=0, client_handle=f"0x{self.handle:08X}")
             return 0, PAN_ID
         if cmd.startswith("display pan set"):
             kv = dict(w.split("=", 1) for w in words[4:] if "=" in w)
             mapped = {("x_pixels" if k == "xpixels" else "y_pixels" if k == "ypixels" else k): v
                       for k, v in kv.items()}
-            self._pan_status(**mapped)
+            # Like a FLEX-6400: the new size and dBm range take effect in the
+            # FFT stream, but the status keeps reporting the pan's old ones.
+            own = {k: v for k, v in mapped.items() if k in ("x_pixels", "y_pixels", "min_dbm", "max_dbm")}
+            self.pan_scale.update(own)
+            echoed = {k: v for k, v in mapped.items() if k not in own}
+            if echoed:
+                self._pan_status(**echoed)
             return 0, ""
         if cmd.startswith("slice create"):
             kv = dict(w.split("=", 1) for w in words[2:] if "=" in w)
@@ -247,11 +257,15 @@ class MockFlexRadio:
     def _send_fft(self) -> None:
         if not self.pan:
             return
-        total = int(self.pan.get("x_pixels", 100))
-        ypix = int(self.pan.get("y_pixels", 20))
-        # Flat noise near the bottom with one strong carrier in the middle.
-        bins = [int(ypix * 0.8)] * total
-        bins[total // 2] = 2
+        total = int(self.pan_scale.get("x_pixels", self.pan.get("x_pixels", 100)))
+        ypix = int(self.pan_scale.get("y_pixels", self.pan.get("y_pixels", 20)))
+        # Noise with some jitter near the bottom, a medium signal off to one
+        # side and a strong carrier in the middle — all well inside the
+        # vertical range, as on a real band.
+        bins = [int(ypix * (0.78 + 0.04 * random.random())) for _ in range(total)]
+        for i in range(total // 4 - 3, total // 4 + 3):
+            bins[i] = int(ypix * 0.55)
+        bins[total // 2] = int(ypix * 0.35)
         self._fft_frame += 1
         half = total // 2
         for start, chunk in ((0, bins[:half]), (half, bins[half:])):

@@ -404,7 +404,6 @@ void flexCommander::processLine(const QString& line)
 
         // Same order as FlexLib / AetherSDR: name ourselves, subscribe,
         // then claim GUI-client status (needed to own a pan and a slice).
-        sendCmd("client program wfweb");
         sendCmd("keepalive enable");
         sendCmd("sub radio all");
         sendCmd("sub tx all");
@@ -597,6 +596,11 @@ void flexCommander::configurePan()
     sendCmd(QString("display pan set %1 xpixels=%2 ypixels=%3").arg(panId).arg(width).arg(kPanYPixels));
     sendCmd(QString("display pan set %1 min_dbm=%2 max_dbm=%3").arg(panId).arg(kPanMinDbm).arg(kPanMaxDbm));
     sendCmd(QString("display pan set %1 fps=%2 average=40").arg(panId).arg(scopeFps));
+    panXPixels = width;
+    panYPixels = kPanYPixels;
+    panMinDbm = kPanMinDbm;
+    panMaxDbm = kPanMaxDbm;
+    fft.reset();
 }
 
 // ─── Status ────────────────────────────────────────────────────────────────
@@ -744,9 +748,15 @@ void flexCommander::handlePanStatus(const QString& id, const QMap<QString, QStri
     if (kvs.contains("center")) panCenterMHz = kvs.value("center").toDouble();
     if (kvs.contains("bandwidth")) panBandwidthMHz = kvs.value("bandwidth").toDouble();
     if (kvs.contains("x_pixels")) panXPixels = kvs.value("x_pixels").toInt();
-    if (kvs.contains("y_pixels")) panYPixels = kvs.value("y_pixels").toInt();
-    if (kvs.contains("min_dbm")) panMinDbm = kvs.value("min_dbm").toDouble();
-    if (kvs.contains("max_dbm")) panMaxDbm = kvs.value("max_dbm").toDouble();
+    // The vertical scale is ours: configurePan() set it, and the radio does
+    // not echo a client's own size/range changes back (FLEX-6400 kept
+    // reporting the pan's old 50x20 and -140..-40 while sending 1024-bin
+    // frames on the new scale). Only take the radio's word before that.
+    if (!panConfigured) {
+        if (kvs.contains("y_pixels")) panYPixels = kvs.value("y_pixels").toInt();
+        if (kvs.contains("min_dbm")) panMinDbm = kvs.value("min_dbm").toDouble();
+        if (kvs.contains("max_dbm")) panMaxDbm = kvs.value("max_dbm").toDouble();
+    }
     if (kvs.contains("rfgain")) {
         panRfGain = kvs.value("rfgain").toInt();
         reportCurrent(funcPreamp);
