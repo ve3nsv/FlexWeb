@@ -19,6 +19,7 @@
 #include "icomcommander.h"
 #include "kenwoodcommander.h"
 #include "yaesucommander.h"
+#include "flexcommander.h"
 #include "rigstate.h"
 #include "freqmemory.h"
 #include "rigidentities.h"
@@ -66,6 +67,11 @@ struct cmdLineOverrides {
     bool rigCtlBindAll = false; // --rigctld-bind-all
     // startup behavior
     bool noAutoConnect = false; // --no-autoconnect / WFWEB_NO_AUTOCONNECT (LAN only)
+    // --on-demand [seconds]: LAN only. Hold the rig only while a browser is
+    // open: connect when the first one arrives, close the session this many
+    // seconds after the last one leaves (0 = option off).
+    int onDemandIdle = 0;
+    bool restLan = false;      // --rest: REST port on all interfaces
     // -n/--name: label shown in the web UI top bar and browser tab instead
     // of the rig model, to tell several wfweb instances apart
     QString name;
@@ -75,6 +81,7 @@ struct cmdLineOverrides {
     QString remoteLogTarget;
     bool noRemoteLog = false;
     bool remoteLogDecodes = false;
+    QString rfkit;             // --rfkit host[:port]: RF-KIT (RF2K-S) amplifier
 };
 
 class servermain : public QObject
@@ -283,6 +290,9 @@ private:
     unsigned char setFilterVal=0;
 
     bool usingLAN = false;
+    // FlexRadio: whether the SmartSDR session is up right now (flexCommander
+    // linkState). Other radios leave it true; rigAvailable says the rest.
+    bool radioLinkUp = true;
 
     struct preferences {
         manufacturersType_t manufacturer;

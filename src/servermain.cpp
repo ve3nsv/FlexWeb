@@ -101,6 +101,18 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
             QMetaObject::invokeMethod(web, "setInstanceName", Qt::QueuedConnection,
                                       Q_ARG(QString, cliOverrides.name));
         }
+        {
+            // RF-KIT amplifier: --rfkit wins, else the settings file's
+            // [Amplifier] Rfkit=host[:port].
+            QString rfkit = cliOverrides.rfkit;
+            if (rfkit.isEmpty() && settings)
+                rfkit = settings->value("Amplifier/Rfkit", QString()).toString();
+            if (!rfkit.isEmpty())
+                QMetaObject::invokeMethod(web, "configureRfkit", Qt::QueuedConnection,
+                                          Q_ARG(QString, rfkit));
+        }
+        QMetaObject::invokeMethod(web, "setRestLan", Qt::QueuedConnection,
+                                  Q_ARG(bool, cliOverrides.restLan));
         QMetaObject::invokeMethod(web, "configureLogbook", Qt::QueuedConnection,
                                   Q_ARG(QString, cliOverrides.logbook),
                                   Q_ARG(QString, cliOverrides.remoteLogTarget),
@@ -144,13 +156,26 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
     // web UI Reconnect button performs the first connect (reconnectLan() ->
     // openRig()). Serial mode has no reconnect UI, so honoring the flag there
     // would strand the user — warn and connect normally instead.
-    bool startDisconnected = cliOverrides.noAutoConnect && prefs.enableLAN;
+    //
+    // --on-demand goes further: the web server opens the session when the
+    // first browser arrives and closes it once the last one has been gone
+    // for the idle time, so other programs can use the radio in between.
+    bool onDemand = cliOverrides.onDemandIdle > 0 && prefs.enableLAN;
+    if (cliOverrides.onDemandIdle > 0 && !prefs.enableLAN)
+        qWarning(logSystem()) << "--on-demand is only supported with LAN rigs; connecting normally";
+    bool startDisconnected = (cliOverrides.noAutoConnect || onDemand) && prefs.enableLAN;
     if (cliOverrides.noAutoConnect && !prefs.enableLAN)
         qWarning(logSystem()) << "--no-autoconnect is only supported with LAN rigs; connecting normally";
 
-    if (startDisconnected)
+    if (onDemand && web != Q_NULLPTR) {
+        QMetaObject::invokeMethod(web, "setOnDemand", Qt::QueuedConnection,
+                                  Q_ARG(int, cliOverrides.onDemandIdle));
+        qInfo(logSystem()) << "On-demand: connecting to the rig when a browser opens the page,"
+                           << "releasing it" << cliOverrides.onDemandIdle << "s after the last one closes";
+    } else if (startDisconnected) {
         qInfo(logSystem()) << "Auto-connect disabled; use the web UI Reconnect button to connect to the rig";
-    else
+    }
+    if (!startDisconnected)
         openRig();
 
     if (web != Q_NULLPTR) {
@@ -290,6 +315,9 @@ void servermain::makeRig()
             case manufYaesu:
                 radio->rig = new yaesuCommander(radio->guid);
                 break;
+            case manufFlexRadio:
+                radio->rig = new flexCommander(radio->guid);
+                break;
             default:
                 qCritical() << "Unknown Manufacturer, aborting...";
                 break;
@@ -326,6 +354,17 @@ void servermain::makeRig()
             if (web != Q_NULLPTR) {
                 connect(radio->rig, SIGNAL(haveAudioData(audioPacket)), web, SLOT(receiveRxAudio(audioPacket)));
                 connect(web, SIGNAL(haveTxAudioData(audioPacket)), radio->rig, SLOT(receiveWebTxAudio(audioPacket)));
+                // FlexRadio EQ and TX processing (FUNC > EQ / PROC).
+                if (auto* flex = qobject_cast<flexCommander*>(radio->rig)) {
+                    radioLinkUp = false;
+                    connect(flex, &flexCommander::linkState, this, [this](bool up) { radioLinkUp = up; }, Qt::QueuedConnection);
+                    // Kicked by another client: close the session for real
+                    // (the radio does not always drop the socket) and show
+                    // the page's Connect button instead of reconnecting.
+                    connect(flex, &flexCommander::evicted, this, [this](QString) { disconnectLan(); }, Qt::QueuedConnection);
+                    connect(flex, &flexCommander::flexDspState, web, &webServer::onFlexDspState, Qt::QueuedConnection);
+                    connect(web, &webServer::flexDspSet, flex, &flexCommander::setFlexDsp, Qt::QueuedConnection);
+                }
             }
 
             if (radio->rigThread->isRunning()) {
@@ -423,7 +462,7 @@ ConsoleSnapshot servermain::consoleSnapshot()
         RIGCONFIG* radio = serverConfig.rigs.first();
         if (!prefs.enableLAN)
             snap.transport = QString("%1 @ %2").arg(radio->serialPort).arg(radio->baudRate);
-        if (radio->rigAvailable && radio->rigCaps != Q_NULLPTR) {
+        if (radio->rigAvailable && radio->rigCaps != Q_NULLPTR && radioLinkUp) {
             snap.rigConnected = true;
             snap.model = radio->rigCaps->modelName;
         }
