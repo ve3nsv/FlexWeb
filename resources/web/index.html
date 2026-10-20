@@ -9467,7 +9467,17 @@ function drawSpectrum() {
     ctx.font = '10px ' + aeFonts().mono;
     // (right edge: the left one holds the MIC OFF / ATT warnings)
     ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-    dbLines.forEach(function(l) { ctx.fillText('+' + l[0] + ' dB', w - 6, l[1] - 2); });
+    // A label under the zoom keys moves to their left (#aeZoom sits in the
+    // panadapter's top-right corner on the desktop layout).
+    var zoomEl = document.getElementById('aeZoom'), avoidY = -1, avoidX = w - 6;
+    if (zoomEl && zoomEl.offsetParent) {
+        var zr = zoomEl.getBoundingClientRect(), cr = canvas.getBoundingClientRect();
+        avoidY = zr.bottom - cr.top + 2;
+        avoidX = zr.left - cr.left - 6;
+    }
+    dbLines.forEach(function(l) {
+        ctx.fillText('+' + l[0] + ' dB', (l[1] - 12 < avoidY) ? avoidX : w - 6, l[1] - 2);
+    });
 
     // Freq labels, on round frequencies (spectTicks)
     if (ticks.length) {
