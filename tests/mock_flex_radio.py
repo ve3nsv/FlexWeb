@@ -31,6 +31,7 @@ OUI = 0x001C2D
 ICC = 0x534C
 PCC_IF_NARROW = 0x03E3
 PCC_METER = 0x8002
+PCC_OPUS = 0x8005
 PCC_FFT = 0x8003
 
 PAN_ID = "0x40000000"
@@ -49,6 +50,39 @@ def vita_header(ptype: int, stream: int, pcc: int, payload_words: int, count: in
     words = 7 + payload_words
     w0 = (ptype << 28) | (1 << 27) | (3 << 22) | (1 << 20) | ((count & 0xF) << 16) | (words & 0xFFFF)
     return struct.pack(">IIIIIII", w0, stream, OUI, (ICC << 16) | pcc, 0, 0, 0)
+
+
+class _OpusEncoder:
+    """libopus through ctypes (CI has libopus0): 24 kHz stereo, 10 ms CBR
+    frames of 80 bytes, so the VITA-49 payload needs no padding."""
+
+    def __init__(self):
+        import ctypes
+        import ctypes.util
+        name = ctypes.util.find_library("opus")
+        if not name:
+            raise OSError("libopus not found")
+        self.ct = ctypes
+        self.lib = ctypes.CDLL(name)
+        self.lib.opus_encoder_create.restype = ctypes.c_void_p
+        self.lib.opus_encode.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int16), ctypes.c_int,
+                                         ctypes.c_char_p, ctypes.c_int32]
+        self.lib.opus_encoder_ctl.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_int32]
+        err = ctypes.c_int(0)
+        self.st = self.lib.opus_encoder_create(24000, 2, 2048, ctypes.byref(err))
+        if err.value != 0 or not self.st:
+            raise OSError("opus_encoder_create failed")
+        self.lib.opus_encoder_ctl(self.st, 4002, 64000)   # OPUS_SET_BITRATE
+        self.lib.opus_encoder_ctl(self.st, 4006, 0)       # OPUS_SET_VBR off
+
+    def encode(self, stereo_int16: list[int]) -> bytes:
+        ct = self.ct
+        pcm = (ct.c_int16 * len(stereo_int16))(*stereo_int16)
+        out = ct.create_string_buffer(1500)
+        n = self.lib.opus_encode(self.st, pcm, len(stereo_int16) // 2, out, 1500)
+        if n < 0:
+            raise OSError(f"opus_encode {n}")
+        return out.raw[:n]
 
 
 class MockFlexRadio:
@@ -83,6 +117,11 @@ class MockFlexRadio:
         self.wan = False
         self.wan_handle = "WANHANDLE42"
         self.udp_registers: list[bytes] = []
+        # remote_audio_rx compression=opus: Opus frames instead of float.
+        self.rx_opus = False
+        self.opus_sent = 0
+        self._opus: _OpusEncoder | None = None
+        self._opus_pending: list[int] = []
 
     # ── lifecycle ──────────────────────────────────────────────────────────
 
@@ -262,6 +301,12 @@ class MockFlexRadio:
             self.slice.update(filter_lo=words[2], filter_hi=words[3])   # not echoed
             return 0, ""
         if cmd.startswith("stream create type=remote_audio_rx"):
+            self.rx_opus = "compression=opus" in cmd
+            if self.rx_opus and self._opus is None:
+                try:
+                    self._opus = _OpusEncoder()
+                except OSError as e:
+                    print("mock: no Opus encoder:", e, flush=True)
             return 0, f"0x{RX_STREAM:08X}"
         if cmd.startswith("stream create type=dax_tx"):
             return 0, f"0x{TX_STREAM:08X}"
@@ -342,6 +387,20 @@ class MockFlexRadio:
             self._vita(vita_header(3, 0x700, PCC_METER, len(payload) // 4, self._count) + payload)
 
     def _send_audio(self, frames: int) -> None:
+        if self.rx_opus:
+            if self._opus is None:
+                return
+            for _ in range(frames):
+                s = int(0.25 * 32767 * math.sin(self._phase))
+                self._phase += 2 * math.pi * 1000 / 24000
+                self._opus_pending += [s, s]
+            while len(self._opus_pending) >= 480:      # 10 ms stereo
+                chunk, self._opus_pending = self._opus_pending[:480], self._opus_pending[480:]
+                data = self._opus.encode(chunk)
+                data += b"\0" * (-len(data) % 4)
+                self._vita(vita_header(1, RX_STREAM, PCC_OPUS, len(data) // 4, self._count) + data)
+                self.opus_sent += 1
+            return
         while frames > 0:
             n = min(128, frames)
             frames -= n

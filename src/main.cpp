@@ -404,6 +404,9 @@ int main(int argc, char *argv[])
         "  --smartlink-login [email]  Sign in to SmartLink, list the account's radios, exit.\n"
         "                          Keeps a sign-in token, never the password\n"
         "  --smartlink-logout      Forget the SmartLink sign-in\n"
+        "  --flex-audio <mode>     FlexRadio receive audio: opus (~50 kbit/s), none\n"
+        "                          (uncompressed, ~1.5 Mbit/s) or auto (default: Opus\n"
+        "                          over SmartLink, uncompressed on the LAN)\n"
         "  --add-user <name>       Add a web page user (asks for the password). With at\n"
         "                          least one user, the page asks to sign in\n"
         "  --passwd <name>         Change a web user's password\n"
@@ -658,6 +661,12 @@ int main(int argc, char *argv[])
             if (u.isEmpty()) std::cout << "No web users: login is off.\n";
             for (const QString& n : u) std::cout << n.toStdString() << "\n";
             return 0;
+        }
+        else if (currentArg == "--flex-audio")
+        {
+            const QString v = argc > c + 1 ? QString(argv[++c]).toLower() : QString();
+            if (v != "opus" && v != "none" && v != "auto") { std::cout << "Error: --flex-audio takes opus, none or auto\n"; return -1; }
+            qputenv("WFWEB_FLEX_AUDIO", v.toLatin1());
         }
         else if (currentArg == "--rest")
         {

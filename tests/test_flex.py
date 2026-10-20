@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import struct
 import subprocess
 import sys
 import threading
@@ -419,6 +420,24 @@ def test_smartlink():
         r = requests.put(f"{rest}/frequency", json={"hz": 7_074_000}, timeout=5)
         assert r.status_code == 202
         assert _wait(lambda: "slice tune 0 7.074000" in radio.commands, timeout=5)
+        # Over SmartLink the radio sends Opus, and it plays in the browser.
+        assert radio.find("stream create type=remote_audio_rx compression=opus")
+        if radio._opus is not None:
+            from test_web_login import _Reader, _ws, _ws_send
+            st, sock, buf = _ws(web_port, None)
+            assert " 101" in st, st
+            try:
+                _ws_send(sock, {"cmd": "enableAudio", "value": True})
+                samples = []
+                for op, p in _Reader(sock, buf).all(3.0):
+                    if op == 2 and len(p) > 6 and p[0] == 0x02:
+                        samples += list(struct.unpack(f"<{(len(p) - 6) // 2}h", p[6:6 + (len(p) - 6) // 2 * 2]))
+                assert radio.opus_sent > 50
+                assert len(samples) > 24000, len(samples)
+                rms = (sum(x * x for x in samples[-12000:]) / 12000) ** 0.5
+                assert rms > 2000, rms     # the mock's 1 kHz tone at -12 dBFS
+            finally:
+                sock.close()
         # The radio's certificate is remembered for next time.
         if check_conf:
             assert "certPins" in conf.read_text()
