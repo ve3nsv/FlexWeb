@@ -2024,6 +2024,16 @@ body.digi-open #bottomBar { grid-row: 5; }
 #ampOverlay .amp-tile.bad span { color: #e33; }
 #ampOverlay .ov-btn:disabled { opacity: 0.35; cursor: default; }
 
+/* AUDIO / TX: which of this computer's inputs is the mic, and which output
+   plays the receiver (renderAudioDevices). */
+.audio-dev-rows { width: 100%; max-width: 720px; margin: 6px auto 0; }
+.audio-dev-row { display: grid; grid-template-columns: 80px 1fr; align-items: center;
+    gap: 8px; margin: 5px 0; font-size: 12px; color: #aaa; }
+.audio-dev-row select { width: 100%; min-width: 0; background: #15181c; color: #ddd;
+    border: 1px solid #333; border-radius: 3px; padding: 6px; font-size: 13px; }
+.audio-dev-row select:disabled { opacity: 0.45; }
+.audio-dev-note { font-size: 11px; color: #777; margin-top: 2px; }
+
 /* ============ RESPONSIVE ============ */
 @media (max-height: 450px) {
     #radio { grid-template-rows: 28px 64px 16px 1fr 40px; }
@@ -2792,6 +2802,17 @@ body.digi-open #bottomBar { grid-row: 5; }
         <div id="audioMicOverlay" class="overlay">
             <div class="overlay-title">AUDIO / TX</div>
             <div class="overlay-grid" id="audioMicGrid"></div>
+            <div class="audio-dev-rows">
+                <label class="audio-dev-row" id="audioInRow">
+                    <span>MIC</span>
+                    <select id="audioInSelect" onchange="pickMicDevice(this.value)"></select>
+                </label>
+                <label class="audio-dev-row" id="audioOutRow">
+                    <span>SPEAKER</span>
+                    <select id="audioOutSelect" onchange="pickSpeakerDevice(this.value)"></select>
+                </label>
+                <div class="audio-dev-note" id="audioDevNote"></div>
+            </div>
             <div class="gain-row rx-vol-row" id="audioVolRow" title="wfweb playback volume in this browser. AF is the radio's own speaker.">
                 <span class="gain-label">VOL</span>
                 <div class="gain-bar-bg"><div class="gain-bar-fill rx-vol-fill" style="width:100%"></div>
@@ -5616,6 +5637,96 @@ function renderAudioMicOverlay() {
     grid.appendChild(back);
 
     document.getElementById('audioMicOverlay').classList.add('visible');
+    renderAudioDevices();
+}
+
+// ---- Input / output device pickers (AUDIO / TX) ----------------------------
+// MIC sets the same choice the TX AUDIO button cycles (wfMicDeviceId).
+// SPEAKER routes this page's sound (receiver, CW tone, FT8 monitor) to one
+// output with AudioContext.setSinkId (Chrome / Edge 110+), kept in
+// wfSpeakerId; other browsers play to the system default.
+var speakerDeviceId = '';
+try { speakerDeviceId = localStorage.getItem('wfSpeakerId') || ''; } catch (e) {}
+var speakerDevices = [];
+
+function canPickSpeaker() {
+    return !!(window.AudioContext && AudioContext.prototype && 'setSinkId' in AudioContext.prototype);
+}
+
+// Route one AudioContext to the chosen output. Called for every context the
+// page creates; a vanished device falls back to the default quietly.
+function applySpeaker(ctx) {
+    if (!ctx || !canPickSpeaker() || ctx.state === 'closed') return;
+    try {
+        var p = ctx.setSinkId(speakerDeviceId || '');
+        if (p && p.catch) p.catch(function (e) { console.warn('[Audio] output device:', e && e.message); });
+    } catch (e) {}
+}
+
+function renderAudioDevices() {
+    var inSel = document.getElementById('audioInSelect');
+    var outSel = document.getElementById('audioOutSelect');
+    var note = document.getElementById('audioDevNote');
+    if (!inSel || !outSel) return;
+    document.getElementById('audioInRow').style.display = (txAudioAvailable && window.isSecureContext) ? '' : 'none';
+    document.getElementById('audioOutRow').style.display = audioAvailable ? '' : 'none';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        note.textContent = 'This browser does not list its audio devices.';
+        return;
+    }
+    navigator.mediaDevices.enumerateDevices().then(function (devs) {
+        micDevices = devs.filter(function (d) { return d.kind === 'audioinput'; });
+        speakerDevices = devs.filter(function (d) {
+            return d.kind === 'audiooutput' && d.deviceId !== 'default' && d.deviceId !== 'communications';
+        });
+        var unnamed = false;
+        function fill(sel, first, list, current, prefix) {
+            sel.innerHTML = '';
+            var o = document.createElement('option');
+            o.value = ''; o.textContent = first; sel.appendChild(o);
+            list.forEach(function (d, i) {
+                if (!d.deviceId) return;
+                var op = document.createElement('option');
+                op.value = d.deviceId;
+                op.textContent = d.label || (prefix + ' ' + (i + 1));
+                if (!d.label) unnamed = true;
+                sel.appendChild(op);
+            });
+            sel.value = current;
+            if (sel.value !== current) sel.value = '';   // a saved device that is gone
+        }
+        fill(inSel, 'AUTO (browser default, not the radio\'s codec)', micRealDevices(), micDeviceId, 'Input');
+        fill(outSel, 'System default', speakerDevices, speakerDeviceId, 'Output');
+        outSel.disabled = !canPickSpeaker();
+        var msgs = [];
+        if (unnamed) msgs.push('Turn TX AUDIO on once so the browser shows the device names.');
+        if (!canPickSpeaker()) msgs.push('This browser always plays to the system default output; Chrome or Edge can choose one.');
+        note.textContent = msgs.join(' ');
+    }).catch(function () {});
+}
+
+function pickMicDevice(id) {
+    micDeviceId = id || '';
+    saveMicDevice();
+    // Restart the running mic on the new input; when off, the choice is used
+    // the next time TX AUDIO is turned on.
+    if (micEnabled) { stopMic(); startMic(); }
+    else micRepaint();
+}
+
+function pickSpeakerDevice(id) {
+    speakerDeviceId = id || '';
+    try { localStorage.setItem('wfSpeakerId', speakerDeviceId); } catch (e) {}
+    applySpeaker(audioCtx);
+    applySpeaker(digiTxCtx);
+    if (cwSidetone && cwSidetone.ctx) applySpeaker(cwSidetone.ctx);
+}
+
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', function () {
+        var ov = document.getElementById('audioMicOverlay');
+        if (ov && ov.classList.contains('visible')) renderAudioDevices();
+    });
 }
 
 // A rig's preamp and attenuator lists can be band-dependent: on the IC-705
@@ -7277,6 +7388,7 @@ function setAudioSessionType(type) {
 // gesture, and show AUDIO PAUSED for as long as the context is not running.
 function createRxAudioCtx() {
     var ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: audioSampleRate });
+    applySpeaker(ctx);
     ctx.onstatechange = function() {
         console.log('[Audio] RX AudioContext ' + ctx.state);
         updateWarningVisibility();
@@ -8981,7 +9093,7 @@ var cwPitchHz = 600;            // the radio's CW PITCH; 600 Hz until it reports
 var cwKeyerType = 'ideal';      // 'icom' = the Icom keyer's measured dot table (rigInfo.manufacturer)
 var cwSidetone = new WfCwSidetone({
     enabled: (function() { try { return localStorage.getItem('wfCwSidetone') !== '0'; } catch (e) { return true; } })(),
-    createContext: function() { return new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); },
+    createContext: function() { var c = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); applySpeaker(c); return c; },
     pitch: function() { return cwPitchHz; },
     gain: function() { return 0.2 * rxVolumeGain(); }
 });
@@ -9500,6 +9612,7 @@ function getDxCall() { return ((document.getElementById('digiDxCall') || {}).val
 function initDigiTxCtx() {
     if (digiTxCtx && digiTxCtx.state !== 'closed') return; // already ready
     digiTxCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: audioSampleRate || 48000 });
+    applySpeaker(digiTxCtx);
     digiTxPacerReady = false; // new context — processor not yet registered
     digiTuneWorkletReady = false;
     digiTxCtx.resume().then(function() {

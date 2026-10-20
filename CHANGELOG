@@ -34,6 +34,10 @@ FlexRadio:
 - The scope's frequency scale is labelled on round frequencies (7.160,
   7.170, ...) at a step that suits the span and the screen width, with
   the grid lines on the same frequencies (all radios).
+- FUNC > AUDIO has MIC and SPEAKER pickers: which of the browser
+  computer's inputs is the microphone and which output plays the
+  receiver (output choice in Chrome / Edge; other browsers use the
+  system default). Both are remembered per browser.
 - FT8/FT4/JS8 transmit at the set power. The ALC reading was the radio's
   external ALC jack (0 dBFS, i.e. 100 %, with nothing plugged in), so the
   drive loop turned the audio right down; ALC is now the DAX TX audio
