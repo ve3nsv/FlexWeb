@@ -208,6 +208,13 @@ private:
     double lastPower = 0.0;
     double lastSwr = 1.0;
     double lastAlc = 0.0;
+    // A Flex has no ALC reading for audio drive (its HWALC meter is the
+    // external ALC jack, 0 dBFS with nothing plugged in), so wfweb's ALC is
+    // the peak of the DAX TX audio we send, over ~100 ms: 0 up to -2 dBFS,
+    // 1.0 at full scale. The FT8/JS8 drive loop then holds the DAX level
+    // just under clipping, which is where the radio makes its set power.
+    float txPeakWindow = 0.0f;
+    QElapsedTimer txPeakTimer;
     double lastComp = 0.0;
     double lastVolts = 0.0;
     double lastAmps = 0.0;

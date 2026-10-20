@@ -3441,7 +3441,7 @@ function handleMessage(msg) {
                 if (msg.hasTuner !== undefined) updateHasTuner(!!msg.hasTuner);
                 if (msg.txMeters !== undefined) setTxMeterCaps(msg.txMeters, msg.poCal);
                 if (msg.cwSpeedRange) applyCwSpeedRange(msg.cwSpeedRange);
-                if (msg.manufacturer !== undefined) cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal';
+                if (msg.manufacturer !== undefined) { cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal'; setDigiDriveCaps(msg.manufacturer); }
                 if (msg.hasMemoryMode !== undefined) hasMemoryMode = !!msg.hasMemoryMode;
                 if (msg.memoriesLocal !== undefined) setMemoriesLocal(!!msg.memoriesLocal);
                 if (msg.memGroups !== undefined) setupMemoryGroups(msg.memGroups, msg.memStart || 0);
@@ -3480,7 +3480,7 @@ function handleMessage(msg) {
             if (msg.hasTuner !== undefined) updateHasTuner(!!msg.hasTuner);
             if (msg.txMeters !== undefined) setTxMeterCaps(msg.txMeters, msg.poCal);
                 if (msg.cwSpeedRange) applyCwSpeedRange(msg.cwSpeedRange);
-                if (msg.manufacturer !== undefined) cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal';
+                if (msg.manufacturer !== undefined) { cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal'; setDigiDriveCaps(msg.manufacturer); }
             if (msg.hasMemoryMode !== undefined) hasMemoryMode = !!msg.hasMemoryMode;
             if (msg.memoriesLocal !== undefined) setMemoriesLocal(!!msg.memoriesLocal);
             if (msg.memGroups !== undefined) setupMemoryGroups(msg.memGroups, msg.memStart || 0);
@@ -4517,6 +4517,12 @@ var ALC_DEAD_ZONE = 0.02;      // no adjustment when ALC within target ± this
 var ALC_GAIN_DOWN = 0.06;      // proportional gain for reducing (fast)
 var ALC_GAIN_UP = 0.005;       // proportional gain for increasing (slow)
 var ALC_MIN_GAIN = 0.02;       // minimum gain floor
+// Highest FT8/FT4 drive the loop may reach. 0.5 leaves an Icom's ALC its
+// headroom; a Flex makes its set power only with the DAX audio near full
+// scale, and its server-side ALC is that drive level (flexcommander.cpp,
+// txPeakWindow), so on a Flex the loop may go to full scale and holds the
+// peak at about -2 dBFS. Set from rigInfo.manufacturer.
+var ALC_MAX_GAIN = 0.5;
 var ALC_SMOOTHED = 0;          // EMA-filtered ALC reading
 var ALC_EMA_ALPHA = 0.15;      // EMA smoothing factor (lower = smoother)
 
@@ -4755,6 +4761,17 @@ function drawTxMeterScale(ctx, barX, barW, tickY, numY, fs, tickH, face) {
         ctx.fillText(face.tail, barX + barW, numY);
     }
 }
+function setDigiDriveCaps(manufacturer) {
+    var flex = manufacturer === 'FlexRadio';
+    var max = flex ? 1.0 : 0.5;
+    if (max === ALC_MAX_GAIN) return;
+    ALC_MAX_GAIN = max;
+    // A Flex starts near its working drive (about -3 dBFS) so the first
+    // transmission is not short of power while the loop climbs (it rises
+    // slowly by design); anything above the Icom ceiling is pulled back.
+    digiTxGain = flex ? Math.max(digiTxGain, 0.7) : Math.min(digiTxGain, ALC_MAX_GAIN);
+}
+
 function updateALCMeter(val) {
     alcVal = val;
     if (isTransmitting) drawMeter();
@@ -4766,8 +4783,8 @@ function updateALCMeter(val) {
         if (digiTxActive || digiTuneActive) {
             if (error > ALC_DEAD_ZONE)
                 digiTxGain = Math.max(ALC_MIN_GAIN, digiTxGain * (1 - ALC_GAIN_DOWN * error));
-            else if (error < -ALC_DEAD_ZONE && digiTxGain < 0.5)
-                digiTxGain = Math.min(0.5, digiTxGain * (1 + ALC_GAIN_UP));
+            else if (error < -ALC_DEAD_ZONE && digiTxGain < ALC_MAX_GAIN)
+                digiTxGain = Math.min(ALC_MAX_GAIN, digiTxGain * (1 + ALC_GAIN_UP));
         }
         // RADE is a full-duty constant-envelope modem: backend already applies
         // a fixed scale (RADE_TX_SCALE in radeprocessor.cpp) that leaves safe

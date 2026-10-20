@@ -27,6 +27,11 @@ FlexRadio:
   drag, not only on a typed frequency. NB, NR and ANF latch: the radio
   does not echo a client's own changes, so wfweb keeps them itself.
 - Waterfall colour schemes (SPAN > Colour), after AetherSDR's.
+- FT8/FT4/JS8 transmit at the set power. The ALC reading was the radio's
+  external ALC jack (0 dBFS, i.e. 100 %, with nothing plugged in), so the
+  drive loop turned the audio right down; ALC is now the DAX TX audio
+  level and the loop holds it just under full scale, where the radio
+  makes the power set by RF POWER.
 
 - --on-demand [seconds] (LAN rigs, or WFWEB_ON_DEMAND=<seconds>): the
   server connects to the radio only while a browser has the page open,

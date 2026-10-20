@@ -654,6 +654,7 @@ void flexCommander::handleStatus(const message& msg)
             const bool tx = (st == "TRANSMITTING" || st == "PTT_REQUESTED");
             if (tx != transmitting) {
                 transmitting = tx;
+                if (tx) { lastAlc = 0.0; txPeakWindow = 0.0f; }
                 report(funcTransceiverStatus, QVariant::fromValue<bool>(transmitting));
             }
         }
@@ -975,10 +976,6 @@ void flexCommander::handleMeters(const QByteArray& d, const vitaPacket& p)
         } else if (m.src.startsWith(QLatin1String("TX")) && m.name == QLatin1String("SWR")) {
             lastSwr = qMax(1.0, double(v));
             txChanged = true;
-        } else if (m.name == QLatin1String("HWALC")) {
-            // Hardware ALC input in dBFS; wfweb's ALC scale is 0..2, 1 = limit.
-            lastAlc = qBound(0.0, (double(v) + 20.0) / 20.0, 2.0);
-            txChanged = true;
         } else if (m.name == QLatin1String("COMPPEAK")) {
             lastComp = qMax(0.0, -double(v));
             txChanged = true;
@@ -1060,6 +1057,18 @@ void flexCommander::webTxAudio(const audioPacket& data)
     speex_resampler_process_float(txResampler, 0, in.constData(), &inLen, out.data(), &outLen);
     out.resize(int(outLen));
     txAccumulator += out;
+
+    // The drive level, reported as ALC (see txPeakWindow). Measured before
+    // the clamp below, so audio driven past full scale reads above 1.0.
+    for (float s : out) txPeakWindow = qMax(txPeakWindow, std::fabs(s));
+    if (!txPeakTimer.isValid() || txPeakTimer.elapsed() >= 100) {
+        const double db = 20.0 * std::log10(qMax(double(txPeakWindow), 1e-6));
+        lastAlc = qBound(0.0, (db + 2.0) / 2.0, 2.0);
+        txPeakWindow = 0.0f;
+        txPeakTimer.start();
+        if (transmitting)
+            queue->receiveValue(funcALCMeter, QVariant::fromValue<double>(lastAlc), 0);
+    }
 
     float stereo[DAX_TX_FRAMES * 2];
     while (txAccumulator.size() >= DAX_TX_FRAMES) {
