@@ -30,6 +30,9 @@ Web access:
   transmission when nobody had it on) or OFF, with its own LISTEN VOL.
   Data modes stay silent unless DIGI LISTEN is on.
 
+- FreeDV Reporter and PSK Reporter now see the program as "FlexWeb
+  <version>" instead of "wfweb <version>".
+
 FlexRadio:
 - Opus receive audio: over SmartLink the radio now sends Opus (about
   50 kbit/s instead of ~1.5 Mbit/s); --flex-audio opus|none|auto chooses.
