@@ -371,7 +371,9 @@ def test_smartlink():
                              input=b"wrong\n", capture_output=True, env=env, timeout=40)
         assert bad.returncode != 0, bad.stdout.decode(errors="replace")
         assert b"Wrong email or password" in bad.stdout
-        assert not conf.exists() or "refreshToken" not in conf.read_text()
+        # QSettings writes this ini file on Linux only (a plist on macOS).
+        check_conf = sys.platform.startswith("linux")
+        assert not check_conf or not conf.exists() or "refreshToken" not in conf.read_text()
 
         good = subprocess.run([str(WFWEB_BIN), "--smartlink-login", MockSmartLink.EMAIL],
                               input=(MockSmartLink.PASSWORD + "\n").encode(),
@@ -379,9 +381,10 @@ def test_smartlink():
         out = good.stdout.decode(errors="replace")
         assert good.returncode == 0, out + good.stderr.decode(errors="replace")
         assert "1234-5678" in out and "Mock" in out, out
-        saved = conf.read_text()
-        assert MockSmartLink.REFRESH in saved
-        assert MockSmartLink.PASSWORD not in saved
+        if check_conf:
+            saved = conf.read_text()
+            assert MockSmartLink.REFRESH in saved
+            assert MockSmartLink.PASSWORD not in saved
 
         web_port = _free_port()
         rest = f"http://127.0.0.1:{web_port + 1}/api/v1/radio"
@@ -417,7 +420,8 @@ def test_smartlink():
         assert r.status_code == 202
         assert _wait(lambda: "slice tune 0 7.074000" in radio.commands, timeout=5)
         # The radio's certificate is remembered for next time.
-        assert "certPins" in conf.read_text()
+        if check_conf:
+            assert "certPins" in conf.read_text()
     finally:
         if proc:
             proc.terminate()
