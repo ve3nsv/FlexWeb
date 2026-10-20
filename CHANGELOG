@@ -10,6 +10,15 @@ Unreleased
 ----------
 
 AetherSDR look (aether-look branch):
+- AetherSDR layout on wide screens: a slice strip (A badge, frequency,
+  mode / filter / antenna pills, S meter), the GAIN sliders in an applet
+  sidebar with RX (FIL1-3, NB/NR/ANF, P.AMP/ATT, ANT), TX (PROC
+  NOR/DX/DX+, ATU, AUDIO), EQ and RF2K applets, a bottom bar of mode and
+  band keys with FT8, TUNE, FUNC and MOX, dB level lines, the full slice
+  flag and span zoom keys on the panadapter. On phones (portrait) the
+  slice strip stacks and RX / TX / EQ / AMP tiles sit over MODE / BAND /
+  FUNC / PTT. Other sizes keep the original layout. The slider rows are
+  moved, not copied, so their ids and handlers are unchanged.
 - The page takes AetherSDR's "Default Dark" colours: navy-black ground,
   slate panels, cyan accent, a monospaced frequency readout, the S meter
   in cyan and red, PTT as an amber MOX button. The spectrum is a cyan

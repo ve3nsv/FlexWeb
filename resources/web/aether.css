@@ -157,3 +157,136 @@ input[type=range] { accent-color: var(--ae-accent); }
 .audio-dev-row select { background: var(--ae-panel); color: var(--ae-text); border-color: var(--ae-line); }
 .audio-dev-note { color: var(--ae-text-dim); }
 .dsp-row b, .eq-band b { color: var(--ae-text-hi); }
+
+/* ---- Gain bars as AetherSDR sliders (everywhere) ------------------------ */
+.gain-label { color: var(--ae-text-dim); }
+.gain-bar-bg { background: var(--ae-hair); box-shadow: inset 0 0 0 1px var(--ae-line); height: 14px; }
+.gain-bar-bg::before { display: none; }
+.gain-bar-fill { background: var(--ae-accent); box-shadow: none; }
+.gain-bar-fill::after { background: var(--ae-text-hi); box-shadow: none; }
+.gain-row.tx .gain-bar-fill { background: var(--ae-warn); box-shadow: none; }
+.gain-row.tx .gain-bar-fill::after { background: #fff3dc; box-shadow: none; }
+.gain-val, .gain-row.tx .gain-val { color: var(--ae-text-hi); font-family: var(--font-mono); }
+
+/* ==========================================================================
+   AetherSDR LAYOUT (body.ae-desktop / body.ae-phone, set by aeLayout())
+   ========================================================================== */
+#slicePills, #applets, #aeZoom { display: none; }
+.ae-sub { display: block; font-size: 10px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--ae-text-dim); margin-top: 1px; }
+.softBtn.active .ae-sub { color: var(--ae-text-hi); }
+.ae-pill {
+    padding: 4px 9px; border-radius: 3px; white-space: nowrap;
+    background: var(--ae-panel); color: var(--ae-text); font-size: 13px;
+}
+.ae-pill-mode { background: var(--ae-panel-hi); color: var(--ae-text-hi); font-weight: 600; }
+
+/* ---- Desktop ------------------------------------------------------------ */
+body.ae-desktop #radio {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-rows: 34px 76px 20px 1fr auto;
+    grid-template-areas: "top top" "strip side" "info side" "scope side" "bottom side";
+    max-width: none;
+}
+body.ae-desktop.meter-needle #radio { grid-template-rows: 34px 136px 20px 1fr auto; }
+body.ae-desktop #topBar { grid-area: top; }
+body.ae-desktop #meterFreqRow { grid-area: strip; padding: 0 16px; gap: 16px; align-items: center; }
+body.ae-desktop #scopeInfoBar { grid-area: info; }
+body.ae-desktop #scopeArea { grid-area: scope; }
+body.ae-desktop #bottomBar { grid-area: bottom; }
+
+/* the slice strip: A badge, frequency and pills on the left, S meter right */
+body.ae-desktop #freqSection {
+    order: 0; flex: 1 1 auto;
+    flex-direction: row; align-items: center; justify-content: flex-start; gap: 14px;
+}
+body.ae-desktop #vfoLine { margin: 0; }
+body.ae-desktop #freqDisplay { height: 50px; }
+body.ae-desktop #slicePills { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+body.ae-desktop #meterSection { order: 1; flex: 0 1 520px; min-width: 300px; }
+body.ae-desktop #meterCanvas { height: 58px; }
+
+/* zoom keys on the panadapter; the AMP readout lives in the sidebar */
+body.ae-desktop #aeZoom { display: flex; gap: 4px; position: absolute; top: 8px; right: 8px; z-index: 5; }
+body.ae-desktop #aeZoom button {
+    width: 28px; height: 28px; border-radius: 3px; cursor: pointer;
+    background: var(--ae-panel); border: 1px solid var(--ae-panel-hi); color: var(--ae-text);
+    font: 600 16px var(--font-ui); line-height: 1;
+}
+body.ae-desktop #aeZoom button:hover { background: var(--ae-panel-hi); color: var(--ae-text-hi); }
+body.ae-desktop #ampIndicator { display: none !important; }
+
+/* the bottom bar: mode keys | band keys | FT8 TUNE FUNC MOX */
+body.ae-desktop #bottomBar { padding: 8px 12px; gap: 4px; flex-wrap: nowrap; overflow-x: auto; }
+body.ae-desktop .softBtn { flex: 0 0 auto; height: 36px; padding: 0 12px; font-size: 12px; }
+body.ae-desktop .softBtn.ae-band { padding: 0 9px; font-family: var(--font-mono); font-weight: 500; }
+body.ae-desktop .softBtn.ae-wide { padding: 0 16px; }
+body.ae-desktop .softBtn.ae-mox { padding: 0 26px; font-size: 13px; letter-spacing: 1px; }
+body.ae-desktop .ae-gap { flex: 0 0 10px; }
+body.ae-desktop .ae-gap.ae-grow { flex: 1 0 10px; }
+
+/* the applet sidebar */
+body.ae-desktop #applets {
+    grid-area: side; display: flex; flex-direction: column; gap: 1px;
+    background: var(--ae-ground); border-left: 1px solid var(--ae-line);
+    overflow-y: auto; min-height: 0;
+}
+.ae-applet { background: var(--ae-panel); padding-bottom: 10px; }
+.ae-applet[hidden] { display: none; }
+.ae-applet h2 {
+    margin: 0; padding: 6px 12px; background: var(--ae-panel-hi);
+    font: 600 11px var(--font-ui); letter-spacing: 1.2px; color: var(--ae-text);
+    display: flex; justify-content: space-between; align-items: center;
+}
+.ae-applet h2 .ae-ok { color: var(--ae-ok); }
+.ae-applet h2 .ae-dim { color: var(--ae-text-dim); }
+.ae-applet h2 .ae-bad { color: var(--ae-tx); }
+.ae-rows { padding: 8px 12px 0; display: flex; flex-direction: column; gap: 8px; }
+.ae-rows .gain-label { width: 48px; text-align: left; font-size: 11px; }
+.ae-rows .gain-val { width: 40px; font-size: 12px; }
+.ae-btns { padding: 8px 12px 0; display: flex; flex-direction: column; gap: 4px; }
+.ae-grid { display: grid; gap: 4px; }
+.ae-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.ae-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ae-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ae-key {
+    min-height: 28px; padding: 4px 2px; border-radius: 3px; cursor: pointer;
+    background: var(--ae-ground); border: 1px solid var(--ae-panel-hi); color: var(--ae-text);
+    font: 600 11px var(--font-ui); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ae-key:hover { border-color: var(--ae-accent); }
+.ae-key.active { background: var(--ae-accent-lo); border-color: var(--ae-accent); color: var(--ae-text-hi); }
+.ae-key.ae-toggle.active { background: #0d2a1a; border-color: var(--ae-ok); color: var(--ae-ok); }
+.ae-eq, .ae-amp {
+    display: block; width: calc(100% - 24px); margin: 8px 12px 0; padding: 0;
+    background: none; border: 0; cursor: pointer; color: var(--ae-text-dim); text-align: left;
+}
+.ae-eq { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+.ae-eq-col { display: flex; flex-direction: column; align-items: center; gap: 4px; font: 10px var(--font-ui); }
+.ae-eq-track { width: 8px; height: 34px; background: var(--ae-panel-hi); border-radius: 2px; position: relative; }
+.ae-eq-fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--ae-accent); border-radius: 2px; }
+.ae-meter { display: grid; grid-template-columns: 40px 1fr 56px; gap: 8px; align-items: center; font: 12px var(--font-ui); margin-bottom: 6px; }
+.ae-meter-track { height: 8px; background: var(--ae-bar); border: 1px solid var(--ae-line); border-radius: 2px; overflow: hidden; }
+.ae-meter-fill { display: block; height: 100%; background: var(--ae-accent); }
+.ae-meter b { text-align: right; color: var(--ae-text-hi); font: 500 12px var(--font-mono); }
+.ae-amp-tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.ae-amp-tile { background: var(--ae-ground); padding: 5px 7px; border-radius: 3px; font: 11px var(--font-ui); }
+.ae-amp-tile b { display: block; color: var(--ae-text-hi); font: 500 13px var(--font-mono); }
+
+/* ---- Phone -------------------------------------------------------------- */
+body.ae-phone #radio { grid-template-rows: 40px auto 18px 1fr auto; }
+body.ae-phone.meter-needle #radio { grid-template-rows: 40px auto 18px 1fr auto; }
+body.ae-phone #meterFreqRow { flex-direction: column; align-items: stretch; padding: 8px 12px; gap: 6px; }
+body.ae-phone #freqSection { order: 0; flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; flex-wrap: wrap; }
+body.ae-phone #vfoLine { margin: 0; }
+body.ae-phone #freqDisplay { height: 34px; }
+body.ae-phone #freqDisplay .freq-digit { font-size: 30px; }
+body.ae-phone #slicePills { display: flex; gap: 6px; flex: 1 0 100%; }
+body.ae-phone .ae-pill { font-size: 12px; padding: 3px 8px; }
+body.ae-phone #meterSection { order: 1; flex: 0 0 auto; }
+body.ae-phone #meterCanvas { height: 44px; }
+body.ae-phone.meter-needle #meterCanvas { height: 76px; }
+body.ae-phone #bottomBar { flex-wrap: wrap; padding: 8px 10px; gap: 4px; }
+body.ae-phone .softBtn { flex: 1 1 0; min-width: 0; height: 48px; }
+body.ae-phone .softBtn.ae-tile { height: 46px; font-size: 11px; }
+body.ae-phone .ae-gap.ae-break { flex: 1 0 100%; height: 0; }
+body.ae-desktop .softBtn.ae-band { text-transform: none; }

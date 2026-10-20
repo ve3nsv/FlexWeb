@@ -2298,6 +2298,8 @@ body.digi-open #bottomBar { grid-row: 5; }
                 <span id="splitFreq" class="hidden"></span>
             </div>
             <div id="freqDisplay" tabindex="0"></div>
+            <!-- AetherSDR layout: mode / filter / antenna of the slice (aeTick) -->
+            <div id="slicePills" aria-label="Slice settings"></div>
         </div>
     </div>
 
@@ -2312,6 +2314,11 @@ body.digi-open #bottomBar { grid-row: 5; }
     <div id="scopeArea">
         <canvas id="spectrumCanvas" width="800" height="150"></canvas>
         <canvas id="waterfallCanvas" width="800" height="200"></canvas>
+        <!-- AetherSDR layout, desktop: span zoom on the panadapter -->
+        <div id="aeZoom">
+            <button type="button" aria-label="Zoom out (wider span)" onclick="aeZoom(1)">&#x2212;</button>
+            <button type="button" aria-label="Zoom in (narrower span)" onclick="aeZoom(-1)">+</button>
+        </div>
         <span id="spanEdgeLeft"></span>
         <span id="spanEdgeRight"></span>
 
@@ -2879,6 +2886,22 @@ body.digi-open #bottomBar { grid-row: 5; }
 
     <!-- Row 5: Bottom bar -->
     <div id="bottomBar"></div>
+    <!-- AetherSDR layout, desktop only: applet sidebar. The GAIN panel's
+         slider rows move in here (aeLayout) with their ids and handlers. -->
+    <aside id="applets" aria-label="Applets">
+        <section class="ae-applet" id="aeRx">
+            <h2>RX</h2>
+            <div class="ae-rows" id="aeRxRows"></div>
+            <div class="ae-btns" id="aeRxBtns"></div>
+        </section>
+        <section class="ae-applet" id="aeTx">
+            <h2>TX</h2>
+            <div class="ae-rows" id="aeTxRows"></div>
+            <div class="ae-btns" id="aeTxBtns"></div>
+        </section>
+        <section class="ae-applet" id="aeEq" hidden></section>
+        <section class="ae-applet" id="aeAmp" hidden></section>
+    </aside>
 </div>
 
 <script src="transport/rig-transport.js"></script>
@@ -5410,12 +5433,24 @@ function renderBottomBar() {
     var btns = getBottomButtons();
     for (var i = 0; i < btns.length; i++) {
         var b = btns[i];
+        if (b.spacer) {   // AetherSDR layout: a gap between button groups
+            var sp = document.createElement('span');
+            sp.className = 'ae-gap' + (b.grow ? ' ae-grow' : '') + (b.cls ? ' ' + b.cls : '');
+            bar.appendChild(sp);
+            continue;
+        }
         var el = document.createElement('button');
         el.className = 'softBtn';
         if (b.active) el.classList.add('active');
         if (b.txActive) el.classList.add('tx-active');
-        if (b.cls) el.classList.add(b.cls);
+        if (b.cls) b.cls.split(' ').forEach(function(c) { if (c) el.classList.add(c); });
         el.textContent = b.label;
+        if (b.sub !== undefined) {
+            var sub = document.createElement('span');
+            sub.className = 'ae-sub';
+            sub.textContent = b.sub;
+            el.appendChild(sub);
+        }
         if (b.disabled) el.disabled = true;
         if (b.action) el.onclick = b.action;
         bar.appendChild(el);
@@ -5432,6 +5467,8 @@ function getBottomButtons() {
         case 'func':
         case 'span':
         case 'gain':
+            if (aeDesktop) return aeDesktopButtons(isCW);
+            if (aePhone) return aePhoneButtons(isCW);
             return [
                 { label: 'MODE', active: currentPanel === 'mode', action: function() { setPanel('mode'); } },
                 { label: 'BAND', active: currentPanel === 'band', action: function() { setPanel('band'); } },
@@ -5450,6 +5487,289 @@ function getBottomButtons() {
             return [{ label: '\u23CE', action: function() { setPanel('default'); } }];
     }
 }
+
+// ============================================================
+// AETHERSDR LAYOUT (aether-look branch; styles in aether.css)
+// ============================================================
+// Two layouts on top of the skin, picked by screen shape:
+//  * desktop (wide landscape): the slice strip, a direct mode / band / FT8 /
+//    TUNE / FUNC / MOX bar, and an applet sidebar holding the GAIN panel's
+//    own slider rows (moved, not copied: same ids, same handlers, so every
+//    existing update path keeps driving them) plus RX / TX / EQ / AMP keys;
+//  * phone (narrow portrait): the stacked slice strip and RX / TX / EQ / AMP
+//    tiles above MODE / BAND / FUNC / PTT.
+// Everything else is the page as it was. aeTick() repaints the strip, the
+// sidebar and the bar when the state they show changes.
+var aeDesktop = false, aePhone = false;
+var aeGainHome = null;      // where the moved rows go back to: [row, nextSibling]
+var aeLastSig = '';
+var AE_DESKTOP_MQ = '(min-width: 1100px) and (min-height: 560px) and (orientation: landscape)';
+var AE_PHONE_MQ = '(orientation: portrait) and (max-width: 600px)';
+var AE_MODES = ['LSB', 'USB', 'CW', 'AM', 'FM', 'DIGU', 'DIGL', 'RTTY', 'USB-D', 'LSB-D'];
+
+function aeLayout() {
+    var desk = window.matchMedia(AE_DESKTOP_MQ).matches;
+    var phone = !desk && window.matchMedia(AE_PHONE_MQ).matches;
+    var changed = desk !== aeDesktop || phone !== aePhone;
+    aeDesktop = desk; aePhone = phone;
+    document.body.classList.toggle('ae-desktop', desk);
+    document.body.classList.toggle('ae-phone', phone);
+    aeMoveGainRows(desk);
+    if (changed) {
+        aeLastSig = '';
+        if (desk && currentPanel === 'gain') setPanel('default');
+        renderBottomBar();
+        if (typeof resizeCanvases === 'function') resizeCanvases();
+    }
+    aeTick();
+}
+
+// The GAIN panel's slider rows: into the sidebar on the desktop layout,
+// back into the panel otherwise, in their original order.
+function aeMoveGainRows(intoSidebar) {
+    var ov = document.getElementById('gainOverlay');
+    if (!ov) return;
+    if (!aeGainHome) {
+        aeGainHome = [];
+        ov.querySelectorAll('.gain-row').forEach(function(r) { aeGainHome.push(r); });
+    }
+    var rx = document.getElementById('aeRxRows'), tx = document.getElementById('aeTxRows');
+    var back = ov.querySelector('.gain-back-row');
+    aeGainHome.forEach(function(r) {
+        if (intoSidebar) (r.classList.contains('tx') ? tx : rx).appendChild(r);
+        else {
+            var txHead = ov.querySelector('.gain-section.tx');
+            ov.insertBefore(r, r.classList.contains('tx') ? back : txHead);
+        }
+    });
+}
+
+function aeZoom(dir) {
+    if (!availableSpans.length) return;
+    var i = currentSpanIndex < 0 ? 0 : currentSpanIndex + dir;
+    if (i < 0 || i >= availableSpans.length) return;
+    setSpan(i);
+}
+
+function aeSliceTexts() {
+    var out = [];
+    if (currentMode) out.push(currentMode);
+    out.push(hasFilterSettings && currentFilterWidth > 0 ? formatBW(currentFilterWidth) : 'FIL' + currentFilter);
+    if (flexDsp && flexDsp.rxAnt) {
+        out.push(flexDsp.txAnt && flexDsp.txAnt !== flexDsp.rxAnt ? 'RX ' + flexDsp.rxAnt + ' · TX ' + flexDsp.txAnt : flexDsp.rxAnt);
+    } else if (availableAntennas.length >= 2) {
+        out.push(antennaName(currentAntenna));
+    }
+    return out;
+}
+
+function aeTick() {
+    if (!aeDesktop && !aePhone) return;
+    var band = (typeof bandLabelOf === 'function') ? bandLabelOf(currentFreq) : '';
+    var sig = JSON.stringify([currentMode, currentFilter, currentFilterWidth, band, nbOn, nrOn, anfOn,
+        isTransmitting, flexDsp, ampConfigured, ampState, tunerState, hasTuner, currentPanel,
+        digiBarVisible, availableModes.length, rigBands.length]);
+    if (sig === aeLastSig) return;
+    aeLastSig = sig;
+    var pills = document.getElementById('slicePills');
+    if (pills) {
+        pills.innerHTML = '';
+        aeSliceTexts().forEach(function(t, i) {
+            var s = document.createElement('span');
+            s.className = 'ae-pill' + (i === 0 ? ' ae-pill-mode' : '');
+            s.textContent = t;
+            pills.appendChild(s);
+        });
+    }
+    if (aeDesktop) renderApplets();
+    renderBottomBar();
+}
+
+function aeBtn(label, active, onclick, cls) {
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ae-key' + (active ? ' active' : '') + (cls ? ' ' + cls : '');
+    b.textContent = label;
+    b.onclick = onclick;
+    return b;
+}
+
+function renderApplets() {
+    var rx = document.getElementById('aeRxBtns'), tx = document.getElementById('aeTxBtns');
+    if (!rx || !tx) return;
+    rx.innerHTML = ''; tx.innerHTML = '';
+    // RX: filters, noise tools, front end, antennas
+    var fil = document.createElement('div'); fil.className = 'ae-grid ae-grid-4';
+    [1, 2, 3].forEach(function(n) {
+        fil.appendChild(aeBtn('FIL' + n, currentFilter === n, function() { sendFilter(n); }));
+    });
+    fil.appendChild(aeBtn(hasFilterSettings && currentFilterWidth > 0 ? formatBW(currentFilterWidth) : 'WIDTH', false,
+        function() { if (typeof openFilterModal === 'function') openFilterModal(); else setPanel('func'); }));
+    rx.appendChild(fil);
+    var dsp = document.createElement('div'); dsp.className = 'ae-grid ae-grid-3';
+    dsp.appendChild(aeBtn('NB', nbOn, function() { send({ cmd: 'setNoiseBlanker', value: !nbOn }); }, 'ae-toggle'));
+    dsp.appendChild(aeBtn('NR', nrOn, function() { send({ cmd: 'setNoiseReduction', value: !nrOn }); }, 'ae-toggle'));
+    dsp.appendChild(aeBtn('ANF', anfOn, function() { send({ cmd: 'setAutoNotch', value: !anfOn }); }, 'ae-toggle'));
+    rx.appendChild(dsp);
+    var fe = document.createElement('div'); fe.className = 'ae-grid ae-grid-2';
+    var pa = getPreampAttState();
+    fe.appendChild(aeBtn('P.AMP/ATT ' + pa.label, pa.active, function() { cyclePreampAtt(); }));
+    if (flexDsp && flexDsp.rxAntList && flexDsp.rxAntList.length) {
+        fe.appendChild(aeBtn('ANT ' + (flexDsp.rxAnt || '?'), false, function() { setPanel('flexant'); }));
+    } else if (availableAntennas.length >= 2) {
+        fe.appendChild(aeBtn('ANT ' + antennaName(currentAntenna), false, cycleAntenna));
+    }
+    rx.appendChild(fe);
+    // TX: speech processor (Flex), tuner, audio
+    if (flexDsp) {
+        var pr = document.createElement('div'); pr.className = 'ae-grid ae-grid-4';
+        pr.appendChild(aeBtn('PROC', !!flexDsp.proc, function() { sendFlexDsp('proc', 0, flexDsp.proc ? 0 : 1, true); }, 'ae-toggle'));
+        ['NOR', 'DX', 'DX+'].forEach(function(n, lvl) {
+            pr.appendChild(aeBtn(n, flexDsp.procLevel === lvl, function() { sendFlexDsp('procLevel', 0, lvl, true); }));
+        });
+        tx.appendChild(pr);
+    }
+    var tk = document.createElement('div'); tk.className = 'ae-grid ae-grid-3';
+    if (hasTuner) tk.appendChild(aeBtn(tunerState === 2 ? 'TUNING' : 'ATU ' + (tunerState ? 'ON' : 'OFF'), tunerState > 0, handleTunerPress));
+    tk.appendChild(aeBtn('AUDIO', false, function() { setPanel('audiomiс'); }));
+    if (flexDsp) tk.appendChild(aeBtn('PROC…', false, function() { setPanel('proc'); }));
+    tx.appendChild(tk);
+    // EQ: the radio's equaliser at a glance; the panel edits it
+    var eq = document.getElementById('aeEq');
+    if (flexDsp) {
+        eq.hidden = false;
+        eq.innerHTML = '';
+        var side = (flexDsp.txEq.on && !flexDsp.rxEq.on) ? 'txEq' : 'rxEq';
+        var h = document.createElement('h2');
+        h.textContent = (side === 'txEq' ? 'TX' : 'RX') + ' EQ ' + (flexDsp[side].on ? 'ON' : 'OFF');
+        eq.appendChild(h);
+        var bars = document.createElement('button');
+        bars.type = 'button';
+        bars.className = 'ae-eq';
+        bars.setAttribute('aria-label', 'Open the equaliser');
+        bars.onclick = function() { setPanel('eq'); };
+        flexDsp[side].bands.forEach(function(v, i) {
+            var col = document.createElement('span');
+            col.className = 'ae-eq-col';
+            var tr = document.createElement('span'); tr.className = 'ae-eq-track';
+            var fill = document.createElement('span'); fill.className = 'ae-eq-fill';
+            fill.style.height = Math.round((v + 10) * 5) + '%';
+            tr.appendChild(fill);
+            var lab = document.createElement('span'); lab.textContent = EQ_BAND_LABELS[i];
+            col.appendChild(tr); col.appendChild(lab);
+            bars.appendChild(col);
+        });
+        eq.appendChild(bars);
+    } else {
+        eq.hidden = true;
+    }
+    // AMP: the RF-KIT readout; the panel has the controls
+    var amp = document.getElementById('aeAmp');
+    if (ampConfigured) {
+        amp.hidden = false;
+        amp.innerHTML = '';
+        var a = ampState || {}, up = !!a.connected;
+        var ah = document.createElement('h2');
+        ah.innerHTML = '';
+        ah.appendChild(document.createTextNode(ampEsc(a.device || 'AMP')));
+        var st = document.createElement('span');
+        st.className = up ? (a.operate ? 'ae-ok' : 'ae-dim') : 'ae-bad';
+        st.textContent = up ? (a.operate ? 'OPERATE' : 'STANDBY') : 'OFFLINE';
+        ah.appendChild(st);
+        amp.appendChild(ah);
+        var body = document.createElement('button');
+        body.type = 'button';
+        body.className = 'ae-amp';
+        body.setAttribute('aria-label', 'Open the amplifier panel');
+        body.onclick = function() { setPanel('amp'); };
+        function meter(label, val, max, text) {
+            var row = document.createElement('span'); row.className = 'ae-meter';
+            var l = document.createElement('span'); l.textContent = label;
+            var tr = document.createElement('span'); tr.className = 'ae-meter-track';
+            var f = document.createElement('span'); f.className = 'ae-meter-fill';
+            f.style.width = (up && val !== undefined ? Math.max(0, Math.min(100, val / max * 100)) : 0) + '%';
+            tr.appendChild(f);
+            var v = document.createElement('b'); v.textContent = up && val !== undefined ? text : '—';
+            row.appendChild(l); row.appendChild(tr); row.appendChild(v);
+            return row;
+        }
+        body.appendChild(meter('FWD', a.fwd, 1600, (a.fwd || 0) + ' W'));
+        var keyed = up && a.fwd >= 1;
+        body.appendChild(meter('SWR', keyed ? Math.min(a.swr, 5) - 1 : undefined, 4, keyed ? a.swr.toFixed(2) : ''));
+        var tiles = document.createElement('span'); tiles.className = 'ae-amp-tiles';
+        [['TEMP', up && a.temp !== undefined ? a.temp.toFixed(0) + ' °C' : '—'],
+         ['BAND', up && a.band ? a.band : '—'],
+         ['ANT', (function() { var n = '—'; (up && a.antennas || []).forEach(function(x) { if (x.state === 'active') n = x.external ? 'EXT' : String(x.num); }); return n; })()]
+        ].forEach(function(t) {
+            var c = document.createElement('span'); c.className = 'ae-amp-tile';
+            c.textContent = t[0];
+            var b = document.createElement('b'); b.textContent = t[1];
+            c.appendChild(b); tiles.appendChild(c);
+        });
+        body.appendChild(tiles);
+        amp.appendChild(body);
+    } else {
+        amp.hidden = true;
+    }
+}
+
+// Desktop bar: the common modes and the bands as keys, then FT8, TUNE,
+// FUNC (everything else, as before) and MOX. GAIN lives in the sidebar.
+function aeDesktopButtons(isCW) {
+    var out = [];
+    AE_MODES.forEach(function(m) {
+        if (availableModes.indexOf(m) < 0) return;
+        out.push({ label: m, cls: 'ae-mode', active: currentMode === m, action: function() { setMode(m); } });
+    });
+    out.push({ label: 'MODE…', cls: 'ae-mode', active: currentPanel === 'mode', action: function() { setPanel(currentPanel === 'mode' ? 'default' : 'mode'); } });
+    out.push({ spacer: true });
+    var curBand = bandLabelOf(currentFreq);
+    rigBands.forEach(function(b) {
+        if (/2200|630|gen/i.test(b.label)) return;
+        out.push({ label: /^2m$/i.test(b.label) ? '2m' : b.label.replace(/m$/i, ''),
+                   cls: 'ae-band', active: curBand === b.label,
+                   action: function() { pressBand(b.freq, b.label, b.bsr); } });
+    });
+    out.push({ spacer: true, grow: true });
+    out.push({ label: 'FT8', cls: 'ae-wide', active: digiBarVisible, action: function() { toggleDigiBar(); } });
+    if (hasTuner) out.push({ label: 'TUNE', cls: 'ae-wide', active: tunerState === 2, action: handleTunerPress });
+    out.push({ label: 'FUNC', cls: 'ae-wide', active: currentPanel === 'func', action: function() { setPanel(currentPanel === 'func' ? 'default' : 'func'); } });
+    out.push({ label: isCW ? 'KEY' : 'MOX', txActive: isTransmitting, cls: (isCW ? 'key-btn' : 'ptt-btn') + ' ae-mox',
+               disabled: currentPanel !== 'default', action: currentPanel !== 'default' ? null : (isCW ? toggleCWBar : function() { handlePTTPress(); }) });
+    return out;
+}
+
+// Phone: RX / TX / EQ / AMP tiles over MODE / BAND / FUNC / PTT.
+function aePhoneButtons(isCW) {
+    var out = [];
+    out.push({ label: 'RX', sub: [nbOn ? 'NB' : '', nrOn ? 'NR' : '', anfOn ? 'ANF' : ''].filter(Boolean).join(' ') || 'GAIN',
+               cls: 'ae-tile', active: currentPanel === 'gain', action: function() { setPanel(currentPanel === 'gain' ? 'default' : 'gain'); } });
+    out.push({ label: 'TX', sub: flexDsp ? (flexDsp.proc ? ['NOR', 'DX', 'DX+'][flexDsp.procLevel] : 'PROC OFF') : 'AUDIO',
+               cls: 'ae-tile', action: function() { setPanel(flexDsp ? 'proc' : 'audiomiс'); } });
+    if (flexDsp) out.push({ label: 'EQ', sub: flexDsp.rxEq.on ? (flexDsp.txEq.on ? 'RX+TX' : 'RX') : (flexDsp.txEq.on ? 'TX' : 'OFF'),
+               cls: 'ae-tile', action: function() { setPanel('eq'); } });
+    if (ampConfigured) {
+        var a = ampState || {};
+        out.push({ label: 'AMP', sub: !a.connected ? 'OFFLINE' : (a.operate ? 'OPR ' : 'STBY ') + (a.fwd || 0) + ' W',
+                   cls: 'ae-tile', action: function() { setPanel('amp'); } });
+    }
+    out.push({ spacer: true, cls: 'ae-break' });
+    out.push({ label: 'MODE', active: currentPanel === 'mode', action: function() { setPanel('mode'); } });
+    out.push({ label: 'BAND', active: currentPanel === 'band', action: function() { setPanel('band'); } });
+    out.push({ label: 'FUNC', active: currentPanel === 'func', action: function() { setPanel('func'); } });
+    out.push({ label: isCW ? 'KEY' : 'PTT', txActive: isTransmitting, cls: isCW ? 'key-btn' : 'ptt-btn',
+               disabled: currentPanel !== 'default', action: currentPanel !== 'default' ? null : (isCW ? toggleCWBar : function() { handlePTTPress(); }) });
+    return out;
+}
+
+(function () {
+    function relayout() { clearTimeout(relayout.t); relayout.t = setTimeout(aeLayout, 120); }
+    window.addEventListener('resize', relayout);
+    window.addEventListener('orientationchange', relayout);
+    setInterval(aeTick, 300);
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', aeLayout);
+    else setTimeout(aeLayout, 0);
+})();
 
 // --- Overlay renderers ---
 
@@ -5527,6 +5847,27 @@ function populateBands(bands) {
     if (currentPanel === 'band') renderBandOverlay();
 }
 
+// A band key, from the BAND overlay or the desktop band bar.
+function pressBand(f, lbl, bsr) {
+    if (bsr) {
+        // The rig's BAND key: recall the band's last-used stacking register
+        // (freq + mode + filter); pressing the band you are already on steps
+        // to the next of its three slots. `save` names the register being
+        // left so the transport stores the current VFO there first, as the
+        // key does — the rig never does that for CI-V tuning by itself.
+        var cur = bandLabelOf(currentFreq);
+        var curBand = null;
+        rigBands.forEach(function(rb) { if (rb.label === cur) curBand = rb; });
+        var reg = (cur === lbl) ? (bsrReg[lbl] || 1) % 3 + 1 : (bsrReg[lbl] || 1);
+        var msg = { cmd: 'setBand', bsr: bsr, reg: reg };
+        if (curBand && curBand.bsr) msg.save = { bsr: curBand.bsr, reg: bsrReg[cur] || 1 };
+        bsrReg[lbl] = reg;
+        send(msg);
+    } else {
+        send({ cmd: 'setFrequency', value: bandLastFreq[lbl] || f });
+    }
+}
+
 function renderBandOverlay() {
     var grid = document.getElementById('bandGrid');
     grid.innerHTML = '';
@@ -5549,24 +5890,7 @@ function renderBandOverlay() {
             btn.className = 'ov-btn';
             btn.textContent = b.label;
             btn.onclick = (function(f, lbl, bsr) { return function() {
-                if (bsr) {
-                    // The rig's BAND key: recall the band's last-used stacking
-                    // register (freq + mode + filter); pressing the band you
-                    // are already on steps to the next of its three slots.
-                    // `save` names the register being left so the transport
-                    // stores the current VFO there first, as the key does —
-                    // the rig never does that for CI-V tuning by itself.
-                    var cur = bandLabelOf(currentFreq);
-                    var curBand = null;
-                    rigBands.forEach(function(rb) { if (rb.label === cur) curBand = rb; });
-                    var reg = (cur === lbl) ? (bsrReg[lbl] || 1) % 3 + 1 : (bsrReg[lbl] || 1);
-                    var msg = { cmd: 'setBand', bsr: bsr, reg: reg };
-                    if (curBand && curBand.bsr) msg.save = { bsr: curBand.bsr, reg: bsrReg[cur] || 1 };
-                    bsrReg[lbl] = reg;
-                    send(msg);
-                } else {
-                    send({ cmd: 'setFrequency', value: bandLastFreq[lbl] || f });
-                }
+                pressBand(f, lbl, bsr);
                 setPanel('default');
             }; })(b.freq, b.label, b.bsr);
             if (b.bsr) btn.title = 'Band stacking register: press again to cycle 1 / 2 / 3';
@@ -8780,7 +9104,13 @@ function drawSpectrum() {
     ctx.strokeStyle = '#1e2a38';
     ctx.lineWidth = 0.7;
     ctx.beginPath();
-    for (var gi = 1; gi < 3; gi++) { var gy = (plotH / 3) * gi; ctx.moveTo(0, gy); ctx.lineTo(w, gy); }
+    // Level lines every 10 dB above the noise floor (labelled after the trace)
+    var dbLines = [];
+    for (var dbv = 10; dbv < SPECT_DB_SPAN; dbv += 10) {
+        var gy = plotH * (1 - 0.94 * dbv / SPECT_DB_SPAN);
+        dbLines.push([dbv, gy]);
+        ctx.moveTo(0, gy); ctx.lineTo(w, gy);
+    }
     // Vertical lines on the labelled frequencies (spectTicks), so the scale
     // and the grid agree; evenly split while no sweep has arrived.
     var ticks = spectTicks(w);
@@ -8901,14 +9231,38 @@ function drawSpectrum() {
             ctx.strokeStyle = '#00d4ff';
             ctx.lineWidth = 1.5;
             ctx.beginPath(); ctx.moveTo(fxPos, 0); ctx.lineTo(fxPos, plotH); ctx.stroke();
-            // Slice flag: an "A" tab hung on the line, on whichever side has room
-            var flagW = 16, flagH = 16, flagX = (fxPos + 3 + flagW <= w) ? fxPos + 3 : fxPos - 3 - flagW;
+            // Slice flag hung on the line, on whichever side has room: the
+            // full AetherSDR flag (A, frequency, mode, antenna) when the
+            // scope is wide, just the "A" tab when it is not.
+            var flagH = 18, flagY = 6;
+            var parts = null;
+            if (w >= 700) {
+                var hz = Math.round(currentFreq || 0);
+                var fstr = Math.floor(hz / 1e6) + '.' + String(Math.floor(hz % 1e6 / 1e3)).padStart(3, '0') + '.' + String(hz % 1e3).padStart(3, '0');
+                parts = [fstr];
+                if (currentMode) parts.push(currentMode);
+                if (flexDsp && flexDsp.rxAnt) parts.push(flexDsp.rxAnt);
+            }
+            ctx.font = '11px ' + aeFonts().mono;
+            var restW = parts ? ctx.measureText(parts.join('  ')).width + 10 : 0;
+            var flagW = 18 + restW;
+            var flagX = (fxPos + 4 + flagW <= w) ? fxPos + 4 : fxPos - 4 - flagW;
+            if (parts) {
+                ctx.fillStyle = 'rgba(15,15,26,0.88)';
+                ctx.fillRect(flagX, flagY, flagW, flagH);
+                ctx.strokeStyle = '#00d4ff';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(flagX + 0.5, flagY + 0.5, flagW - 1, flagH - 1);
+                ctx.fillStyle = '#e6f0fa';
+                ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+                ctx.fillText(parts.join('  '), flagX + 22, flagY + flagH / 2 + 0.5);
+            }
             ctx.fillStyle = '#00d4ff';
-            ctx.fillRect(flagX, 4, flagW, flagH);
+            ctx.fillRect(flagX, flagY, 18, flagH);
             ctx.fillStyle = '#041019';
             ctx.font = 'bold 11px ' + aeFonts().ui;
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.fillText('A', flagX + flagW / 2, 4 + flagH / 2 + 0.5);
+            ctx.fillText('A', flagX + 9, flagY + flagH / 2 + 0.5);
             // Triangle at the bottom
             ctx.fillStyle = '#00d4ff';
             ctx.beginPath();
@@ -8929,6 +9283,13 @@ function drawSpectrum() {
             ctx.fill();
         }
     }
+
+    // Level labels for the 10 dB lines (dB above the noise floor)
+    ctx.fillStyle = '#8ea8c0';
+    ctx.font = '10px ' + aeFonts().mono;
+    // (right edge: the left one holds the MIC OFF / ATT warnings)
+    ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+    dbLines.forEach(function(l) { ctx.fillText('+' + l[0] + ' dB', w - 6, l[1] - 2); });
 
     // Freq labels, on round frequencies (spectTicks)
     if (ticks.length) {
