@@ -596,7 +596,7 @@ queue->add(priorityImmediate, queueItem(funcMemoryContents, QVariant::fromValue<
 ## Windows launcher (`launcher/`)
 
 `wfweb-launcher.exe` is a **separate** Qt Widgets exe shipped in the Windows
-zip. The server stays CLI-only: nothing under `src/`, `include/` or
+zip. The server stays CLI-only: apart from `src/webauth.cpp` (below), nothing under `src/`, `include/` or
 `wfweb.pro` is involved, and the launcher includes only `wfweb_version.h`.
 It composes the same flags a user would type and supervises `wfweb.exe` as a
 child. The contract it relies on, all verified against the server source:
