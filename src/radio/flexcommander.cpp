@@ -1290,8 +1290,12 @@ void flexCommander::applyFilterWidth(int widthHz)
     if (sliceId < 0 || mode.isEmpty() || modeHasFixedFilter(mode))
         return;
     const filterEdges e = edgesForWidth(mode, widthHz);
-    if (e.hi > e.lo)
+    if (e.hi > e.lo) {
         sendCmd(QString("filt %1 %2 %3").arg(sliceId).arg(e.lo).arg(e.hi));
+        filterLo = e.lo;
+        filterHi = e.hi;
+        reportCurrent(funcFilterWidth);
+    }
 }
 
 void flexCommander::setTransmit(bool on)
@@ -1331,6 +1335,10 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         return;
     }
 
+    // SET. The radio does not echo a client's own changes back to it, so
+    // every set also updates the local state and reports it; otherwise the
+    // page's read-back 200 ms later would show the old value (NB/NR/ANF
+    // stuck on while showing off, on a FLEX-6400).
     switch (func) {
     case funcSelectedFreq:
     case funcFreq:
@@ -1355,41 +1363,63 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         filterNum = fil;
         mode = fm;
         applyFilterWidth(presetWidth(fm, fil));
+        reportCurrent(funcSelectedMode);
         return;
     }
     case funcFilterWidth:
         applyFilterWidth(value.toInt());
+        filterNum = filterNumForWidth(mode, filterHi - filterLo);
+        reportCurrent(funcSelectedMode);
         return;
     case funcAfGain:
         sliceSet(QString("audio_level=%1").arg(to100(value.toInt())));
+        audioLevel = to100(value.toInt());
+        reportCurrent(funcAfGain);
         return;
     case funcRfGain:
         sliceSet(QString("agc_threshold=%1").arg(to100(value.toInt())));
+        agcThreshold = to100(value.toInt());
+        reportCurrent(funcRfGain);
         return;
     case funcSquelch: {
         const int lvl = to100(value.toInt());
         sliceSet(QString("squelch=%1 squelch_level=%2").arg(lvl > 0 ? 1 : 0).arg(lvl));
+        squelchOn = lvl > 0;
+        squelchLevel = lvl;
+        reportCurrent(funcSquelch);
         return;
     }
     case funcAGC: {
         const int v = value.toInt();
-        sliceSet(QString("agc_mode=%1").arg(v == 1 ? "fast" : v == 2 ? "med" : v == 3 ? "slow" : "off"));
+        agcMode = v == 1 ? "fast" : v == 2 ? "med" : v == 3 ? "slow" : "off";
+        sliceSet(QString("agc_mode=%1").arg(agcMode));
+        reportCurrent(funcAGC);
         return;
     }
     case funcNoiseBlanker:
-        sliceSet(QString("nb=%1").arg(value.toInt() ? 1 : 0));
+        nb = value.toInt() != 0;
+        sliceSet(QString("nb=%1").arg(nb ? 1 : 0));
+        reportCurrent(funcNoiseBlanker);
         return;
     case funcNoiseReduction:
-        sliceSet(QString("nr=%1").arg(value.toInt() ? 1 : 0));
+        nr = value.toInt() != 0;
+        sliceSet(QString("nr=%1").arg(nr ? 1 : 0));
+        reportCurrent(funcNoiseReduction);
         return;
     case funcAutoNotch:
-        sliceSet(QString("anf=%1").arg(value.toInt() ? 1 : 0));
+        anf = value.toInt() != 0;
+        sliceSet(QString("anf=%1").arg(anf ? 1 : 0));
+        reportCurrent(funcAutoNotch);
         return;
     case funcRitStatus:
-        sliceSet(QString("rit_on=%1").arg(value.toBool() ? 1 : 0));
+        ritOn = value.toBool();
+        sliceSet(QString("rit_on=%1").arg(ritOn ? 1 : 0));
+        reportCurrent(funcRitStatus);
         return;
     case funcRitFreq:
-        sliceSet(QString("rit_freq=%1").arg(value.toInt()));
+        ritFreq = value.toInt();
+        sliceSet(QString("rit_freq=%1").arg(ritFreq));
+        reportCurrent(funcRitFreq);
         return;
     case funcAntenna: {
         const antennaInfo a = value.value<antennaInfo>();
@@ -1400,15 +1430,23 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         }
         sliceSet(QString("rxant=%1").arg(ant));
         if (!a.rx) sliceSet(QString("txant=%1").arg(ant));
+        rxAnt = ant;
+        reportCurrent(funcAntenna);
         return;
     }
     case funcPreamp:
         if (!panId.isEmpty())
             sendCmd(QString("display pan set %1 rfgain=%2").arg(panId).arg(qBound(0, value.toInt(), 3) * 10));
+        panRfGain = qBound(0, value.toInt(), 3) * 10;
+        reportCurrent(funcPreamp);
+        reportCurrent(funcAttenuator);
         return;
     case funcAttenuator:
         if (!panId.isEmpty())
             sendCmd(QString("display pan set %1 rfgain=%2").arg(panId).arg(value.toInt() ? -10 : 0));
+        panRfGain = value.toInt() ? -10 : 0;
+        reportCurrent(funcPreamp);
+        reportCurrent(funcAttenuator);
         return;
     case funcScopeSpan: {
         const centerSpanData s = value.value<centerSpanData>();
@@ -1434,6 +1472,8 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         return;
     case funcRFPower:
         sendCmd(QString("transmit set rfpower=%1").arg(to100(value.toInt())));
+        rfPower = to100(value.toInt());
+        reportCurrent(funcRFPower);
         return;
     case funcUSBModLevel:
     case funcLANModLevel:
@@ -1448,16 +1488,24 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         // "LAN" = DAX (browser audio), anything else = the radio's mic input.
         const rigInput in = value.value<rigInput>();
         sendCmd(QString("transmit set dax=%1").arg(in.type == inputLAN ? 1 : 0));
+        daxTx = in.type == inputLAN;
+        reportCurrent(funcDATAOffMod);
         return;
     }
     case funcMonitor:
-        sendCmd(QString("transmit set mon=%1").arg(value.toInt() ? 1 : 0));
+        monitor = value.toInt() != 0;
+        sendCmd(QString("transmit set mon=%1").arg(monitor ? 1 : 0));
+        reportCurrent(funcMonitor);
         return;
     case funcMonitorGain:
-        sendCmd(QString("transmit set mon_gain_sb=%1").arg(to100(value.toInt())));
+        monitorGain = to100(value.toInt());
+        sendCmd(QString("transmit set mon_gain_sb=%1").arg(monitorGain));
+        reportCurrent(funcMonitorGain);
         return;
     case funcCompressor:
-        sendCmd(QString("transmit set speech_processor_enable=%1").arg(value.toInt() ? 1 : 0));
+        processor = value.toInt() != 0;
+        sendCmd(QString("transmit set speech_processor_enable=%1").arg(processor ? 1 : 0));
+        reportCurrent(funcCompressor);
         return;
     case funcTunerStatus: {
         const int v = value.toInt();
@@ -1468,9 +1516,12 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
     case funcKeySpeed:
         sendCmd(QString("cw wpm %1").arg(qBound(5, value.toInt(), 100)));
         cwSpeed = qBound(5, value.toInt(), 100);
+        reportCurrent(funcKeySpeed);
         return;
     case funcCwPitch:
-        sendCmd(QString("cw pitch %1").arg(qBound(100, value.toInt(), 6000)));
+        cwPitch = qBound(100, value.toInt(), 6000);
+        sendCmd(QString("cw pitch %1").arg(cwPitch));
+        reportCurrent(funcCwPitch);
         return;
     case funcSendCW: {
         QString text = value.toString();

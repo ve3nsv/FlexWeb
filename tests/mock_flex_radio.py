@@ -208,12 +208,13 @@ class MockFlexRadio:
             self._slice_status(RF_frequency=f"{mhz:.6f}")
             return 0, ""
         if cmd.startswith("slice set"):
+            # Like the radio: the change takes effect, but the client that
+            # made it gets no status echo of it.
             kv = dict(w.split("=", 1) for w in words[3:] if "=" in w)
-            if kv:
-                self._slice_status(**kv)
+            self.slice.update(kv)
             return 0, ""
         if cmd.startswith("filt"):
-            self._slice_status(filter_lo=words[2], filter_hi=words[3])
+            self.slice.update(filter_lo=words[2], filter_hi=words[3])   # not echoed
             return 0, ""
         if cmd.startswith("stream create type=remote_audio_rx"):
             return 0, f"0x{RX_STREAM:08X}"
@@ -229,8 +230,7 @@ class MockFlexRadio:
             kv = dict(w.split("=", 1) for w in words[2:] if "=" in w)
             if "miclevel" in kv:
                 kv["mic_level"] = kv.pop("miclevel")
-            self.transmit.update(kv)
-            self.status("transmit " + " ".join(f"{k}={v}" for k, v in kv.items()))
+            self.transmit.update(kv)   # not echoed to the setter either
             return 0, ""
         if cmd.startswith("cw ") or cmd.startswith("cwx ") or cmd.startswith("atu "):
             return 0, ""
