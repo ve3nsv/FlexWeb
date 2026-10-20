@@ -292,6 +292,12 @@ private:
 
     // Audio
     SpeexResamplerState_* rxResampler = nullptr;
+    // remote_audio_rx compression: "opus" over SmartLink by default (about
+    // 30x less than raw float), "none" on the LAN; WFWEB_FLEX_AUDIO /
+    // --flex-audio opus|none|auto overrides.
+    QString rxCompression;
+    struct OpusDecoder* opusDec = nullptr;
+    QVector<float> decodeOpus(const QByteArray& d, const flexProtocol::vitaPacket& p);
     SpeexResamplerState_* txResampler = nullptr;
     quint32 rxSeq = 0;
     QVector<float> txAccumulator;   // mono 24 kHz, waiting for a full packet

@@ -15,6 +15,7 @@
 #include "rigidentities.h"
 #include "logcategories.h"
 #include "resampler/speex_resampler.h"
+#include <opus/opus.h>
 
 // FlexRadio support for wfweb. See include/flexcommander.h for the overview.
 //
@@ -331,6 +332,7 @@ void flexCommander::resetSession()
     udpSeen.clear();
     udpStats.clear();
     txAccumulator.clear();
+    if (opusDec) { opus_decoder_destroy(opusDec); opusDec = nullptr; }
     wanHandle.clear();
     wanConnectRequested = false;
     wanUdpConfirmed = false;
@@ -706,11 +708,17 @@ void flexCommander::processLine(const QString& line)
 
 void flexCommander::createAudioStreams()
 {
-    // Slice audio for the browser, uncompressed float32 stereo at 24 kHz.
-    sendCmd("stream create type=remote_audio_rx compression=none", [this](quint32 code, const QString& body) {
+    // Slice audio for the browser: uncompressed float32 stereo at 24 kHz
+    // (~1.5 Mbit/s) on the LAN, Opus (~50 kbit/s) over SmartLink.
+    QString want = qEnvironmentVariable("WFWEB_FLEX_AUDIO").trimmed().toLower();
+    if (want != "opus" && want != "none")
+        want = wan ? "opus" : "none";
+    rxCompression = want;
+    sendCmd(QString("stream create type=remote_audio_rx compression=%1").arg(rxCompression), [this](quint32 code, const QString& body) {
         if (code == 0) {
             rxStreamId = parseStreamId(body);
-            qInfo(logRig()).noquote() << QString("Flex: RX audio stream 0x%1").arg(rxStreamId, 8, 16, QChar('0'));
+            qInfo(logRig()).noquote() << QString("Flex: RX audio stream 0x%1 (%2)").arg(rxStreamId, 8, 16, QChar('0'))
+                                         .arg(rxCompression == "opus" ? "Opus" : "uncompressed");
         } else {
             qWarning(logRig()).noquote() << QString("Flex: cannot create RX audio stream (0x%1) %2").arg(code, 8, 16, QChar('0')).arg(body);
         }
@@ -1147,6 +1155,7 @@ void flexCommander::udpReadyRead()
             break;
         case PCC_IF_NARROW:
         case PCC_IF_NARROW_REDUCED:
+        case PCC_OPUS:
             ++udpStats["audio"];
             if (rxStreamId == 0 || p.streamId == rxStreamId) handleRxAudio(d, p);
             break;
@@ -1295,9 +1304,43 @@ void flexCommander::flushMeters()
     meterTxDirty = false;
 }
 
+QVector<float> flexCommander::decodeOpus(const QByteArray& d, const vitaPacket& p)
+{
+    // 24 kHz stereo, 10 ms frames (as SmartSDR and AetherSDR); downmixed
+    // to mono like the uncompressed stream.
+    QVector<float> out;
+    if (p.payloadBytes <= 0)
+        return out;
+    if (opusDec == nullptr) {
+        int err = 0;
+        opusDec = opus_decoder_create(DAX_RATE, 2, &err);
+        if (err != OPUS_OK) {
+            qWarning(logRig()) << "Flex: cannot start the Opus decoder:" << opus_strerror(err);
+            opusDec = nullptr;
+            return out;
+        }
+    }
+    QVector<opus_int16> pcm(2 * 5760);   // up to 120 ms of stereo
+    const auto* src = reinterpret_cast<const unsigned char*>(d.constData()) + p.payloadOffset;
+    int len = p.payloadBytes;
+    int frames = opus_decode(opusDec, src, len, pcm.data(), 5760, 0);
+    // The VITA-49 payload is whole 32-bit words: a frame whose length is
+    // not a multiple of 4 arrives zero-padded.
+    while (frames <= 0 && len > 1 && p.payloadBytes - len < 3 && src[len - 1] == 0)
+        frames = opus_decode(opusDec, src, --len, pcm.data(), 5760, 0);
+    if (frames <= 0) {
+        ++udpStats["opus-error"];
+        return out;
+    }
+    out.resize(frames);
+    for (int i = 0; i < frames; ++i)
+        out[i] = (float(pcm[2 * i]) + float(pcm[2 * i + 1])) / 65536.0f;
+    return out;
+}
+
 void flexCommander::handleRxAudio(const QByteArray& d, const vitaPacket& p)
 {
-    QVector<float> in = decodeAudio(d, p);
+    QVector<float> in = p.pcc == PCC_OPUS ? decodeOpus(d, p) : decodeAudio(d, p);
     if (in.isEmpty() || rxResampler == nullptr)
         return;
 
