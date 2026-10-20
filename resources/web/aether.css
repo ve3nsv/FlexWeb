@@ -64,6 +64,8 @@ input[type=range] { accent-color: var(--ae-accent); }
 #rigTag { color: var(--ae-text-dim); }
 .qso-log-btn { background: var(--ae-panel); border-color: var(--ae-line); color: var(--ae-accent-hi); }
 .qso-log-btn:active { background: var(--ae-accent-lo); color: var(--ae-text-hi); }
+.user-btn { background: var(--ae-panel); border-color: var(--ae-line); color: var(--ae-text-dim); }
+#txByLabel { background: var(--ae-tx); border-color: var(--ae-tx); color: #fff; }
 #connDot { background: #6e1f1f; }
 #connDot.connected { background: var(--ae-ok); }
 
