@@ -8,6 +8,8 @@
 #include <QRegularExpression>
 #include <QSettings>
 
+#include <memory>
+
 namespace {
 
 const int kSessionShortSecs = 12 * 3600;
@@ -15,9 +17,22 @@ const int kSessionLongSecs = 30 * 24 * 3600;
 
 // A fresh QSettings each time, synced, so users added by another process
 // (wfweb --add-user, the launcher) are seen by a running server.
-struct store : QSettings {
-    store() : QSettings("wfweb", "webusers") { sync(); }
-};
+// WFWEB_CONFIG_DIR (tests): an ini file there instead of the platform's
+// settings store, which on macOS ignores $HOME.
+QString storePath()
+{
+    const QString dir = qEnvironmentVariable("WFWEB_CONFIG_DIR");
+    return dir.isEmpty() ? QString() : dir + "/webusers.ini";
+}
+
+std::unique_ptr<QSettings> openStore()
+{
+    const QString path = storePath();
+    std::unique_ptr<QSettings> s(path.isEmpty() ? new QSettings("wfweb", "webusers")
+                                                : new QSettings(path, QSettings::IniFormat));
+    s->sync();
+    return s;
+}
 
 QByteArray randomBytes(int n)
 {
@@ -55,9 +70,9 @@ bool webAuth::validUserName(const QString& name)
 
 QStringList webAuth::users()
 {
-    store s;
-    s.beginGroup("users");
-    QStringList out = s.childKeys();
+    auto s = openStore();
+    s->beginGroup("users");
+    QStringList out = s->childKeys();
     out.sort(Qt::CaseInsensitive);
     return out;
 }
@@ -66,27 +81,27 @@ bool webAuth::hasUsers() { return !users().isEmpty(); }
 
 bool webAuth::userExists(const QString& name)
 {
-    return validUserName(name) && store().contains("users/" + name);
+    return validUserName(name) && openStore()->contains("users/" + name);
 }
 
 bool webAuth::setPassword(const QString& name, const QString& password)
 {
     if (!validUserName(name) || password.isEmpty())
         return false;
-    store s;
-    s.setValue("users/" + name, hashPassword(password));
-    s.sync();
+    auto s = openStore();
+    s->setValue("users/" + name, hashPassword(password));
+    s->sync();
     endUserSessions(name);   // a new password signs everyone out
-    return s.status() == QSettings::NoError;
+    return s->status() == QSettings::NoError;
 }
 
 bool webAuth::removeUser(const QString& name)
 {
     if (!userExists(name))
         return false;
-    store s;
-    s.remove("users/" + name);
-    s.sync();
+    auto s = openStore();
+    s->remove("users/" + name);
+    s->sync();
     endUserSessions(name);
     return true;
 }
@@ -95,7 +110,7 @@ bool webAuth::checkPassword(const QString& name, const QString& password)
 {
     if (!validUserName(name))
         return false;
-    const QString stored = store().value("users/" + name).toString();
+    const QString stored = openStore()->value("users/" + name).toString();
     if (stored.isEmpty()) {
         // Same work for an unknown name, so timing does not reveal names.
         verifyHash(password, hashPassword(QStringLiteral("x")));
@@ -135,17 +150,17 @@ QString webAuth::createSession(const QString& user, bool remember)
 {
     const QString token = QString::fromLatin1(randomBytes(32).toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals));
     const qint64 now = QDateTime::currentSecsSinceEpoch();
-    store s;
+    auto s = openStore();
     // Drop expired sessions while we are here.
-    s.beginGroup("sessions");
-    for (const QString& k : s.childKeys()) {
-        const QStringList v = s.value(k).toString().split('|');
+    s->beginGroup("sessions");
+    for (const QString& k : s->childKeys()) {
+        const QStringList v = s->value(k).toString().split('|');
         if (v.size() < 2 || v[1].toLongLong() < now)
-            s.remove(k);
+            s->remove(k);
     }
-    s.endGroup();
-    s.setValue(tokenKey(token), QString("%1|%2").arg(user).arg(now + (remember ? kSessionLongSecs : kSessionShortSecs)));
-    s.sync();
+    s->endGroup();
+    s->setValue(tokenKey(token), QString("%1|%2").arg(user).arg(now + (remember ? kSessionLongSecs : kSessionShortSecs)));
+    s->sync();
     return token;
 }
 
@@ -153,11 +168,11 @@ QString webAuth::sessionUser(const QString& token)
 {
     if (token.isEmpty() || token.size() > 128)
         return QString();
-    store s;
-    const QStringList v = s.value(tokenKey(token)).toString().split('|');
+    auto s = openStore();
+    const QStringList v = s->value(tokenKey(token)).toString().split('|');
     if (v.size() < 2 || v[1].toLongLong() < QDateTime::currentSecsSinceEpoch())
         return QString();
-    if (!s.contains("users/" + v[0]))
+    if (!s->contains("users/" + v[0]))
         return QString();
     return v[0];
 }
@@ -166,20 +181,20 @@ void webAuth::endSession(const QString& token)
 {
     if (token.isEmpty())
         return;
-    store s;
-    s.remove(tokenKey(token));
-    s.sync();
+    auto s = openStore();
+    s->remove(tokenKey(token));
+    s->sync();
 }
 
 void webAuth::endUserSessions(const QString& user)
 {
-    store s;
-    s.beginGroup("sessions");
-    for (const QString& k : s.childKeys())
-        if (s.value(k).toString().section('|', 0, 0) == user)
-            s.remove(k);
-    s.endGroup();
-    s.sync();
+    auto s = openStore();
+    s->beginGroup("sessions");
+    for (const QString& k : s->childKeys())
+        if (s->value(k).toString().section('|', 0, 0) == user)
+            s->remove(k);
+    s->endGroup();
+    s->sync();
 }
 
 QString webAuth::cookieToken(const QByteArray& headers)

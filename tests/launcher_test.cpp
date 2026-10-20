@@ -39,6 +39,46 @@ int main()
 
     // --- toArguments -----------------------------------------------------
 
+    // FlexRadio on the LAN, with an amplifier and on-demand.
+    {
+        LaunchConfig c;
+        c.transport = LaunchConfig::FlexLan;
+        c.flexHost = " 10.0.0.162 ";
+        c.ampHost = "10.0.0.25";
+        c.onDemandSeconds = 30;
+        const QStringList args = c.toArguments(log);
+        require(valueOf(args, "--manufacturer") == "3", "Flex is manufacturer 3");
+        require(valueOf(args, "--lan") == "10.0.0.162", "Flex address is trimmed");
+        require(valueOf(args, "--rfkit") == "10.0.0.25", "--rfkit carries the amplifier");
+        require(valueOf(args, "--on-demand") == "30", "--on-demand carries the idle time");
+        require(indexOfFlag(args, "--flex-audio") < 0, "auto audio adds no flag");
+        require(indexOfFlag(args, "--smartlink") < 0, "no SmartLink on the LAN");
+        c.flexHost.clear();
+        require(valueOf(c.toArguments(log), "--lan") == "auto", "empty Flex address = discovery");
+    }
+
+    // SmartLink: radio, audio choice, REST to the LAN.
+    {
+        LaunchConfig c;
+        c.transport = LaunchConfig::SmartLink;
+        c.smartLinkRadio = "1234-5678";
+        c.flexAudio = "none";
+        c.restLan = true;
+        const QStringList args = c.toArguments(log);
+        require(valueOf(args, "--smartlink") == "1234-5678", "--smartlink carries the radio");
+        require(valueOf(args, "--flex-audio") == "none", "--flex-audio when not auto");
+        require(indexOfFlag(args, "--rest") >= 0, "--rest when asked");
+        require(indexOfFlag(args, "--lan") < 0, "no --lan for SmartLink");
+        require(indexOfFlag(args, "--manufacturer") < 0, "--smartlink implies the Flex");
+    }
+
+    // On-demand is for network rigs only.
+    {
+        LaunchConfig c;
+        c.onDemandSeconds = 30;
+        require(indexOfFlag(c.toArguments(log), "--on-demand") < 0, "no --on-demand over USB");
+    }
+
     // USB with everything at its default: only the launcher's own flags.
     {
         LaunchConfig c;

@@ -17,6 +17,11 @@
 #include <QFontDatabase>
 #include <QGridLayout>
 #include <QGroupBox>
+#include <QButtonGroup>
+#include <QInputDialog>
+#include <QListWidget>
+#include <QProcess>
+#include <QTabWidget>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QHostAddress>
@@ -41,6 +46,18 @@
 #include <QTime>
 #include <QUrl>
 #include <QVBoxLayout>
+
+#include "webauth.h"
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -188,11 +205,79 @@ void MainWindow::buildUi()
     ++row;
     rig->addWidget(m_noAutoConnectCheck, row, 1, 1, 6);
 
+    // FlexRadio on the LAN.
+    m_flexRadio = new QRadioButton("FlexRadio", m_rigGroup);
+    m_flexRadio->setToolTip("A FLEX-6000 / 8000 / Aurora on this network.");
+    auto *flexHostLabel = new QLabel("Address", m_rigGroup);
+    m_flexHostEdit = new QLineEdit(m_rigGroup);
+    m_flexHostEdit->setPlaceholderText("auto (find it on the network) or its IP address");
+    auto *flexAudioLabel = new QLabel("RX audio", m_rigGroup);
+    m_flexAudioCombo = new QComboBox(m_rigGroup);
+    m_flexAudioCombo->addItem("Auto", "auto");
+    m_flexAudioCombo->addItem("Opus (~50 kbit/s)", "opus");
+    m_flexAudioCombo->addItem("Uncompressed (~1.5 Mbit/s)", "none");
+    m_flexAudioCombo->setToolTip("Receive audio from the radio. Auto: uncompressed on the LAN, Opus over SmartLink.");
+    ++row;
+    rig->addWidget(m_flexRadio, row, 0);
+    rig->addWidget(flexHostLabel, row, 1);
+    rig->addWidget(m_flexHostEdit, row, 2);
+    rig->addWidget(flexAudioLabel, row, 3);
+    rig->addWidget(m_flexAudioCombo, row, 4, 1, 3);
+
+    // FlexRadio through SmartLink.
+    m_smartRadio = new QRadioButton("SmartLink", m_rigGroup);
+    m_smartRadio->setToolTip("A FlexRadio somewhere else, through FlexRadio's SmartLink service.");
+    auto *smartLabel = new QLabel("Radio", m_rigGroup);
+    m_smartRadioCombo = new QComboBox(m_rigGroup);
+    m_smartRadioCombo->setEditable(true);
+    m_smartRadioCombo->setToolTip("The radio's serial number or name, or auto for the only radio on the account.");
+    m_smartSignInButton = new QPushButton("Sign in…", m_rigGroup);
+    m_smartRefreshButton = new QPushButton("Refresh", m_rigGroup);
+    m_smartSignOutButton = new QPushButton("Sign out", m_rigGroup);
+    m_smartStatusLabel = new QLabel(m_rigGroup);
+    auto *smartButtons = new QHBoxLayout;
+    smartButtons->addWidget(m_smartSignInButton);
+    smartButtons->addWidget(m_smartRefreshButton);
+    smartButtons->addWidget(m_smartSignOutButton);
+    smartButtons->addWidget(m_smartStatusLabel, 1);
+    ++row;
+    rig->addWidget(m_smartRadio, row, 0);
+    rig->addWidget(smartLabel, row, 1);
+    rig->addWidget(m_smartRadioCombo, row, 2);
+    rig->addLayout(smartButtons, row, 3, 1, 4);
+
+    // Station options for network rigs.
+    auto *ampLabel = new QLabel("Amplifier", m_rigGroup);
+    m_ampEdit = new QLineEdit(m_rigGroup);
+    m_ampEdit->setPlaceholderText("RF-KIT RF2K-S address (optional)");
+    m_ampEdit->setToolTip("The amplifier's address on this network (--rfkit). Shown under FUNC > AMP.");
+    auto *onDemandLabel = new QLabel("On demand", m_rigGroup);
+    m_onDemandSpin = new QSpinBox(m_rigGroup);
+    m_onDemandSpin->setRange(0, 3600);
+    m_onDemandSpin->setSuffix(" s");
+    m_onDemandSpin->setSpecialValueText("off");
+    m_onDemandSpin->setToolTip("Connect to the radio only while a browser has the page open, and let it go this many "
+                               "seconds after the last one closes, so other programs can use it. Off = stay connected.");
+    ++row;
+    rig->addWidget(ampLabel, row, 1);
+    rig->addWidget(m_ampEdit, row, 2);
+    rig->addWidget(onDemandLabel, row, 3);
+    rig->addWidget(m_onDemandSpin, row, 4);
+
+    auto *transportGroup = new QButtonGroup(m_rigGroup);
+    for (QRadioButton *b : {m_usbRadio, m_lanRadio, m_flexRadio, m_smartRadio})
+        transportGroup->addButton(b);
+
     m_usbWidgets = {serialLabel, m_serialCombo, manufacturerLabel, m_manufacturerCombo,
                     civLabel, m_civEdit, audioLabel, m_audioCombo};
     m_lanWidgets = {hostLabel, m_lanHostEdit, userLabel, m_lanUserEdit,
                     passLabel, m_lanPassEdit, m_noAutoConnectCheck};
-    root->addWidget(m_rigGroup);
+    m_flexWidgets = {flexHostLabel, m_flexHostEdit};
+    m_flexAudioWidgets = {flexAudioLabel, m_flexAudioCombo};
+    m_smartWidgets = {smartLabel, m_smartRadioCombo};
+    m_networkWidgets = {onDemandLabel, m_onDemandSpin};
+    m_rigGroup->setTitle(QString());
+    m_rigGroup->setFlat(true);
 
     // Server
     m_serverGroup = new QGroupBox("Server", central);
@@ -238,10 +323,40 @@ void MainWindow::buildUi()
     checks->addWidget(m_autostartCheck);
     checks->addStretch(1);
     srv->addLayout(checks, row, 0, 1, 5);
+    ++row;
+    m_restLanCheck = new QCheckBox(QStringLiteral("Open the REST API for scripts to this network (next port up; needs a web user's name and password when users exist)"), m_serverGroup);
+    m_restLanCheck->setToolTip("Off: the REST port answers on this computer only (127.0.0.1). Never forward it on the router.");
+    srv->addWidget(m_restLanCheck, row, 0, 1, 5);
 #ifndef Q_OS_WIN
     m_autostartCheck->hide();
 #endif
-    root->addWidget(m_serverGroup);
+    m_serverGroup->setTitle(QString());
+    m_serverGroup->setFlat(true);
+
+    // Web users: with one user, the page asks to sign in.
+    auto *usersPage = new QWidget(central);
+    auto *users = new QGridLayout(usersPage);
+    users->setContentsMargins(8, 6, 8, 6);
+    m_loginLabel = new QLabel(usersPage);
+    m_loginLabel->setWordWrap(true);
+    m_userList = new QListWidget(usersPage);
+    m_userAddButton = new QPushButton("Add…", usersPage);
+    m_userPasswdButton = new QPushButton("Change password…", usersPage);
+    m_userRemoveButton = new QPushButton("Remove", usersPage);
+    auto *userButtons = new QVBoxLayout;
+    userButtons->addWidget(m_userAddButton);
+    userButtons->addWidget(m_userPasswdButton);
+    userButtons->addWidget(m_userRemoveButton);
+    userButtons->addStretch(1);
+    users->addWidget(m_loginLabel, 0, 0, 1, 2);
+    users->addWidget(m_userList, 1, 0);
+    users->addLayout(userButtons, 1, 1);
+
+    m_tabs = new QTabWidget(central);
+    m_tabs->addTab(m_rigGroup, "Radio");
+    m_tabs->addTab(m_serverGroup, "Server");
+    m_tabs->addTab(usersPage, "Web users");
+    root->addWidget(m_tabs);
 
     // Controls
     auto *buttons = new QHBoxLayout;
@@ -299,9 +414,18 @@ void MainWindow::buildUi()
     // cascade offset alone can push the right edge off the screen.
     move(available.center() - QRect(QPoint(), target).center());
 
-    connect(m_usbRadio, &QRadioButton::toggled, this, [this](bool usb) {
-        for (QWidget *w : m_usbWidgets) w->setEnabled(usb);
-        for (QWidget *w : m_lanWidgets) w->setEnabled(!usb);
+    for (QRadioButton *b : {m_usbRadio, m_lanRadio, m_flexRadio, m_smartRadio})
+        connect(b, &QRadioButton::toggled, this, [this](bool) { updateTransportWidgets(); });
+    connect(m_smartSignInButton, &QPushButton::clicked, this, &MainWindow::smartLinkSignIn);
+    connect(m_smartRefreshButton, &QPushButton::clicked, this, &MainWindow::smartLinkRefresh);
+    connect(m_smartSignOutButton, &QPushButton::clicked, this, &MainWindow::smartLinkSignOut);
+    connect(m_userAddButton, &QPushButton::clicked, this, &MainWindow::addWebUser);
+    connect(m_userPasswdButton, &QPushButton::clicked, this, &MainWindow::changeWebPassword);
+    connect(m_userRemoveButton, &QPushButton::clicked, this, &MainWindow::removeWebUser);
+    connect(m_userList, &QListWidget::itemSelectionChanged, this, [this]() {
+        const bool sel = m_userList->currentItem() != nullptr;
+        m_userPasswdButton->setEnabled(sel);
+        m_userRemoveButton->setEnabled(sel);
     });
     connect(m_serialCombo, &RefreshingComboBox::aboutToShowPopup, this, &MainWindow::refreshSerialPorts);
     connect(m_audioCombo, &RefreshingComboBox::aboutToShowPopup, this, &MainWindow::refreshAudioDevices);
@@ -357,7 +481,24 @@ void MainWindow::saveConfig()
 
 void MainWindow::applyConfigToForm()
 {
-    (m_cfg.transport == LaunchConfig::Lan ? m_lanRadio : m_usbRadio)->setChecked(true);
+    switch (m_cfg.transport) {
+    case LaunchConfig::Lan:       m_lanRadio->setChecked(true); break;
+    case LaunchConfig::FlexLan:   m_flexRadio->setChecked(true); break;
+    case LaunchConfig::SmartLink: m_smartRadio->setChecked(true); break;
+    default:                      m_usbRadio->setChecked(true); break;
+    }
+    m_flexHostEdit->setText(m_cfg.flexHost);
+    m_flexAudioCombo->setCurrentIndex(qMax(0, m_flexAudioCombo->findData(m_cfg.flexAudio)));
+    m_smartRadioCombo->clear();
+    m_smartRadioCombo->addItem("auto", "auto");
+    if (m_cfg.smartLinkRadio != "auto" && !m_cfg.smartLinkRadio.isEmpty())
+        m_smartRadioCombo->addItem(m_cfg.smartLinkRadio, m_cfg.smartLinkRadio);
+    m_smartRadioCombo->setCurrentIndex(qMax(0, m_smartRadioCombo->findData(m_cfg.smartLinkRadio)));
+    m_ampEdit->setText(m_cfg.ampHost);
+    m_onDemandSpin->setValue(m_cfg.onDemandSeconds);
+    m_restLanCheck->setChecked(m_cfg.restLan);
+    updateSmartLinkStatus();
+    refreshUsers();
     refreshSerialPorts();
     selectByData(m_serialCombo, m_cfg.serialPort, "%1 (not present)");
     m_manufacturerCombo->setCurrentIndex(qMax(0, m_manufacturerCombo->findData(int(m_cfg.manufacturer))));
@@ -375,13 +516,30 @@ void MainWindow::applyConfigToForm()
     m_startOnOpenCheck->setChecked(m_cfg.startServerOnOpen);
     m_openBrowserCheck->setChecked(m_cfg.openBrowserOnStart);
     m_autostartCheck->setChecked(autostartEnabled());
-    // Apply the USB/LAN enabling for the initial state too.
-    emit m_usbRadio->toggled(m_usbRadio->isChecked());
+    // Apply the per-transport enabling for the initial state too.
+    updateTransportWidgets();
 }
 
 void MainWindow::applyFormToConfig()
 {
-    m_cfg.transport = m_lanRadio->isChecked() ? LaunchConfig::Lan : LaunchConfig::Usb;
+    m_cfg.transport = m_lanRadio->isChecked() ? LaunchConfig::Lan
+                    : m_flexRadio->isChecked() ? LaunchConfig::FlexLan
+                    : m_smartRadio->isChecked() ? LaunchConfig::SmartLink
+                    : LaunchConfig::Usb;
+    m_cfg.flexHost = m_flexHostEdit->text().trimmed();
+    if (m_cfg.flexHost.isEmpty()) m_cfg.flexHost = "auto";
+    m_cfg.flexAudio = m_flexAudioCombo->currentData().toString();
+    {
+        // The combo shows "Name (serial)" for listed radios; typed text is used as is.
+        const int i = m_smartRadioCombo->currentIndex();
+        const QString typed = m_smartRadioCombo->currentText().trimmed();
+        m_cfg.smartLinkRadio = (i >= 0 && m_smartRadioCombo->itemText(i) == m_smartRadioCombo->currentText())
+            ? m_smartRadioCombo->itemData(i).toString() : typed;
+        if (m_cfg.smartLinkRadio.isEmpty()) m_cfg.smartLinkRadio = "auto";
+    }
+    m_cfg.ampHost = m_ampEdit->text().trimmed();
+    m_cfg.onDemandSeconds = m_onDemandSpin->value();
+    m_cfg.restLan = m_restLanCheck->isChecked();
     m_cfg.serialPort = m_serialCombo->currentData().toString();
     m_cfg.manufacturer = LaunchConfig::Manufacturer(m_manufacturerCombo->currentData().toInt());
     m_cfg.civAddress = m_civEdit->text().trimmed();
@@ -496,6 +654,11 @@ void MainWindow::startServer()
     if (m_cfg.transport == LaunchConfig::Lan && m_cfg.lanHost.isEmpty()) {
         showAndRaise();
         QMessageBox::warning(this, "wfweb", "Enter the radio's LAN address first.");
+        return;
+    }
+    if (m_cfg.transport == LaunchConfig::SmartLink && !QSettings("wfweb", "smartlink").contains("refreshToken")) {
+        showAndRaise();
+        QMessageBox::warning(this, "wfweb", "Sign in to SmartLink first (Radio tab, Sign in…).");
         return;
     }
     if (!QFileInfo::exists(m_exePath)) {
@@ -912,6 +1075,209 @@ void MainWindow::setAutostart(bool enabled)
 }
 
 // --- Closing ---------------------------------------------------------------
+
+// --- FlexRadio / SmartLink -------------------------------------------------
+
+void MainWindow::updateTransportWidgets()
+{
+    const bool usb = m_usbRadio->isChecked();
+    const bool lan = m_lanRadio->isChecked();
+    const bool flex = m_flexRadio->isChecked();
+    const bool smart = m_smartRadio->isChecked();
+    for (QWidget *w : m_usbWidgets) w->setEnabled(usb);
+    for (QWidget *w : m_lanWidgets) w->setEnabled(lan);
+    for (QWidget *w : m_flexWidgets) w->setEnabled(flex);
+    for (QWidget *w : m_flexAudioWidgets) w->setEnabled(flex || smart);
+    for (QWidget *w : m_smartWidgets) w->setEnabled(smart);
+    for (QWidget *w : m_networkWidgets) w->setEnabled(!usb);
+}
+
+int MainWindow::runServerTool(const QStringList &args, const QByteArray &input, QString *output, int timeoutMs)
+{
+    if (!QFileInfo::exists(m_exePath)) {
+        QMessageBox::critical(this, "wfweb", QStringLiteral("%1 was not found next to the launcher.").arg(kServerExe));
+        return -1;
+    }
+    QProcess p;
+    p.setProcessChannelMode(QProcess::MergedChannels);
+    p.setWorkingDirectory(QFileInfo(m_exePath).absolutePath());
+#ifdef Q_OS_WIN
+    p.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *a) { a->flags |= CREATE_NO_WINDOW; });
+#endif
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    p.start(m_exePath, args);
+    if (!p.waitForStarted(5000)) {
+        QApplication::restoreOverrideCursor();
+        return -1;
+    }
+    p.write(input);
+    p.closeWriteChannel();
+    QElapsedTimer t;
+    t.start();
+    // Keep the window painting while SmartLink answers.
+    while (p.state() != QProcess::NotRunning && t.elapsed() < timeoutMs) {
+        p.waitForFinished(50);
+        QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    }
+    if (p.state() != QProcess::NotRunning) {
+        p.kill();
+        p.waitForFinished(1000);
+    }
+    QApplication::restoreOverrideCursor();
+    if (output) *output = QString::fromLocal8Bit(p.readAll());
+    return p.exitStatus() == QProcess::NormalExit ? p.exitCode() : -1;
+}
+
+void MainWindow::fillSmartLinkRadios(const QString &output)
+{
+    // "  FLEX-6400  "Nick"  serial 1234-5678  Available  (...)"
+    static const QRegularExpression re(R"re(^\s+(\S+)\s+"([^"]*)"\s+serial\s+(\S+)\s+(\S+))re");
+    const QString keep = m_smartRadioCombo->currentData().toString();
+    m_smartRadioCombo->clear();
+    m_smartRadioCombo->addItem("auto", "auto");
+    for (const QString &line : output.split('\n')) {
+        const auto m = re.match(line);
+        if (m.hasMatch())
+            m_smartRadioCombo->addItem(QString("%1 %2 (%3, %4)").arg(m.captured(1), m.captured(2), m.captured(3), m.captured(4)),
+                                       m.captured(3));
+    }
+    int i = m_smartRadioCombo->findData(keep);
+    if (i < 0 && m_smartRadioCombo->count() == 2) i = 1;   // the only radio
+    m_smartRadioCombo->setCurrentIndex(qMax(0, i));
+}
+
+void MainWindow::updateSmartLinkStatus()
+{
+    QSettings s("wfweb", "smartlink");
+    const bool signedIn = s.contains("refreshToken");
+    const QString email = s.value("email").toString();
+    m_smartStatusLabel->setText(signedIn ? QStringLiteral("Signed in%1").arg(email.isEmpty() ? QString() : " as " + email)
+                                         : QStringLiteral("Not signed in"));
+    m_smartRefreshButton->setEnabled(signedIn);
+    m_smartSignOutButton->setEnabled(signedIn);
+}
+
+void MainWindow::smartLinkSignIn()
+{
+    bool ok = false;
+    const QString email = QInputDialog::getText(this, "SmartLink sign-in", "FlexRadio account e-mail:",
+                                                QLineEdit::Normal, QSettings("wfweb", "smartlink").value("email").toString(), &ok).trimmed();
+    if (!ok || email.isEmpty()) return;
+    const QString password = QInputDialog::getText(this, "SmartLink sign-in",
+                                                   "Password (sent to FlexRadio's sign-in service, never stored):",
+                                                   QLineEdit::Password, QString(), &ok);
+    if (!ok || password.isEmpty()) return;
+    QString out;
+    const int rc = runServerTool({"--smartlink-login", email}, (password + "\n").toUtf8(), &out);
+    updateSmartLinkStatus();
+    if (rc == 0) {
+        fillSmartLinkRadios(out);
+        appendLauncherLine("Signed in to SmartLink.");
+        m_smartRadio->setChecked(true);
+    } else {
+        const QString why = out.section("Sign-in failed:", 1).section('\n', 0, 0).trimmed();
+        QMessageBox::warning(this, "SmartLink", why.isEmpty() ? QStringLiteral("Sign-in failed.\n\n%1").arg(out.trimmed())
+                                                             : QStringLiteral("Sign-in failed: %1").arg(why));
+    }
+}
+
+void MainWindow::smartLinkRefresh()
+{
+    QString out;
+    const int rc = runServerTool({"--smartlink-radios"}, QByteArray(), &out);
+    updateSmartLinkStatus();
+    if (rc == 0)
+        fillSmartLinkRadios(out);
+    else
+        QMessageBox::warning(this, "SmartLink", out.trimmed().isEmpty() ? QStringLiteral("SmartLink did not answer.") : out.trimmed());
+}
+
+void MainWindow::smartLinkSignOut()
+{
+    runServerTool({"--smartlink-logout"}, QByteArray(), nullptr);
+    updateSmartLinkStatus();
+}
+
+// --- Web users -------------------------------------------------------------
+
+void MainWindow::refreshUsers()
+{
+    m_userList->clear();
+    const QStringList names = webAuth::users();
+    m_userList->addItems(names);
+    m_loginLabel->setText(names.isEmpty()
+        ? QStringLiteral("<b>Login is off:</b> anyone who can reach the web page can use the radio. "
+                         "Add a user before forwarding the web port on your router.")
+        : QStringLiteral("<b>Login is on:</b> the web page asks for one of these users. "
+                         "Changes apply at once, also while the server runs."));
+    m_userPasswdButton->setEnabled(false);
+    m_userRemoveButton->setEnabled(false);
+}
+
+bool MainWindow::askNewPassword(const QString &user, QString *password)
+{
+    bool ok = false;
+    const QString a = QInputDialog::getText(this, "Web user", QStringLiteral("New password for %1 (8 characters or more):").arg(user),
+                                            QLineEdit::Password, QString(), &ok);
+    if (!ok) return false;
+    if (a.size() < 8) {
+        QMessageBox::warning(this, "Web user", "Use at least 8 characters.");
+        return false;
+    }
+    const QString b = QInputDialog::getText(this, "Web user", "The same password again:", QLineEdit::Password, QString(), &ok);
+    if (!ok) return false;
+    if (a != b) {
+        QMessageBox::warning(this, "Web user", "The passwords do not match.");
+        return false;
+    }
+    *password = a;
+    return true;
+}
+
+void MainWindow::addWebUser()
+{
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, "Web user", "User name (letters, digits, . _ -):",
+                                               QLineEdit::Normal, QString(), &ok).trimmed();
+    if (!ok || name.isEmpty()) return;
+    if (!webAuth::validUserName(name)) {
+        QMessageBox::warning(this, "Web user", "Use 1-32 letters, digits, '.', '_' or '-'.");
+        return;
+    }
+    if (webAuth::userExists(name)) {
+        QMessageBox::warning(this, "Web user", QStringLiteral("%1 already exists.").arg(name));
+        return;
+    }
+    QString pw;
+    if (!askNewPassword(name, &pw)) return;
+    if (!webAuth::setPassword(name, pw))
+        QMessageBox::warning(this, "Web user", "Could not save the user.");
+    refreshUsers();
+}
+
+void MainWindow::changeWebPassword()
+{
+    if (!m_userList->currentItem()) return;
+    const QString name = m_userList->currentItem()->text();
+    QString pw;
+    if (askNewPassword(name, &pw) && !webAuth::setPassword(name, pw))
+        QMessageBox::warning(this, "Web user", "Could not save the password.");
+    refreshUsers();
+}
+
+void MainWindow::removeWebUser()
+{
+    if (!m_userList->currentItem()) return;
+    const QString name = m_userList->currentItem()->text();
+    const bool last = webAuth::users().size() == 1;
+    if (QMessageBox::question(this, "Web user",
+            last ? QStringLiteral("Remove %1? It is the last user: login turns off and anyone who can reach "
+                                  "the page can use the radio.").arg(name)
+                 : QStringLiteral("Remove %1? Their browsers are signed out.").arg(name)) != QMessageBox::Yes)
+        return;
+    webAuth::removeUser(name);
+    refreshUsers();
+}
 
 void MainWindow::closeEvent(QCloseEvent *event)
 {

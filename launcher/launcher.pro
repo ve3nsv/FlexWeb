@@ -51,7 +51,8 @@ SOURCES += \
     src/portowner.cpp \
     src/serverprocess.cpp \
     src/statuspoller.cpp \
-    src/mainwindow.cpp
+    src/mainwindow.cpp \
+    ../src/webauth.cpp
 
 HEADERS += \
     src/launchconfig.h \
@@ -60,4 +61,5 @@ HEADERS += \
     src/portowner.h \
     src/serverprocess.h \
     src/statuspoller.h \
-    src/mainwindow.h
+    src/mainwindow.h \
+    ../include/webauth.h

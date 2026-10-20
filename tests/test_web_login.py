@@ -161,7 +161,10 @@ def server():
     home = "/tmp/wfweb-web-login-test"
     subprocess.run(["rm", "-rf", home])
     os.makedirs(home)
-    env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=f"{home}/.config", WFWEB_NO_TUI="1")
+    # WFWEB_CONFIG_DIR: users in an ini file here on every platform (macOS
+    # QSettings ignores $HOME and would leak the users into other tests).
+    env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=f"{home}/.config", WFWEB_NO_TUI="1",
+               WFWEB_CONFIG_DIR=home)
 
     # Users from the command line; a pipe gives the password on one line.
     add = subprocess.run([str(WFWEB_BIN), "--add-user", "tom"], input=(PASSWORD + "\n").encode(),
@@ -175,7 +178,7 @@ def server():
     assert amy.returncode == 0
     lst = subprocess.run([str(WFWEB_BIN), "--list-users"], capture_output=True, env=env, timeout=20)
     assert lst.stdout.decode().split() == ["amy", "tom"]
-    stored = (Path(home) / ".config" / "wfweb" / "webusers.conf").read_text()
+    stored = (Path(home) / "webusers.ini").read_text()
     assert PASSWORD not in stored and "pbkdf2-sha256$" in stored
 
     loop = asyncio.new_event_loop()

@@ -9,6 +9,39 @@ upstream wfview history.
 Unreleased
 ----------
 
+Web access:
+- Web login with named users. wfweb --add-user / --passwd / --remove-user
+  / --list-users (or the launcher's Web users tab) manage them; only
+  PBKDF2-SHA256 hashes are stored. With one user the page, its files, the
+  /api/ on the web port and the WebSocket need a session cookie (HttpOnly,
+  Secure, SameSite=Strict; 12 h, or 30 days with "keep me signed in");
+  five wrong passwords lock the address for 15 minutes. The top bar shows
+  who is signed in and signs out. The terminal warns while login is off.
+- The plain-HTTP REST port now listens on 127.0.0.1 only. --rest (or
+  WFWEB_REST=1) opens it to the LAN; with web users it then needs HTTP
+  Basic auth from other machines.
+- TX lock: one browser transmits at a time. Another browser's PTT is
+  refused and told who has the radio, its release cannot unkey the
+  operator, its microphone is kept off the air, and every page shows
+  "TX: <user>".
+- Intercom during TX: FUNC > AUDIO > TX LISTEN picks what this browser
+  hears while another one transmits: OPERATOR (their microphone, straight
+  through), ON-AIR (the radio's monitor; MON is switched on for the
+  transmission when nobody had it on) or OFF, with its own LISTEN VOL.
+  Data modes stay silent unless DIGI LISTEN is on.
+
+FlexRadio:
+- Opus receive audio: over SmartLink the radio now sends Opus (about
+  50 kbit/s instead of ~1.5 Mbit/s); --flex-audio opus|none|auto chooses.
+- --smartlink-radios lists the account's radios with the stored sign-in.
+
+Windows launcher:
+- FlexRadio (LAN address or auto) and SmartLink (Sign in, radio list,
+  Sign out) next to USB and LAN, RX audio choice, amplifier address and
+  on-demand time; a Server tab option to open the REST API to the LAN;
+  a Web users tab to add, change and remove users. The form is in tabs
+  so it still fits a 200 % display.
+
 FlexRadio:
 - FlexRadio FLEX-6000 / FLEX-8000 / Aurora SDRs are supported over the
   LAN: --manufacturer 3 --lan <radio IP> (or --lan auto to wait for the
