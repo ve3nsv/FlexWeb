@@ -63,7 +63,12 @@ jobs:
       - name: Run tests
         run: |
           sudo apt-get install -y python3-pytest python3-requests
-          python3 -m pytest tests/ -v
+          # Failures also go out as annotations, readable without the log.
+          set +e
+          python3 -m pytest tests/ -v -rfE --tb=short 2>&1 | tee pytest.log
+          rc=${PIPESTATUS[0]}
+          grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
+          exit $rc
 
       - name: Get version
         id: version
@@ -193,7 +198,12 @@ jobs:
       - name: Run tests
         run: |
           apt-get install -y python3-pytest python3-requests
-          python3 -m pytest tests/ -v
+          # Failures also go out as annotations, readable without the log.
+          set +e
+          python3 -m pytest tests/ -v -rfE --tb=short 2>&1 | tee pytest.log
+          rc=${PIPESTATUS[0]}
+          grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
+          exit $rc
 
       - name: Get version
         id: version
@@ -322,7 +332,12 @@ jobs:
       - name: Run tests
         run: |
           apt-get install -y python3-pytest python3-requests
-          python3 -m pytest tests/ -v
+          # Failures also go out as annotations, readable without the log.
+          set +e
+          python3 -m pytest tests/ -v -rfE --tb=short 2>&1 | tee pytest.log
+          rc=${PIPESTATUS[0]}
+          grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
+          exit $rc
 
       - name: Get version
         id: version
@@ -602,7 +617,12 @@ jobs:
       - name: Run tests
         run: |
           pip3 install --break-system-packages pytest requests
-          python3 -m pytest tests/ -v
+          # Failures also go out as annotations, readable without the log.
+          set +e
+          python3 -m pytest tests/ -v -rfE --tb=short 2>&1 | tee pytest.log
+          rc=${PIPESTATUS[0]}
+          grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
+          exit $rc
 
       - name: Package zip
         run: |
