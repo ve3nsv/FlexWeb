@@ -41,12 +41,15 @@
 
 #include "direwolfprocessor.h"
 #include "smartlinkclient.h"
+#include "webauth.h"
 
 #include <QEventLoop>
 #include <QTimer>
 #include <string>
 #ifndef Q_OS_WIN
 #include <termios.h>
+#else
+#include <io.h>
 #endif
 
 bool debugMode=false;
@@ -203,6 +206,59 @@ static std::string readHidden()
     return line;
 }
 
+static bool stdinIsTerminal()
+{
+#ifdef Q_OS_WIN
+    return _isatty(_fileno(stdin)) != 0;
+#else
+    return isatty(STDIN_FILENO) != 0;
+#endif
+}
+
+// wfweb --add-user / --passwd <name>: on a terminal ask twice without echo;
+// from a pipe (the Windows launcher) read one line.
+static int webUserPassword(const QString& name, bool mustBeNew)
+{
+    if (!webAuth::validUserName(name)) {
+        std::cout << "User names are 1-32 letters, digits, '.', '_' or '-'.\n";
+        return 1;
+    }
+    if (mustBeNew && webAuth::userExists(name)) {
+        std::cout << "User " << name.toStdString() << " already exists; use --passwd to change the password.\n";
+        return 1;
+    }
+    if (!mustBeNew && !webAuth::userExists(name)) {
+        std::cout << "No user " << name.toStdString() << ".\n";
+        return 1;
+    }
+    QString pw;
+    if (stdinIsTerminal()) {
+        std::cout << "Password for " << name.toStdString() << ": " << std::flush;
+        pw = QString::fromStdString(readHidden());
+        std::cout << "Again: " << std::flush;
+        if (QString::fromStdString(readHidden()) != pw) {
+            std::cout << "The passwords do not match.\n";
+            return 1;
+        }
+    } else {
+        std::string line;
+        std::getline(std::cin, line);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        pw = QString::fromStdString(line);
+    }
+    if (pw.size() < 8) {
+        std::cout << "Use at least 8 characters.\n";
+        return 1;
+    }
+    if (!webAuth::setPassword(name, pw)) {
+        std::cout << "Could not save the user.\n";
+        return 1;
+    }
+    std::cout << (mustBeNew ? "Added " : "Changed the password of ") << name.toStdString()
+              << ". Web login is on (" << webAuth::users().size() << " user(s)).\n";
+    return 0;
+}
+
 // wfweb --smartlink-login [email]: sign in to the FlexRadio account once,
 // keep the refresh token (not the password), list the account's radios.
 static int smartLinkLogin(QString email)
@@ -348,6 +404,14 @@ int main(int argc, char *argv[])
         "  --smartlink-login [email]  Sign in to SmartLink, list the account's radios, exit.\n"
         "                          Keeps a sign-in token, never the password\n"
         "  --smartlink-logout      Forget the SmartLink sign-in\n"
+        "  --add-user <name>       Add a web page user (asks for the password). With at\n"
+        "                          least one user, the page asks to sign in\n"
+        "  --passwd <name>         Change a web user's password\n"
+        "  --remove-user <name>    Remove a web user (none left = login off)\n"
+        "  --list-users            List the web users\n"
+        "  --rest                  Open the plain-HTTP REST port (web port + 1) to the\n"
+        "                          LAN; default is 127.0.0.1 only. With web users, LAN\n"
+        "                          requests need HTTP Basic auth\n"
         "  --rfkit <host[:port]>   RF-KIT (RF2K-S) amplifier on the LAN (REST API, port\n"
         "                          8080 if omitted); shown under FUNC > AMP\n"
         "  --remote-log-decodes    Also forward FT8/FT4 decodes to the remote logger\n"
@@ -574,6 +638,31 @@ int main(int argc, char *argv[])
             if (argc > c + 1 && argv[c + 1][0] != '-') email = argv[++c];
             return smartLinkLogin(email);
         }
+        else if (currentArg == "--add-user" || currentArg == "--passwd")
+        {
+            if (argc <= c + 1) { std::cout << "Error: " << currentArg.toStdString() << " requires a user name\n"; return -1; }
+            return webUserPassword(QString(argv[++c]), currentArg == "--add-user");
+        }
+        else if (currentArg == "--remove-user")
+        {
+            if (argc <= c + 1) { std::cout << "Error: --remove-user requires a user name\n"; return -1; }
+            const QString name = argv[++c];
+            if (!webAuth::removeUser(name)) { std::cout << "No user " << name.toStdString() << ".\n"; return 1; }
+            std::cout << "Removed " << name.toStdString() << ".";
+            std::cout << (webAuth::hasUsers() ? "\n" : " No users left: web login is off.\n");
+            return 0;
+        }
+        else if (currentArg == "--list-users")
+        {
+            const QStringList u = webAuth::users();
+            if (u.isEmpty()) std::cout << "No web users: login is off.\n";
+            for (const QString& n : u) std::cout << n.toStdString() << "\n";
+            return 0;
+        }
+        else if (currentArg == "--rest")
+        {
+            overrides.restLan = true;
+        }
         else if (currentArg == "--smartlink-logout")
         {
             smartLinkClient::forgetCredentials();
@@ -753,6 +842,8 @@ int main(int argc, char *argv[])
         overrides.noAutoConnect = true;
     if (overrides.onDemandIdle == 0 && qEnvironmentVariableIntValue("WFWEB_ON_DEMAND") > 0)
         overrides.onDemandIdle = qEnvironmentVariableIntValue("WFWEB_ON_DEMAND");
+    if (qEnvironmentVariableIntValue("WFWEB_REST") > 0)
+        overrides.restLan = true;
     if (qEnvironmentVariableIntValue("WFWEB_NO_TUI") > 0)
         noTui = true;
 

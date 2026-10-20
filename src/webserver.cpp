@@ -18,6 +18,8 @@
 #include <QThread>
 #include <QDateTime>
 #include <QHostInfo>
+#include <QPointer>
+#include <QThreadPool>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -446,9 +448,12 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
         connect(wsServer, &QWebSocketServer::newConnection, this, &webServer::onWsNewConnection);
 
         // Plain HTTP server on wsPort for microcontrollers/scripts that don't support TLS
+        // 127.0.0.1 only unless --rest: plain HTTP, so it must never be
+        // reachable through a port forward by default.
         restServer = new QTcpServer(this);
-        if (restServer->listen(QHostAddress::Any, wsPort)) {
+        if (restServer->listen(restLan ? QHostAddress(QHostAddress::Any) : QHostAddress(QHostAddress::LocalHost), wsPort)) {
             qInfo() << "Web plain HTTP REST server listening on port" << wsPort
+                    << (restLan ? "on all interfaces (--rest)" : "on 127.0.0.1 only (--rest opens it to the LAN)")
                     << "(use http:// on this port for scripts/microcontrollers)";
             restListen_ = ListenOk;
             connect(restServer, &QTcpServer::newConnection, this, &webServer::onHttpConnection);
@@ -476,6 +481,12 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
             qWarning() << "Web WebSocket server failed to listen on port" << wsPort;
         }
     }
+
+    if (webAuth::hasUsers())
+        qInfo() << "Web login is on:" << webAuth::users().size() << "user(s)";
+    else
+        qWarning() << "Web login is off: anyone who can reach port" << httpPort
+                   << "can use the radio. Add a user with  wfweb --add-user <name>  before port forwarding.";
 
     // Periodic status updates (meters, etc.) every 200ms
     statusTimer = new QTimer(this);
@@ -705,6 +716,12 @@ void webServer::onHttpReadyRead()
     if (isSslConnection) {
         QByteArray peek = socket->peek(4096);
         if (peek.contains("Upgrade: websocket") || peek.contains("Upgrade: WebSocket")) {
+            if (webAuth::hasUsers() && requestUser(socket, peek).isEmpty()) {
+                socket->write("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                socket->flush();
+                socket->disconnectFromHost();
+                return;
+            }
             disconnect(socket, &QTcpSocket::readyRead, this, &webServer::onHttpReadyRead);
             disconnect(socket, &QTcpSocket::disconnected, this, &webServer::onHttpDisconnected);
             wsServer->handleConnection(socket);
@@ -764,6 +781,45 @@ void webServer::onHttpReadyRead()
     // OPTIONS preflight for CORS
     if (method == "OPTIONS") {
         sendRestResponse(socket, 200, QJsonObject());
+        return;
+    }
+
+    // Web login (webAuth): on as soon as one user exists. The page, its
+    // files and the /api/ on the web port need a session cookie; the REST
+    // port, when opened to the LAN with --rest, takes HTTP Basic auth.
+    const bool onRestPort = socket->property("isRestPort").toBool();
+    if (!onRestPort) {
+        const bool loginOn = webAuth::hasUsers();
+        if (path == "/login") {
+            if (!loginOn) sendRedirect(socket, "/");
+            else if (method == "POST") handleLogin(socket, body);
+            else serveLoginPage(socket, 200, QString());
+            return;
+        }
+        if (path == "/logout") {
+            webAuth::endSession(webAuth::cookieToken(headerSection));
+            sendRedirect(socket, loginOn ? "/login" : "/", webAuth::clearCookieHeader());
+            return;
+        }
+        if (loginOn && requestUser(socket, headerSection).isEmpty()) {
+            if (path.startsWith("/api/")) {
+                QJsonObject err;
+                err["error"] = "login required";
+                sendRestResponse(socket, 401, err);
+            } else if (method == "GET" && (path == "/" || path.endsWith(".html"))) {
+                sendRedirect(socket, "/login");
+            } else {
+                sendHttpResponse(socket, 401, "Unauthorized", "text/plain", "Login required");
+            }
+            return;
+        }
+    } else if (!restAuthorized(socket, headerSection)) {
+        QByteArray r = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"wfweb\"\r\n"
+                       "Content-Type: application/json\r\nContent-Length: 27\r\nConnection: close\r\n\r\n"
+                       "{\"error\":\"login required\"}";
+        socket->write(r);
+        socket->flush();
+        socket->disconnectFromHost();
         return;
     }
 
@@ -1737,6 +1793,21 @@ void webServer::handleRestRequest(QTcpSocket *socket, const QString &method,
 void webServer::onWsNewConnection()
 {
     QWebSocket *pSocket = wsServer->nextPendingConnection();
+    if (!pSocket) return;
+
+    // Web login: the handshake carries the session cookie.
+    QString user;
+    if (webAuth::hasUsers()) {
+        const QByteArray cookie = pSocket->request().rawHeader("Cookie");
+        user = webAuth::sessionUser(webAuth::cookieToken("Cookie: " + cookie));
+        if (user.isEmpty()) {
+            qWarning() << "Web: refused a browser without a valid login from" << pSocket->peerAddress().toString();
+            pSocket->close(QWebSocketProtocol::CloseCodePolicyViolated, "login required");
+            pSocket->deleteLater();
+            return;
+        }
+    }
+    wsUser.insert(pSocket, user);
 
     connect(pSocket, &QWebSocket::textMessageReceived, this, &webServer::onWsTextMessage);
     connect(pSocket, &QWebSocket::binaryMessageReceived, this, &webServer::onWsBinaryMessage);
@@ -1744,7 +1815,8 @@ void webServer::onWsNewConnection()
 
     wsClients.append(pSocket);
     browserCount_ = wsClients.size();
-    qInfo() << "Web client connected:" << pSocket->peerAddress().toString();
+    qInfo().noquote() << "Web client connected:" << pSocket->peerAddress().toString()
+                      << (user.isEmpty() ? QString() : QString("(%1)").arg(user));
     onDemandBrowserArrived();
 
     // Send current state to new client
@@ -1812,6 +1884,7 @@ void webServer::onWsDisconnected()
         packetUsbTxBuffer.clear();
         packetUsbTxActive = false;
         audioClients.remove(pClient);
+        wsUser.remove(pClient);
         wsClients.removeAll(pClient);
         browserCount_ = wsClients.size();
         pClient->deleteLater();
@@ -3806,6 +3879,9 @@ void webServer::sendCurrentState(QWebSocket *client)
     info["logbookPath"] = logbook_.path();
     info["logbookCount"] = logbook_.count();
     info["logbookPersistent"] = logbookPersistent_;
+    // Web login: who this browser is signed in as ("" when login is off).
+    info["webUser"] = wsUser.value(client);
+    info["webLogin"] = webAuth::hasUsers();
     // The browser adopts these on connect instead of pushing its own copy.
     info["stationCallsign"] = reporterCallsign;
     info["stationGrid"] = reporterGrid;
@@ -8501,6 +8577,144 @@ void webServer::readUsbAudio()
 // reload or a dropped Wi-Fi link, which reconnect within seconds. Only the
 // browser WebSocket counts: the REST API and rigctld neither open the
 // session nor hold it open.
+
+void webServer::setRestLan(bool lan)
+{
+    restLan = lan;
+}
+
+// ─── Web login ─────────────────────────────────────────────────────────────
+
+QString webServer::requestUser(QTcpSocket *socket, const QByteArray &headers)
+{
+    Q_UNUSED(socket)
+    return webAuth::sessionUser(webAuth::cookieToken(headers));
+}
+
+bool webServer::restAuthorized(QTcpSocket *socket, const QByteArray &headers)
+{
+    if (!restLan || !webAuth::hasUsers())
+        return true;   // 127.0.0.1-only, or no users at all
+    const QHostAddress peer = socket->peerAddress();
+    if (peer.isLoopback() || peer.toString() == "::ffff:127.0.0.1")
+        return true;
+    QByteArray cred;
+    for (const QByteArray &line : headers.split('\n')) {
+        const QByteArray l = line.trimmed();
+        if (l.toLower().startsWith("authorization: basic "))
+            cred = QByteArray::fromBase64(l.mid(21).trimmed());
+    }
+    const int colon = cred.indexOf(':');
+    if (colon <= 0)
+        return false;
+    const QString address = peer.toString();
+    if (auth.lockedOut(address))
+        return false;
+    const QByteArray key = QCryptographicHash::hash(cred, QCryptographicHash::Sha256);
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (restBasicOk.value(key) > now)
+        return true;
+    // PBKDF2 is slow on purpose; a script repeats the same credentials, so
+    // a good pair is remembered for 10 minutes.
+    if (webAuth::checkPassword(QString::fromUtf8(cred.left(colon)), QString::fromUtf8(cred.mid(colon + 1)))) {
+        if (restBasicOk.size() > 100) restBasicOk.clear();
+        restBasicOk.insert(key, now + 600000);
+        auth.recordSuccess(address);
+        return true;
+    }
+    auth.recordFailure(address);
+    qWarning().noquote() << "Web: wrong REST credentials from" << address;
+    return false;
+}
+
+void webServer::sendRedirect(QTcpSocket *socket, const QByteArray &location, const QByteArray &extraHeader)
+{
+    QByteArray r = "HTTP/1.1 303 See Other\r\nLocation: " + location + "\r\n";
+    if (!extraHeader.isEmpty())
+        r += extraHeader + "\r\n";
+    r += "Content-Length: 0\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n";
+    socket->write(r);
+    socket->flush();
+    socket->disconnectFromHost();
+}
+
+void webServer::serveLoginPage(QTcpSocket *socket, int status, const QString &error)
+{
+    QString title = instanceName_.isEmpty() ? QStringLiteral("wfweb") : instanceName_;
+    QString page = QStringLiteral(R"HTML(<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>%1 sign in</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+ background:#0f0f1a;color:#c8d8e8;font:15px system-ui,-apple-system,Segoe UI,sans-serif}
+form{width:min(320px,calc(100vw - 32px));background:#121a26;border:1px solid #2a3a4d;border-radius:6px;padding:24px}
+h1{margin:0 0 4px;font-size:20px;color:#e6f0fa}
+p.sub{margin:0 0 18px;color:#8ea8c0;font-size:13px}
+label{display:block;margin:12px 0 4px;font-size:13px;color:#8ea8c0}
+input[type=text],input[type=password]{box-sizing:border-box;width:100%;padding:10px;border-radius:4px;
+ border:1px solid #304050;background:#0b0b14;color:#e6f0fa;font-size:16px}
+input:focus{outline:2px solid #00b4d8;outline-offset:1px}
+.row{display:flex;align-items:center;gap:8px;margin-top:14px;font-size:14px}
+button{margin-top:18px;width:100%;padding:11px;border:0;border-radius:4px;background:#00b4d8;color:#041019;
+ font-weight:700;font-size:15px;cursor:pointer}
+.err{margin-top:14px;padding:8px 10px;border-radius:4px;background:#3a1418;color:#ffb4b4;font-size:13px}
+</style></head><body>
+<form method="post" action="/login" autocomplete="on">
+<h1>%1</h1><p class="sub">Sign in to use the radio</p>
+<label for="u">User name</label><input id="u" name="user" type="text" autocomplete="username" autocapitalize="none" required autofocus>
+<label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required>
+<label class="row"><input type="checkbox" name="remember" value="1" checked> Keep me signed in on this device</label>
+<button type="submit">Sign in</button>%2
+</form></body></html>
+)HTML");
+    const QString err = error.isEmpty() ? QString() : QString("<div class=\"err\" role=\"alert\">%1</div>").arg(error.toHtmlEscaped());
+    page = page.arg(title.toHtmlEscaped(), err);
+    sendHttpResponse(socket, status, status == 200 ? "OK" : (status == 429 ? "Too Many Requests" : "Unauthorized"),
+                     "text/html; charset=utf-8", page.toUtf8());
+}
+
+void webServer::handleLogin(QTcpSocket *socket, const QByteArray &body)
+{
+    QUrlQuery form(QString::fromUtf8(body).replace('+', ' '));
+    const QString user = form.queryItemValue("user", QUrl::FullyDecoded).trimmed();
+    const QString password = form.queryItemValue("password", QUrl::FullyDecoded);
+    const bool remember = form.queryItemValue("remember") == "1";
+    const QString address = socket->peerAddress().toString();
+    int left = 0;
+    if (auth.lockedOut(address, &left)) {
+        serveLoginPage(socket, 429, QString("Too many wrong passwords from this address. Try again in %1 min.")
+                                        .arg((left + 59) / 60));
+        return;
+    }
+    // PBKDF2 off the web thread: audio keeps flowing to the other browsers.
+    QPointer<QTcpSocket> sock(socket);
+    QPointer<webServer> self(this);
+    QThreadPool::globalInstance()->start([self, sock, user, password, remember, address]() {
+        const bool ok = webAuth::checkPassword(user, password);
+        if (!self) return;
+        QMetaObject::invokeMethod(self.data(), [self, sock, user, remember, address, ok]() {
+            if (ok) {
+                self->auth.recordSuccess(address);
+                qInfo().noquote() << "Web:" << user << "signed in from" << address;
+                QByteArray cookie = webAuth::setCookieHeader(webAuth::createSession(user, remember), remember);
+                // Plain-HTTP fallback (no certificate): a Secure cookie would never come back.
+                if (!self->sslEnabled) cookie.replace("; Secure", "");
+                if (sock) self->sendRedirect(sock, "/", cookie);
+            } else {
+                self->auth.recordFailure(address);
+                qWarning().noquote() << "Web: failed sign-in" << (user.isEmpty() ? QString() : "as " + user) << "from" << address;
+                int wait = 0;
+                if (!sock) return;
+                if (self->auth.lockedOut(address, &wait))
+                    self->serveLoginPage(sock, 429, QString("Too many wrong passwords from this address. Try again in %1 min.").arg((wait + 59) / 60));
+                else
+                    self->serveLoginPage(sock, 401, "Wrong user name or password.");
+            }
+        }, Qt::QueuedConnection);
+    });
+}
 
 void webServer::setOnDemand(int idleSeconds)
 {

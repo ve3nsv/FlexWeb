@@ -13,6 +13,8 @@
 #include <QJsonArray>
 #include <QTimer>
 #include <QSet>
+#include <QHash>
+#include <QPointer>
 #include <QThread>
 #include <QSslSocket>
 #include <QSslKey>
@@ -23,6 +25,7 @@
 #include <memory>
 #include <atomic>
 #include "logbook.h"
+#include "webauth.h"
 namespace AetherSDR { class RfkitConnection; }
 
 #if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
@@ -136,6 +139,10 @@ public slots:
     // --on-demand: hold the rig's LAN session only while a browser is
     // connected; release it idleSeconds after the last one leaves.
     void setOnDemand(int idleSeconds);
+    // --rest: the plain-HTTP REST port (web port + 1) listens on every
+    // interface. Default: 127.0.0.1 only, so it can never be port forwarded.
+    // With web users set up, LAN requests to it need HTTP Basic auth.
+    void setRestLan(bool lan);
     // Logbook path and remote-logging (WSJT-X UDP) setup from settings +
     // command-line overrides; runs once on the web thread at startup.
     void configureLogbook(const QString &logbookOverride,
@@ -296,6 +303,16 @@ private:
     quint16 webHttpsPort = 0;          // configured HTTPS/web-UI port, for the REST signpost (#69)
     QWebSocketServer *wsServer = nullptr;
     QList<QWebSocket *> wsClients;
+    // Web login (webAuth): who each browser is signed in as.
+    webAuth auth;
+    QHash<QWebSocket *, QString> wsUser;
+    bool restLan = false;
+    QHash<QByteArray, qint64> restBasicOk;   // sha256(user:pass) -> valid until (ms)
+    QString requestUser(QTcpSocket *socket, const QByteArray &headers);
+    bool restAuthorized(QTcpSocket *socket, const QByteArray &headers);
+    void serveLoginPage(QTcpSocket *socket, int status, const QString &error);
+    void handleLogin(QTcpSocket *socket, const QByteArray &body);
+    void sendRedirect(QTcpSocket *socket, const QByteArray &location, const QByteArray &extraHeader = QByteArray());
     cachingQueue *queue = nullptr;
     rigCapabilities *rigCaps = nullptr;
     QTimer *statusTimer = nullptr;
