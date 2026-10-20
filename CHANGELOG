@@ -26,7 +26,11 @@ FlexRadio:
 - The panadapter follows the slice when tuning by knob, wheel or
   drag, not only on a typed frequency. NB, NR and ANF latch: the radio
   does not echo a client's own changes, so wfweb keeps them itself.
-- Waterfall colour schemes (SPAN > Colour), after AetherSDR's.
+- Waterfall colour schemes (SPAN > Colour), after AetherSDR's, and
+  SPAN > Spectrum COLOUR fills the spectrum trace in the same palette.
+- Zooming the span keeps the frequency axis and passband marker in step:
+  the radio does not echo a client's own bandwidth change, so the axis
+  kept the old span while the picture zoomed.
 - FT8/FT4/JS8 transmit at the set power. The ALC reading was the radio's
   external ALC jack (0 dBFS, i.e. 100 %, with nothing plugged in), so the
   drive loop turned the audio right down; ALC is now the DAX TX audio

@@ -186,9 +186,9 @@ class MockFlexRadio:
             kv = dict(w.split("=", 1) for w in words[4:] if "=" in w)
             mapped = {("x_pixels" if k == "xpixels" else "y_pixels" if k == "ypixels" else k): v
                       for k, v in kv.items()}
-            # Like a FLEX-6400: the new size and dBm range take effect in the
-            # FFT stream, but the status keeps reporting the pan's old ones.
-            own = {k: v for k, v in mapped.items() if k in ("x_pixels", "y_pixels", "min_dbm", "max_dbm")}
+            # Like a FLEX-6400: the new size, dBm range and bandwidth take
+            # effect, but the status keeps reporting the pan's old ones.
+            own = {k: v for k, v in mapped.items() if k in ("x_pixels", "y_pixels", "min_dbm", "max_dbm", "bandwidth")}
             self.pan_scale.update(own)
             echoed = {k: v for k, v in mapped.items() if k not in own}
             if echoed:

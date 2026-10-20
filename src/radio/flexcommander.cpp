@@ -1459,8 +1459,14 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         return;
     case funcScopeSpan: {
         const centerSpanData s = value.value<centerSpanData>();
-        if (!panId.isEmpty() && s.freq > 0)
+        if (!panId.isEmpty() && s.freq > 0) {
             sendCmd(QString("display pan set %1 bandwidth=%2").arg(panId).arg(2.0 * s.freq / 1e6, 0, 'f', 6));
+            // The radio does not echo a client's own bandwidth change, and the
+            // scope's frequency axis and passband marker are drawn from it:
+            // without this the picture zoomed while the axis kept the old span.
+            panBandwidthMHz = 2.0 * s.freq / 1e6;
+            reportCurrent(funcScopeSpan);
+        }
         return;
     }
     case funcScopeSpeed: {

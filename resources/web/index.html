@@ -2327,6 +2327,11 @@ body.digi-open #bottomBar { grid-row: 5; }
                 </div></div>
             <div class="scope-row"><span class="scope-row-label">Colour</span>
 <div class="overlay-grid" id="wfPaletteGrid"></div></div>
+            <div class="scope-row"><span class="scope-row-label">Spectrum</span>
+                <div class="overlay-grid">
+                    <button class="ov-btn" id="spectFillWhiteBtn" onclick="setSpectFill('white')">WHITE</button>
+                    <button class="ov-btn" id="spectFillPalBtn" onclick="setSpectFill('palette')">COLOUR</button>
+                </div></div>
 <div class="scope-row"><span class="scope-row-label">Speed</span>
                 <div class="overlay-grid">
                     <button class="ov-btn" id="wfSpeedSlowBtn" onclick="setWfSpeed('slow')">SLOW</button>
@@ -7743,7 +7748,21 @@ function setWfPalette(key) {
     if (wfImageData) { wfFillBlank(wfImageData.data, 0, wfImageData.data.length); wfBufDirty = true; }
 }
 
+// The spectrum trace: wfweb's white, or filled in the waterfall palette so a
+// signal is the same colour in both (localStorage wfSpectFill).
+var spectFill = 'white';
+try { if (localStorage.getItem('wfSpectFill') === 'palette') spectFill = 'palette'; } catch (e) {}
+
+function setSpectFill(mode) {
+    spectFill = mode === 'palette' ? 'palette' : 'white';
+    try { localStorage.setItem('wfSpectFill', spectFill); } catch (e) {}
+    renderWfPaletteButtons();
+}
+
 function renderWfPaletteButtons() {
+    var wb = document.getElementById('spectFillWhiteBtn'), pb = document.getElementById('spectFillPalBtn');
+    if (wb) wb.classList.toggle('active', spectFill === 'white');
+    if (pb) pb.classList.toggle('active', spectFill === 'palette');
     var grid = document.getElementById('wfPaletteGrid');
     if (!grid) return;
     grid.innerHTML = '';
@@ -8341,7 +8360,18 @@ function drawSpectrum() {
     // (spectAdvanceTween). The per-bin zigzag IS the grass: nothing is
     // smoothed across bins, only drawn between them.
     var easing = spectAdvanceTween();
-    ctx.fillStyle = 'rgb(237,242,247)';
+    if (spectFill === 'palette' && colorTable) {
+        // Vertical gradient: each height takes the waterfall colour of the
+        // level drawn there (barY run backwards), so the two views agree.
+        var top = plotH * 0.06, grad = ctx.createLinearGradient(0, plotH, 0, top);
+        for (var gs = 0; gs <= 24; gs++) {
+            var gc = colorTable[wfColorIndex(floor + (gs / 24) * spectAmpMax)];
+            grad.addColorStop(gs / 24, 'rgb(' + gc[0] + ',' + gc[1] + ',' + gc[2] + ')');
+        }
+        ctx.fillStyle = grad;
+    } else {
+        ctx.fillStyle = 'rgb(237,242,247)';
+    }
     fillTrace(spectShown);
 
     // Passband indicator bar, hung off the VFO marker
