@@ -670,6 +670,10 @@ jobs:
           host: 'windows'
           target: 'desktop'
           arch: 'win64_msvc2019_64'
+          # Real OpenSSL 1.1.1 for Qt 5.15's TLS *client* side (SmartLink,
+          # Auth0). OpenSSL 3 renamed as 1.1 serves HTTPS but fails a client
+          # handshake: Qt 5 cannot resolve SSL_get_peer_certificate there.
+          tools: 'tools_openssl_x64,qt.tools.openssl.win_x64'
 
       - name: Install vcpkg packages
         run: vcpkg install eigen3:x64-windows portaudio:x64-windows hidapi:x64-windows openssl:x64-windows
@@ -792,7 +796,18 @@ jobs:
             if (Test-Path $src) { Copy-Item $src $out -Force }
           }
 
-          # OpenSSL 1.1 aliases for Qt 5.15
+          # OpenSSL 1.1.1 from the Qt tools package (see Install Qt).
+          $ossl = Get-ChildItem -Path "$env:IQTA_TOOLS", "$env:RUNNER_WORKSPACE", "D:\a" -Recurse -Filter "libssl-1_1-x64.dll" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($ossl) {
+            Copy-Item $ossl.FullName $out -Force
+            Copy-Item (Join-Path $ossl.DirectoryName "libcrypto-1_1-x64.dll") $out -Force
+            Write-Host "Bundled OpenSSL 1.1.1 from $($ossl.DirectoryName)"
+          } else {
+            Write-Host "::error title=OpenSSL::OpenSSL 1.1.1 not found; SmartLink TLS will not work"
+            exit 1
+          }
+
+          # OpenSSL 1.1 aliases for Qt 5.15 (fallback only)
           if (!(Test-Path "$out\libssl-1_1-x64.dll") -and (Test-Path "$out\libssl-3-x64.dll")) {
             Copy-Item "$out\libssl-3-x64.dll" "$out\libssl-1_1-x64.dll"
           }
