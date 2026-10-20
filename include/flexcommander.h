@@ -206,6 +206,13 @@ private:
     // the XVTR port, leaving the band puts back the HF antennas it had.
     bool on2m = false;
     QString hfRxAnt, hfTxAnt;
+    // After leaving 2 m: the antennas wfweb put back, and until when it
+    // defends them against the radio's own per-band antenna recall, which
+    // can land after our command.
+    QString hfRestoreRx, hfRestoreTx;
+    qint64 hfRestoreUntilMs = 0;
+    static bool isTwoMetres(quint64 hz) { return hz >= 144000000ULL && hz <= 148000000ULL; }
+    void rememberHfAntennas();
     void applyBandAntennas();
     void setSliceAntennas(const QString& rx, const QString& tx);
     bool ritOn = false;

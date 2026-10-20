@@ -196,6 +196,33 @@ def test_cw(flex):
     assert _wait(lambda: "cwx clear" in radio.commands, timeout=5)
 
 
+def test_2m_antennas_come_back(flex):
+    """2 m switches both antennas to the transverter port; leaving 2 m puts
+    back the antennas last used below it, even when the radio's own band
+    recall lands after wfweb's command with older ones."""
+    radio, rest = flex
+    from test_web_login import _Reader, _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    try:
+        requests.put(f"{rest}/frequency", json={"hz": 7_100_000}, timeout=5)
+        assert _wait(lambda: radio.slice.get("RF_frequency", "").startswith("7.1"), timeout=5)
+        # TX on ANT2 (index in tx_ant_list ANT1,ANT2,XVTA), RX stays ANT1.
+        _ws_send(sock, {"cmd": "flexDsp", "key": "txAnt", "index": 0, "value": 1})
+        assert _wait(lambda: radio.slice.get("txant") == "ANT2", timeout=5)
+
+        requests.put(f"{rest}/frequency", json={"hz": 145_500_000}, timeout=5)
+        assert _wait(lambda: radio.slice.get("txant") == "XVTA" and radio.slice.get("rxant") == "XVTA", timeout=5)
+
+        requests.put(f"{rest}/frequency", json={"hz": 7_150_000}, timeout=5)
+        time.sleep(1.5)   # past the radio's late recall of ANT1
+        assert radio.slice.get("txant") == "ANT2", radio.slice
+        assert radio.slice.get("rxant") == "ANT1", radio.slice
+    finally:
+        sock.close()
+
+
 # ── --on-demand ─────────────────────────────────────────────────────────────
 
 def _open_browser_ws(port: int):

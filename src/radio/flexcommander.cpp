@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QSettings>
 #include <QUuid>
+#include <QDateTime>
 #include <QCryptographicHash>
 #include <QSslCertificate>
 #include <QSslConfiguration>
@@ -1015,8 +1016,22 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
     if (kvs.contains("squelch")) squelchOn = truthy(kvs.value("squelch"));
     if (kvs.contains("squelch_level")) squelchLevel = kvs.value("squelch_level").toInt();
     if (kvs.contains("squelch") || kvs.contains("squelch_level")) reportCurrent(funcSquelch);
-    if (kvs.contains("rxant")) { rxAnt = kvs.value("rxant"); reportCurrent(funcAntenna); publishDsp(); }
-    if (kvs.contains("txant")) { txAnt = kvs.value("txant"); publishDsp(); }
+    if (kvs.contains("rxant") || kvs.contains("txant")) {
+        if (kvs.contains("rxant")) { rxAnt = kvs.value("rxant"); reportCurrent(funcAntenna); }
+        if (kvs.contains("txant")) txAnt = kvs.value("txant");
+        // The radio recalls each band's antennas when the slice changes band.
+        // Right after wfweb put the HF antennas back from 2 m, that recall
+        // can arrive after our command and undo it: put ours back once more.
+        if (hfRestoreUntilMs && QDateTime::currentMSecsSinceEpoch() < hfRestoreUntilMs && !on2m
+            && ((!hfRestoreRx.isEmpty() && rxAnt != hfRestoreRx) || (!hfRestoreTx.isEmpty() && txAnt != hfRestoreTx))) {
+            qInfo(logRig()).noquote() << "Flex: the radio recalled RX" << rxAnt << "TX" << txAnt
+                                      << "- restoring RX" << hfRestoreRx << "TX" << hfRestoreTx;
+            hfRestoreUntilMs = 0;
+            setSliceAntennas(hfRestoreRx, hfRestoreTx);
+        }
+        rememberHfAntennas();
+        publishDsp();
+    }
     if (kvs.contains("ant_list")) { rxAntList = kvs.value("ant_list").split(',', Qt::SkipEmptyParts); publishDsp(); }
     if (kvs.contains("tx_ant_list")) { txAntList = kvs.value("tx_ant_list").split(',', Qt::SkipEmptyParts); publishDsp(); }
     if (kvs.contains("RF_frequency") || kvs.contains("freq") || kvs.contains("ant_list")) applyBandAntennas();
@@ -2335,12 +2350,24 @@ void flexCommander::setSliceAntennas(const QString& rx, const QString& tx)
         sliceSet(QString("txant=%1").arg(tx));
         txAnt = tx;
     }
+    rememberHfAntennas();
     publishDsp();
+}
+
+// The antennas to go back to after 2 m: whatever was last in use below 2 m,
+// tracked all the time (not sampled when 2 m is entered, by which time the
+// radio may already have switched them for the new band).
+void flexCommander::rememberHfAntennas()
+{
+    if (on2m || isTwoMetres(freqHz))
+        return;
+    if (!rxAnt.isEmpty() && !rxAnt.startsWith(QLatin1String("XVT"))) hfRxAnt = rxAnt;
+    if (!txAnt.isEmpty() && !txAnt.startsWith(QLatin1String("XVT"))) hfTxAnt = txAnt;
 }
 
 void flexCommander::applyBandAntennas()
 {
-    const bool in2m = freqHz >= 144000000ULL && freqHz <= 148000000ULL;
+    const bool in2m = isTwoMetres(freqHz);
     if (in2m == on2m) return;
     // The transverter port as this radio names it (XVTA on a FLEX-6400).
     auto xvtr = [](const QStringList& l) {
@@ -2352,8 +2379,10 @@ void flexCommander::applyBandAntennas()
     if (in2m) {
         if (rx.isEmpty() && tx.isEmpty()) return;   // lists not in yet; retried on ant_list
         on2m = true;
-        hfRxAnt = rxAnt;
-        hfTxAnt = txAnt;
+        hfRestoreUntilMs = 0;
+        // hfRxAnt / hfTxAnt hold the last HF antennas (rememberHfAntennas).
+        if (hfRxAnt.isEmpty() && !rxAnt.startsWith(QLatin1String("XVT"))) hfRxAnt = rxAnt;
+        if (hfTxAnt.isEmpty() && !txAnt.startsWith(QLatin1String("XVT"))) hfTxAnt = txAnt;
         qInfo(logRig()).noquote() << "Flex: 2 m - RX" << (rx.isEmpty() ? rxAnt : rx) << "TX" << (tx.isEmpty() ? txAnt : tx);
         setSliceAntennas(rx, tx);
     } else {
@@ -2368,5 +2397,8 @@ void flexCommander::applyBandAntennas()
         const QString r = hf(hfRxAnt, rxAntList), t = hf(hfTxAnt, txAntList);
         qInfo(logRig()).noquote() << "Flex: left 2 m - RX" << r << "TX" << t;
         setSliceAntennas(r, t);
+        hfRestoreRx = r;
+        hfRestoreTx = t;
+        hfRestoreUntilMs = QDateTime::currentMSecsSinceEpoch() + 3000;
     }
 }

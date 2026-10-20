@@ -119,6 +119,10 @@ class MockFlexRadio:
         self.udp_registers: list[bytes] = []
         # remote_audio_rx compression=opus: Opus frames instead of float.
         self.rx_opus = False
+        # Band antenna recall: like the radio, a slice that changes band gets
+        # that band's antennas back a moment later, after the client's own
+        # commands. recall_hf is what it recalls below 2 m (a stale value).
+        self.recall_hf = {"rxant": "ANT1", "txant": "ANT1"}
         self.opus_sent = 0
         self._opus: _OpusEncoder | None = None
         self._opus_pending: list[int] = []
@@ -287,6 +291,11 @@ class MockFlexRadio:
             return 0, "0"
         if cmd.startswith("slice tune"):
             mhz = float(words[3])
+            was_2m = 144.0 <= float(self.slice.get("RF_frequency", 14.2)) <= 148.0
+            if was_2m and not (144.0 <= mhz <= 148.0):
+                recall = dict(self.recall_hf)
+                asyncio.get_running_loop().call_later(
+                    0.3, lambda: self._slice_status(**recall))
             # Like the radio: the slice moves, the panadapter stays put
             # unless the slice leaves the screen.
             self._slice_status(RF_frequency=f"{mhz:.6f}")

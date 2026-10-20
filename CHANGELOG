@@ -37,6 +37,10 @@ Web access:
   upstream wfweb version it is based on.
 
 FlexRadio:
+- Leaving 2 m puts back the antennas last used below 2 m, now tracked all
+  along, and defends them for 3 s against the radio's own band antenna
+  recall, which could land after wfweb's command and leave TX on the wrong
+  antenna.
 - Opus receive audio: over SmartLink the radio now sends Opus (about
   50 kbit/s instead of ~1.5 Mbit/s); --flex-audio opus|none|auto chooses.
 - --smartlink-radios lists the account's radios with the stored sign-in.
