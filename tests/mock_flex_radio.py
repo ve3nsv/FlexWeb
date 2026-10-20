@@ -203,8 +203,9 @@ class MockFlexRadio:
             return 0, "0"
         if cmd.startswith("slice tune"):
             mhz = float(words[3])
+            # Like the radio: the slice moves, the panadapter stays put
+            # unless the slice leaves the screen.
             self._slice_status(RF_frequency=f"{mhz:.6f}")
-            self._pan_status(center=f"{mhz:.6f}")
             return 0, ""
         if cmd.startswith("slice set"):
             kv = dict(w.split("=", 1) for w in words[3:] if "=" in w)

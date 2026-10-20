@@ -128,6 +128,8 @@ def test_set_frequency(flex):
     r = requests.put(f"{rest}/frequency", json={"hz": 7_074_000}, timeout=5)
     assert r.status_code == 202
     assert _wait(lambda: "slice tune 0 7.074000" in radio.commands, timeout=5)
+    # The scope is CENTER mode: the panadapter follows the slice.
+    assert _wait(lambda: "display pan set 0x40000000 center=7.074000" in radio.commands, timeout=5)
     assert _wait(lambda: requests.get(f"{rest}/frequency", timeout=2).json().get("hz") == 7_074_000, timeout=5)
 
 

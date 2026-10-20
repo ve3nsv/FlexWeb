@@ -86,6 +86,7 @@ private:
     void handleMeterStatus(const QString& body);
     void adoptPan(const QString& id);
     void configurePan();
+    void recenterPan();
     void createAudioStreams();
     void setStatus(const QString& message, bool connected);
 
@@ -182,6 +183,7 @@ private:
     int panRfGain = 0;
     int scopeFps = 20;
     bool panConfigured = false;
+    bool recenterPending = false;
     QHash<QString, QMap<QString, QString>> panStates;   // every pan's last status, by id
     flexProtocol::fftAssembler fft;
     static constexpr int kPanYPixels = 1201;      // 0.1 dB per pixel over the range below

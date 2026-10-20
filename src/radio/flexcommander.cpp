@@ -584,6 +584,28 @@ void flexCommander::adoptPan(const QString& id)
     configurePan();
 }
 
+void flexCommander::recenterPan()
+{
+    // wfweb's scope is CENTER mode: the VFO sits in the middle and the band
+    // moves under it, as on an Icom. A Flex panadapter only scrolls when the
+    // slice leaves the screen, so keep re-centring it on the slice. Changes
+    // are coalesced, so a spinning knob sends at most one move per 50 ms.
+    if (panId.isEmpty() || !freqHz)
+        return;
+    if (std::fabs(panCenterMHz - freqHz / 1e6) < 1e-6)
+        return;
+    if (recenterPending)
+        return;
+    recenterPending = true;
+    QTimer::singleShot(50, this, [this]() {
+        recenterPending = false;
+        if (panId.isEmpty() || !freqHz || std::fabs(panCenterMHz - freqHz / 1e6) < 1e-6)
+            return;
+        panCenterMHz = freqHz / 1e6;   // the radio does not always echo it
+        sendCmd(QString("display pan set %1 center=%2").arg(panId).arg(panCenterMHz, 0, 'f', 6));
+    });
+}
+
 void flexCommander::configurePan()
 {
     if (panId.isEmpty() || panConfigured)
@@ -601,6 +623,7 @@ void flexCommander::configurePan()
     panMinDbm = kPanMinDbm;
     panMaxDbm = kPanMaxDbm;
     fft.reset();
+    recenterPan();
 }
 
 // ─── Status ────────────────────────────────────────────────────────────────
@@ -699,6 +722,7 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
         const double mhz = (kvs.contains("RF_frequency") ? kvs.value("RF_frequency") : kvs.value("freq")).toDouble();
         freqHz = quint64(std::llround(mhz * 1e6));
         reportCurrent(funcSelectedFreq);
+        recenterPan();
     }
     if (kvs.contains("mode")) {
         mode = kvs.value("mode").toUpper();
@@ -1316,6 +1340,7 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         sendCmd(QString("slice tune %1 %2").arg(sliceId).arg(f.Hz / 1e6, 0, 'f', 6));
         freqHz = f.Hz;
         reportCurrent(funcSelectedFreq);
+        recenterPan();
         return;
     }
     case funcSelectedMode:
