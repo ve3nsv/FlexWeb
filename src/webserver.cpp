@@ -7227,6 +7227,14 @@ void webServer::configureRfkit(const QString &target)
         if (st.tuner) {
             o["tuner"] = Rfkit::tunerModeLabel(st.tuner->mode);
             o["tunerSetup"] = Rfkit::tunerSetupLabel(st.tuner->setup);
+            // The stored network for this frequency, in the amp's own units.
+            auto iv = [](const std::optional<Rfkit::IntValue> &v) {
+                return v ? QString("%1 %2").arg(v->value).arg(v->unit).trimmed() : QString();
+            };
+            if (st.tuner->l) o["tunerL"] = iv(st.tuner->l);
+            if (st.tuner->c) o["tunerC"] = iv(st.tuner->c);
+            if (st.tuner->tunedFrequency) o["tunerFreq"] = iv(st.tuner->tunedFrequency);
+            if (st.tuner->segmentSize) o["tunerSegment"] = iv(st.tuner->segmentSize);
         }
         if (st.interfaceState) {
             o["iface"] = Rfkit::interfaceLabel(st.interfaceState->active);

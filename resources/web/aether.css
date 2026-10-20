@@ -292,3 +292,10 @@ body.ae-phone .softBtn { flex: 1 1 0; min-width: 0; height: 48px; }
 body.ae-phone .softBtn.ae-tile { height: 46px; font-size: 11px; }
 body.ae-phone .ae-gap.ae-break { flex: 1 0 100%; height: 0; }
 body.ae-desktop .softBtn.ae-band { text-transform: none; }
+
+/* RF-POWER applet: the amplifier's tuner status line (item 18). */
+.ae-amp-tuner { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11px;
+    color: var(--ae-text-dim); font-family: var(--font-mono); }
+.ae-amp-tuner b { color: var(--ae-text); font-weight: 600; }
+.ae-amp-tuner b.ae-warn { color: #ffb84d; animation: aeTunerBlink 0.8s ease-in-out infinite; }
+@keyframes aeTunerBlink { 50% { opacity: 0.45; } }

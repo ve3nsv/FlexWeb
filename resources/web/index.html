@@ -5782,6 +5782,25 @@ function renderApplets() {
             c.appendChild(b); tiles.appendChild(c);
         });
         body.appendChild(tiles);
+        // Tuner status (read-only): mode, network, stored L/C, tuned frequency.
+        if (up && a.tuner) {
+            var tn = document.createElement('span'); tn.className = 'ae-amp-tuner';
+            var tuning = a.tuner === 'TUNING';
+            var parts = [['TUNER', a.tuner, tuning ? 'ae-warn' : ''],
+                         ['NET', a.tunerSetup || '—', ''],
+                         ['L', a.tunerL || '—', ''],
+                         ['C', a.tunerC || '—', ''],
+                         ['@', a.tunerFreq || '—', '']];
+            parts.forEach(function(p) {
+                var c = document.createElement('span');
+                c.textContent = p[0] + ' ';
+                var b = document.createElement('b'); b.textContent = p[1];
+                if (p[2]) b.className = p[2];
+                c.appendChild(b); tn.appendChild(c);
+            });
+            if (a.tunerSegment) tn.title = 'Tuned segment ' + a.tunerSegment;
+            body.appendChild(tn);
+        }
         amp.appendChild(body);
     } else {
         amp.hidden = true;
