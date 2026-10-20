@@ -43,6 +43,11 @@ FlexRadio:
   processor (on/off, NOR / DX / DX+), DEXP and its level, MIC level and
   the TX filter edges. The settings are the radio's own, so SmartSDR
   shows the same values.
+- FUNC > ANT on a Flex lists every receive and transmit antenna the
+  radio reports (ANT1, ANT2, RX_A, XVTA, ...) and sets RX and TX
+  separately. A 2 m band (144-148 MHz) is in the BAND list for radios
+  with a transverter defined; tuning into it moves RX and TX to the
+  transverter port (XVTA), leaving it puts the HF antennas back.
 - FT8/FT4: CALL 1ST (next to CALL CQ), as in WSJT-X: while calling CQ,
   the first station that answers is taken automatically and the QSO runs
   to the log without a click. Kept per browser (all radios).

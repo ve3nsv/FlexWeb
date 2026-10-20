@@ -587,13 +587,13 @@ body.meter-needle #meterCanvas { width: auto; height: 128px; aspect-ratio: 611 /
 
 /* AMP / EQ / PROC overlays: a 5-column tile grid like AUDIO, then their
    own rows under it. */
-#ampOverlay.visible, #eqOverlay.visible, #procOverlay.visible {
+#ampOverlay.visible, #eqOverlay.visible, #procOverlay.visible, #flexAntOverlay.visible {
     flex-direction: column;
     padding: 4px 12px;
     justify-content: center;
     overflow-y: auto;
 }
-#ampOverlay .overlay-grid, #eqOverlay .overlay-grid, #procOverlay .overlay-grid {
+#ampOverlay .overlay-grid, #eqOverlay .overlay-grid, #procOverlay .overlay-grid, #flexAntOverlay .overlay-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 5px; padding: 4px 0;
@@ -2826,6 +2826,10 @@ body.digi-open #bottomBar { grid-row: 5; }
             <div class="overlay-title">EQUALIZER</div>
             <div id="eqBody" style="width:100%"></div>
         </div>
+        <div id="flexAntOverlay" class="overlay">
+            <div class="overlay-title">ANTENNAS</div>
+            <div id="flexAntBody" style="width:100%"></div>
+        </div>
         <div id="procOverlay" class="overlay">
             <div class="overlay-title">TX PROCESSING</div>
             <div id="procBody" style="width:100%"></div>
@@ -3445,6 +3449,7 @@ function handleMessage(msg) {
             flexDsp = msg;
             if (document.getElementById('eqOverlay').classList.contains('visible')) renderEqOverlay();
             if (document.getElementById('procOverlay').classList.contains('visible')) renderProcOverlay();
+            if (document.getElementById('flexAntOverlay').classList.contains('visible')) renderFlexAntOverlay();
             if (currentPanel === 'func') renderFuncOverlay();
             break;
         case 'amp':
@@ -4926,6 +4931,43 @@ function renderEqOverlay() {
 
 function fmtDb(v) { return (v > 0 ? '+' : '') + v; }
 
+// FUNC > ANT on a Flex: one row of the radio's receive antennas, one of its
+// transmit antennas (RX_A / XVTA and the like included). On 2 m the server
+// moves both to the transverter port by itself.
+function renderFlexAntOverlay() {
+    var body = document.getElementById('flexAntBody');
+    if (!body || !flexDsp) return;
+    body.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'flex-dsp';
+    function row(label, key, list, cur) {
+        var h = document.createElement('div');
+        h.className = 'audio-dev-note';
+        h.style.margin = '8px 0 2px';
+        h.textContent = label;
+        wrap.appendChild(h);
+        var grid = document.createElement('div');
+        grid.className = 'overlay-grid';
+        (list || []).forEach(function (name, i) {
+            grid.appendChild(makeFuncBtn(name, name === cur ? 'IN USE' : '', name === cur, function () {
+                sendFlexDsp(key, i, i, true);
+            }));
+        });
+        wrap.appendChild(grid);
+    }
+    row('RECEIVE', 'rxAnt', flexDsp.rxAntList, flexDsp.rxAnt);
+    row('TRANSMIT', 'txAnt', flexDsp.txAntList, flexDsp.txAnt);
+    var note = document.createElement('div');
+    note.className = 'audio-dev-note';
+    note.textContent = 'Tuning into 144\u2013148 MHz switches RX and TX to the transverter port; leaving 2 m puts these back.';
+    wrap.appendChild(note);
+    var g = document.createElement('div');
+    g.className = 'overlay-grid';
+    g.appendChild(dspBackButton());
+    wrap.appendChild(g);
+    body.appendChild(wrap);
+}
+
 // TX filter edges offered as steps (SmartSDR's own choices cover these).
 var TX_LO_STEPS = [0, 50, 100, 150, 200, 300, 400, 500];
 var TX_HI_STEPS = [2400, 2600, 2700, 2800, 2900, 3000, 3100, 3300, 3500, 4000];
@@ -5346,6 +5388,7 @@ function setPanel(name) {
     else if (name === 'freqinp') renderFreqInput();
     else if (name === 'cw') renderCWOverlay();
     else if (name === 'memory') openMemoryBrowser();
+    else if (name === 'flexant') { renderFlexAntOverlay(); document.getElementById('flexAntOverlay').classList.add('visible'); }
     else if (name === 'eq') { renderEqOverlay(); document.getElementById('eqOverlay').classList.add('visible'); }
     else if (name === 'proc') { renderProcOverlay(); document.getElementById('procOverlay').classList.add('visible'); }
     else if (name === 'amp') { renderAmpOverlay(); document.getElementById('ampOverlay').classList.add('visible'); }
@@ -5585,7 +5628,11 @@ function renderFuncOverlay() {
 
     // Antenna selector + RX antenna — only on rigs that declare more than
     // one antenna in their caps (IC-7610/785x/9100, Kenwood TS-590/890) (#76)
-    if (availableAntennas.length >= 2) {
+    if (flexDsp && flexDsp.rxAntList && flexDsp.rxAntList.length) {
+        // A Flex: separate RX and TX antennas from the radio's own lists.
+        grid.appendChild(makeFuncBtn('ANT', (flexDsp.rxAnt || '?') + (flexDsp.txAnt && flexDsp.txAnt !== flexDsp.rxAnt ? ' / ' + flexDsp.txAnt : ''),
+            false, function() { setPanel('flexant'); }));
+    } else if (availableAntennas.length >= 2) {
         grid.appendChild(makeFuncBtn('ANT', antennaName(currentAntenna), false, cycleAntenna));
         if (hasRxAnt) {
             grid.appendChild(makeFuncBtn('RX ANT', rxAntOn ? 'ON' : 'OFF', rxAntOn, function() {

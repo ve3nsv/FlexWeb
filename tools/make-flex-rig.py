@@ -107,6 +107,9 @@ array("Attenuators", [{"Num": 0, "Name": "0 dB"}, {"Num": 1, "Name": "-10 dB"}])
 array("Filters", [{"Num": n, "Modes": 0, "Name": f"FIL{n}"} for n in (1, 2, 3)])
 
 bands = [  # (Num, name, start, end, range, color) -- Num from wfweb's availableBands
+    # 2 m only through a transverter defined in SmartSDR (XVTA): flexCommander
+    # moves RX and TX to the XVTR port inside 144-148 MHz.
+    (6,  "2m",   144000000, 148000000, 0, "#ff55aaff"),
     (10, "6m",   50000000, 54000000, 60,  "#ffff5500"),
     (11, "10m",  28000000, 29700000, 45,  "#ff00aaff"),
     (12, "12m",  24890000, 24990000, 30,  "#ff00aa00"),

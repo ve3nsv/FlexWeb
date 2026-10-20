@@ -172,6 +172,16 @@ private:
     bool squelchOn = false;
     int squelchLevel = 20;          // 0..100
     QString rxAnt;
+    QString txAnt;
+    // The slice's own antenna lists (ant_list / tx_ant_list in its status):
+    // everything this radio can receive or transmit on, RX_A / XVTA included.
+    QStringList rxAntList, txAntList;
+    // 2 m through a transverter: tuning into 144-148 MHz moves RX and TX to
+    // the XVTR port, leaving the band puts back the HF antennas it had.
+    bool on2m = false;
+    QString hfRxAnt, hfTxAnt;
+    void applyBandAntennas();
+    void setSliceAntennas(const QString& rx, const QString& tx);
     bool ritOn = false;
     int ritFreq = 0;
     QStringList antList;

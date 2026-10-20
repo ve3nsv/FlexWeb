@@ -802,7 +802,11 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
     if (kvs.contains("squelch")) squelchOn = truthy(kvs.value("squelch"));
     if (kvs.contains("squelch_level")) squelchLevel = kvs.value("squelch_level").toInt();
     if (kvs.contains("squelch") || kvs.contains("squelch_level")) reportCurrent(funcSquelch);
-    if (kvs.contains("rxant")) { rxAnt = kvs.value("rxant"); reportCurrent(funcAntenna); }
+    if (kvs.contains("rxant")) { rxAnt = kvs.value("rxant"); reportCurrent(funcAntenna); publishDsp(); }
+    if (kvs.contains("txant")) { txAnt = kvs.value("txant"); publishDsp(); }
+    if (kvs.contains("ant_list")) { rxAntList = kvs.value("ant_list").split(',', Qt::SkipEmptyParts); publishDsp(); }
+    if (kvs.contains("tx_ant_list")) { txAntList = kvs.value("tx_ant_list").split(',', Qt::SkipEmptyParts); publishDsp(); }
+    if (kvs.contains("RF_frequency") || kvs.contains("freq") || kvs.contains("ant_list")) applyBandAntennas();
     if (kvs.contains("rit_on")) { ritOn = truthy(kvs.value("rit_on")); reportCurrent(funcRitStatus); }
     if (kvs.contains("rit_freq")) { ritFreq = kvs.value("rit_freq").toInt(); reportCurrent(funcRitFreq); }
 }
@@ -1458,6 +1462,7 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         freqHz = f.Hz;
         reportCurrent(funcSelectedFreq);
         recenterPan();
+        applyBandAntennas();
         return;
     }
     case funcSelectedMode:
@@ -1998,6 +2003,10 @@ void flexCommander::publishDsp()
             st["micLevel"] = micLevel;
             st["txLo"] = txFilterLo;
             st["txHi"] = txFilterHi;
+            st["rxAnt"] = rxAnt;
+            st["txAnt"] = txAnt;
+            st["rxAntList"] = QJsonArray::fromStringList(rxAntList);
+            st["txAntList"] = QJsonArray::fromStringList(txAntList);
             emit flexDspState(st);
         });
     }
@@ -2041,6 +2050,12 @@ void flexCommander::setFlexDsp(QString key, int index, int value)
     } else if (key == "micLevel") {
         micLevel = qBound(0, value, 100);
         sendCmd(QString("transmit set miclevel=%1").arg(micLevel));
+    } else if (key == "rxAnt" || key == "txAnt") {
+        // FUNC > ANT: value is an index into the slice's own list.
+        const QStringList& list = key == "rxAnt" ? rxAntList : txAntList;
+        if (value < 0 || value >= list.size()) return;
+        if (key == "rxAnt") setSliceAntennas(list.at(value), QString());
+        else setSliceAntennas(QString(), list.at(value));
     } else if (key == "txLo" || key == "txHi") {
         // The radio keeps at least 50 Hz between the edges; so do we.
         if (key == "txLo") txFilterLo = qBound(0, value, txFilterHi - 50);
@@ -2051,4 +2066,54 @@ void flexCommander::setFlexDsp(QString key, int index, int value)
         return;
     }
     publishDsp();
+}
+
+// ─── Antennas (FUNC > ANT) and the 2 m transverter port ──────────────────────
+
+void flexCommander::setSliceAntennas(const QString& rx, const QString& tx)
+{
+    if (sliceId < 0) return;
+    if (!rx.isEmpty() && rx != rxAnt) {
+        sliceSet(QString("rxant=%1").arg(rx));
+        rxAnt = rx;                 // not echoed to the client that set it
+        reportCurrent(funcAntenna);
+    }
+    if (!tx.isEmpty() && tx != txAnt) {
+        sliceSet(QString("txant=%1").arg(tx));
+        txAnt = tx;
+    }
+    publishDsp();
+}
+
+void flexCommander::applyBandAntennas()
+{
+    const bool in2m = freqHz >= 144000000ULL && freqHz <= 148000000ULL;
+    if (in2m == on2m) return;
+    // The transverter port as this radio names it (XVTA on a FLEX-6400).
+    auto xvtr = [](const QStringList& l) {
+        if (l.contains(QStringLiteral("XVTA"))) return QStringLiteral("XVTA");
+        for (const QString& a : l) if (a.startsWith(QLatin1String("XVT"))) return a;
+        return QString();
+    };
+    const QString rx = xvtr(rxAntList), tx = xvtr(txAntList);
+    if (in2m) {
+        if (rx.isEmpty() && tx.isEmpty()) return;   // lists not in yet; retried on ant_list
+        on2m = true;
+        hfRxAnt = rxAnt;
+        hfTxAnt = txAnt;
+        qInfo(logRig()).noquote() << "Flex: 2 m - RX" << (rx.isEmpty() ? rxAnt : rx) << "TX" << (tx.isEmpty() ? txAnt : tx);
+        setSliceAntennas(rx, tx);
+    } else {
+        on2m = false;
+        // Back to HF: the antennas it had before 2 m, unless those were the
+        // transverter port too (then the radio's first ordinary antenna).
+        auto hf = [](const QString& saved, const QStringList& l) {
+            if (!saved.isEmpty() && !saved.startsWith(QLatin1String("XVT"))) return saved;
+            for (const QString& a : l) if (a.startsWith(QLatin1String("ANT"))) return a;
+            return QString();
+        };
+        const QString r = hf(hfRxAnt, rxAntList), t = hf(hfTxAnt, txAntList);
+        qInfo(logRig()).noquote() << "Flex: left 2 m - RX" << r << "TX" << t;
+        setSliceAntennas(r, t);
+    }
 }
