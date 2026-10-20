@@ -354,6 +354,8 @@ void servermain::makeRig()
                 connect(web, SIGNAL(haveTxAudioData(audioPacket)), radio->rig, SLOT(receiveWebTxAudio(audioPacket)));
                 // FlexRadio EQ and TX processing (FUNC > EQ / PROC).
                 if (auto* flex = qobject_cast<flexCommander*>(radio->rig)) {
+                    radioLinkUp = false;
+                    connect(flex, &flexCommander::linkState, this, [this](bool up) { radioLinkUp = up; }, Qt::QueuedConnection);
                     // Kicked by another client: close the session for real
                     // (the radio does not always drop the socket) and show
                     // the page's Connect button instead of reconnecting.
@@ -458,7 +460,7 @@ ConsoleSnapshot servermain::consoleSnapshot()
         RIGCONFIG* radio = serverConfig.rigs.first();
         if (!prefs.enableLAN)
             snap.transport = QString("%1 @ %2").arg(radio->serialPort).arg(radio->baudRate);
-        if (radio->rigAvailable && radio->rigCaps != Q_NULLPTR) {
+        if (radio->rigAvailable && radio->rigCaps != Q_NULLPTR && radioLinkUp) {
             snap.rigConnected = true;
             snap.model = radio->rigCaps->modelName;
         }

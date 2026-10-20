@@ -225,6 +225,7 @@ void flexCommander::discoveryReadyRead()
 
 void flexCommander::closeComm()
 {
+    if (closing == false && tcp != nullptr) emit linkState(false);
     closing = true;
     if (reconnectTimer) reconnectTimer->stop();
     if (pingTimer) pingTimer->stop();
@@ -321,6 +322,7 @@ void flexCommander::tcpConnected()
 void flexCommander::tcpDisconnected()
 {
     const bool wasUp = handshakeDone;
+    emit linkState(false);
     qInfo(logRig()) << "Flex: TCP connection closed";
     if (pingTimer) pingTimer->stop();
     if (wasUp && transmitting) {
@@ -465,6 +467,7 @@ void flexCommander::processLine(const QString& line)
                 qInfo(logRig()).noquote() << "Flex: radio is" << radioModel
                                           << (radioNickname.isEmpty() ? QString() : "\"" + radioNickname + "\"");
                 setStatus(QString("Flex: connected to %1 at %2").arg(radioModel, radioAddress.toString()), true);
+                emit linkState(true);
                 identify();
             });
             sendCmd("ant list", [this](quint32 c, const QString& b) {
