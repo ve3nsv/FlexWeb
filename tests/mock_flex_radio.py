@@ -102,6 +102,11 @@ class MockFlexRadio:
         if self._udp:
             self._udp.close()
 
+    def kick_client(self) -> None:
+        """Another client disconnects us, as SmartSDR's multiFLEX does: the
+        radio says so but leaves the socket open."""
+        self.status(f"client 0x{self.handle:08X} disconnected forced=1 wan_validation_failed=0 duplicate_client_id=0")
+
     def drop_client(self) -> None:
         """Close the TCP connection, as a radio reboot would."""
         if self._writer:

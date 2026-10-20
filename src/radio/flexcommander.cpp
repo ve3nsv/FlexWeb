@@ -412,6 +412,9 @@ void flexCommander::processLine(const QString& line)
         sendCmd("sub slice all");
         sendCmd("sub pan all");
         sendCmd("sub meter all");
+        // Needed to hear "client <us> disconnected forced=1" when another
+        // client kicks us: the radio does not always close the socket.
+        sendCmd("sub client all");
         // The two graphic equalisers answer with an "eq rxsc/txsc" status.
         sendCmd("eq rxsc info");
         sendCmd("eq txsc info");
@@ -657,6 +660,29 @@ void flexCommander::handleStatus(const message& msg)
         handleEqStatus(obj.endsWith(QLatin1String("txsc"), Qt::CaseInsensitive), msg.kvs);
         return;
     }
+    // "client 0x1234ABCD disconnected forced=1 duplicate_client_id=0 ..."
+    if (obj.startsWith(QLatin1String("client 0x")) && obj.endsWith(QLatin1String(" disconnected"))) {
+        bool ok = false;
+        const quint32 h = obj.mid(9, obj.indexOf(' ', 9) - 9).toUInt(&ok, 16);   // after "client 0x"
+        if (ok && h == clientHandle && clientHandle != 0) {
+            const bool forced = truthy(msg.kvs.value("forced"));
+            const bool dup = truthy(msg.kvs.value("duplicate_client_id"));
+            if (forced || dup) {
+                const QString why = dup
+                    ? QStringLiteral("another client is using wfweb's client id")
+                    : QStringLiteral("disconnected by another client on the radio");
+                qWarning(logRig()).noquote() << "Flex:" << why << "- not reconnecting";
+                // No automatic retry: whoever kicked us meant it. servermain
+                // closes the session (closeComm) when it gets evicted().
+                closing = true;
+                if (reconnectTimer) reconnectTimer->stop();
+                setStatus(QStringLiteral("Flex: ") + why, false);
+                emit evicted(why);
+            }
+        }
+        return;
+    }
+    if (obj.startsWith(QLatin1String("client "))) return;   // other clients come and go
     if (obj == QLatin1String("interlock")) {
         if (msg.kvs.contains("state")) {
             const QString st = msg.kvs.value("state").toUpper();

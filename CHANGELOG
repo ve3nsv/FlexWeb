@@ -43,6 +43,10 @@ FlexRadio:
   processor (on/off, NOR / DX / DX+), DEXP and its level, MIC level and
   the TX filter edges. The settings are the radio's own, so SmartSDR
   shows the same values.
+- Kicked by another client (SmartSDR / Maestro "disconnect"), wfweb
+  now lets go of the radio and stays off it, showing the page's Connect
+  button, instead of reconnecting within 3 s. It subscribes to client
+  status for this, since the radio does not always close the socket.
 - FUNC > PTT: HOLD (press and hold, as before) or LATCH (tap to key, tap
   again to unkey; Escape also releases it, and a latched transmission
   ends after 5 minutes). The server now unkeys the rig if the browser

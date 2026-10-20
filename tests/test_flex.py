@@ -281,3 +281,60 @@ def test_on_demand():
             proc.kill()
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=2)
+
+
+def test_kicked_by_another_client():
+    """Kicked by another client (forced=1): wfweb closes the session and does
+    not reconnect on its own; the page's Connect (reconnectLan) does."""
+    if not WFWEB_BIN.exists():
+        pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
+
+    loop = asyncio.new_event_loop()
+    radio = MockFlexRadio()
+    loop.run_until_complete(radio.start())
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+
+    web_port = _free_port()
+    rest = f"http://127.0.0.1:{web_port + 1}/api/v1/radio"
+    env = os.environ.copy()
+    env["HOME"] = "/tmp/wfweb-flex-kick-test"
+    env["WFWEB_NO_TUI"] = "1"
+    os.makedirs(env["HOME"], exist_ok=True)
+    proc = subprocess.Popen(
+        [str(WFWEB_BIN), "-p", str(web_port), "--manufacturer", "3",
+         "--lan", "127.0.0.1",
+         "--lan-control", str(radio.control_port),
+         "--lan-audio", str(radio.vita_port)],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    try:
+        assert _wait(lambda: radio.find("slice create"), timeout=30), "wfweb did not connect"
+        assert radio.find("sub client all")
+        loop.call_soon_threadsafe(radio.kick_client)
+        assert _wait(lambda: radio._writer is None, timeout=10), \
+            "wfweb kept its connection after being kicked"
+        time.sleep(5)   # longer than the 3 s reconnect interval
+        assert radio._writer is None, "wfweb reconnected by itself after being kicked"
+        assert len(radio.find("client gui")) == 1
+
+        # The page's Connect button.
+        ws = _open_browser_ws(web_port)
+        import json
+        def ws_send(sock, obj):
+            data = json.dumps(obj).encode()
+            mask = os.urandom(4)
+            hdr = bytes([0x81, 0x80 | len(data)]) if len(data) < 126 else \
+                bytes([0x81, 0xFE]) + len(data).to_bytes(2, "big")
+            sock.sendall(hdr + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+        ws_send(ws, {"cmd": "reconnectLan"})
+        assert _wait(lambda: len(radio.find("client gui")) == 2, timeout=15), \
+            "Connect did not reconnect after a kick"
+        ws.close()
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)

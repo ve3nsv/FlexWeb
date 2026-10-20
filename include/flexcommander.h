@@ -70,6 +70,10 @@ public slots:
 signals:
     // The radio's EQ and TX audio processing, as the page shows it.
     void flexDspState(QJsonObject state);
+    // Another client (SmartSDR, Maestro...) disconnected us, or the radio
+    // dropped us for a duplicate client id. servermain closes the LAN session
+    // so wfweb stays off the radio until a browser asks to connect again.
+    void evicted(QString reason);
 
 private slots:
     void tcpConnected();

@@ -354,6 +354,10 @@ void servermain::makeRig()
                 connect(web, SIGNAL(haveTxAudioData(audioPacket)), radio->rig, SLOT(receiveWebTxAudio(audioPacket)));
                 // FlexRadio EQ and TX processing (FUNC > EQ / PROC).
                 if (auto* flex = qobject_cast<flexCommander*>(radio->rig)) {
+                    // Kicked by another client: close the session for real
+                    // (the radio does not always drop the socket) and show
+                    // the page's Connect button instead of reconnecting.
+                    connect(flex, &flexCommander::evicted, this, [this](QString) { disconnectLan(); }, Qt::QueuedConnection);
                     connect(flex, &flexCommander::flexDspState, web, &webServer::onFlexDspState, Qt::QueuedConnection);
                     connect(web, &webServer::flexDspSet, flex, &flexCommander::setFlexDsp, Qt::QueuedConnection);
                 }
