@@ -142,7 +142,7 @@ QStringList ConsoleStatus::render(const ConsoleSnapshot &snap, int cols, int row
         add(kind, QString("%1 %2").arg(QLatin1String(label), -10).arg(text));
     };
 
-    QString title = "wfweb " + snap.version;
+    QString title = "FlexWeb " + snap.version;
     if (!snap.model.isEmpty())
         title += " - " + snap.model;
     if (!snap.name.isEmpty())
@@ -324,7 +324,7 @@ void ConsoleStatus::paint()
     // The provider may log, which takes mutex_ through logLine(): call it
     // before locking.
     ConsoleSnapshot snap = provider_ ? provider_() : ConsoleSnapshot();
-    snap.version = QString(WFWEB_VERSION);
+    snap.version = QString(FLEXWEB_VERSION);
     snap.uptimeSecs = uptime_.elapsed() / 1000;
     snap.logFile = logFile_;
     {

@@ -445,3 +445,7 @@ HEADERS  += \
     include/memorystore.h
 
 macx:HEADERS += include/tlsproxy.h
+
+# FlexWeb build number (include/wfweb_version.h): CI exports FLEXWEB_BUILD.
+FLEXWEB_BUILD_NO = $$(FLEXWEB_BUILD)
+!isEmpty(FLEXWEB_BUILD_NO): DEFINES += FLEXWEB_BUILD=\\\"$$FLEXWEB_BUILD_NO\\\"

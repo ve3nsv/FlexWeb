@@ -3758,7 +3758,8 @@ QJsonObject webServer::buildInfoJson() const
     info["stationCallsign"] = reporterCallsign;
     info["stationGrid"] = reporterGrid;
     info["cwMacros"] = cwMacrosJson();
-    info["version"] = QString(WFWEB_VERSION);
+    info["version"] = QString(FLEXWEB_VERSION);
+    info["baseVersion"] = QString(WFWEB_VERSION);
     // Instance tag from --name; empty means "show the rig model".
     info["name"] = instanceName_;
 
@@ -7081,7 +7082,7 @@ void webServer::wsjtxSendDatagram(const QByteArray &packet)
 void webServer::wsjtxSendHeartbeat()
 {
     wsjtxSendDatagram(WsjtxMessage::heartbeat(wsjtxId_, WsjtxMessage::Schema,
-                                              QString(WFWEB_VERSION), QString()));
+                                              QString(FLEXWEB_VERSION), QString()));
     wsjtxSendStatus();
 }
 

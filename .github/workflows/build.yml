@@ -7,6 +7,8 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # FlexWeb version 1.0.<build> (include/wfweb_version.h, read by qmake).
+  FLEXWEB_BUILD: ${{ github.run_number }}
 
 jobs:
   build-linux-ubuntu2404:

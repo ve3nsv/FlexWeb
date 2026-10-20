@@ -188,7 +188,7 @@ void FreeDVReporter::onWsTextMessage(const QString &message)
         auth["callsign"] = callsign_;
         auth["grid_square"] = grid_;
         auth["version"] = QString(WFWEB_REPORT_NAME " %1").arg(
-            QStringLiteral(WFWEB_VERSION));
+            QStringLiteral(FLEXWEB_VERSION));
         auth["rx_only"] = false;
 #ifdef Q_OS_LINUX
         auth["os"] = "linux";
