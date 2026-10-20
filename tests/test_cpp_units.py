@@ -64,5 +64,8 @@ def test_cpp_unit(unit, tmp_path):
     if unit == "webauth":
         # QSettings writes here: keep the real user's settings out of it.
         import os
-        env = dict(os.environ, HOME=str(tmp_path), XDG_CONFIG_HOME=str(tmp_path / "cfg"))
+        # WFWEB_CONFIG_DIR too: conftest.py points every test at one shared
+        # empty directory, and the users this test adds must not land there.
+        env = dict(os.environ, HOME=str(tmp_path), XDG_CONFIG_HOME=str(tmp_path / "cfg"),
+                   WFWEB_CONFIG_DIR=str(tmp_path))
     subprocess.run([str(executable)], check=True, cwd=ROOT, env=env)
