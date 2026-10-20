@@ -3564,9 +3564,9 @@ function handleMessage(msg) {
             if (msg.version) {
                 serverVersion = msg.version;
                 var el = document.getElementById('splashVersion');
-                if (el) el.textContent = 'wfweb v. ' + msg.version;
+                if (el) el.textContent = 'FlexWeb v. ' + msg.version;
                 var pv = document.getElementById('powerOffVersion');
-                if (pv) pv.textContent = 'wfweb v. ' + msg.version;
+                if (pv) pv.textContent = 'FlexWeb v. ' + msg.version;
             }
             if (msg.model) rigModelName = msg.model;
             if (msg.name !== undefined) rigTagName = msg.name || '';

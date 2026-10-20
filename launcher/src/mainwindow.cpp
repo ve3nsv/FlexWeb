@@ -97,7 +97,7 @@ void RefreshingComboBox::showPopup()
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
-    setWindowTitle(QStringLiteral("wfweb ") + WFWEB_VERSION);
+    setWindowTitle(QStringLiteral("FlexWeb ") + FLEXWEB_VERSION);
     setWindowIcon(QIcon(":/wfweb.png"));
 
     m_exePath = QDir(QCoreApplication::applicationDirPath()).filePath(kServerExe);

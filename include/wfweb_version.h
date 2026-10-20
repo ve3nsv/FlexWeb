@@ -20,4 +20,13 @@
 // PSK Reporter): FlexWeb, ve3nsv's FlexRadio fork of wfweb.
 #define WFWEB_REPORT_NAME "FlexWeb"
 
+// FlexWeb's own version: 1.0.<CI build number>. The build number comes from
+// the FLEXWEB_BUILD environment variable at qmake time (GitHub Actions sets
+// it to the run number); local builds say "dev". WFWEB_VERSION above stays
+// the upstream wfweb version this fork is based on (packages use it).
+#ifndef FLEXWEB_BUILD
+#define FLEXWEB_BUILD "dev"
+#endif
+#define FLEXWEB_VERSION "1.0." FLEXWEB_BUILD
+
 #endif // WFWEB_VERSION_H

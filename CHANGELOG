@@ -30,8 +30,11 @@ Web access:
   transmission when nobody had it on) or OFF, with its own LISTEN VOL.
   Data modes stay silent unless DIGI LISTEN is on.
 
-- FreeDV Reporter and PSK Reporter now see the program as "FlexWeb
-  <version>" instead of "wfweb <version>".
+- FlexWeb has its own version, 1.0.<build>: the GitHub Actions run
+  number (FLEXWEB_BUILD at qmake time; local builds say 1.0.dev). The
+  page, the terminal title, the launcher, --version, FreeDV Reporter,
+  PSK Reporter and the WSJT-X heartbeat show it; WFWEB_VERSION stays the
+  upstream wfweb version it is based on.
 
 FlexRadio:
 - Opus receive audio: over SmartLink the radio now sends Opus (about
