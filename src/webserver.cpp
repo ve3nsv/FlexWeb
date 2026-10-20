@@ -1772,6 +1772,14 @@ void webServer::onWsDisconnected()
     QWebSocket *pClient = qobject_cast<QWebSocket *>(sender());
     if (pClient) {
         qInfo() << "Web client disconnected:" << pClient->peerAddress().toString();
+        if (pClient == pttClient) {
+            pttClient = nullptr;
+            if (queue) {
+                qWarning() << "Web: the browser holding PTT disconnected, unkeying";
+                queue->add(priorityImmediate, queueItem(funcTransceiverStatus, QVariant::fromValue<bool>(false), false, uchar(0)));
+                queue->del(funcALCMeter, 0);
+            }
+        }
         if (pClient == micActiveClient) {
             micStatsLog("client disconnected");
             micDeviceLabel.clear();
@@ -2233,6 +2241,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
             return;
         }
         queue->add(priorityImmediate, queueItem(funcTransceiverStatus, QVariant::fromValue<bool>(on), false, uchar(0)));
+        pttClient = on ? client : nullptr;
         // Start/stop ALC meter polling for web clients
         if (on) {
             queue->addUnique(priorityHighest, queueItem(funcALCMeter, true, 0));

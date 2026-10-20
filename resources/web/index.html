@@ -4286,6 +4286,9 @@ function sliderPosToHz(pos) {
 function updateTxStatus(tx) {
     var changed = (isTransmitting !== tx);
     isTransmitting = tx;
+    // The rig went back to RX by itself (another client, its own TX
+    // timeout): a latch must not re-key it or wait for a second tap.
+    if (changed && !tx && pttLatched) { pttLatched = false; clearTimeout(pttLatchTimer); pttLatchTimer = null; }
     var ind = document.getElementById('txIndicator');
     ind.textContent = tx ? 'TX' : 'RX';
     ind.classList.toggle('tx', tx);
@@ -5609,6 +5612,12 @@ function renderFuncOverlay() {
             setPanel('amp');
         }));
     }
+
+    // PTT: HOLD (press and hold) or LATCH (tap on, tap off).
+    grid.appendChild(makeFuncBtn('PTT', pttLatchMode ? 'LATCH' : 'HOLD', pttLatchMode, function() {
+        setPttLatchMode(!pttLatchMode);
+        renderFuncOverlay();
+    }));
 
     // EQ and PROC: the Flex's own equalisers and TX audio processing, once
     // the server has reported them (flexDsp).
@@ -7084,6 +7093,39 @@ function handlePTTPress() {
 // PTT with TX audio drain delay
 var pttReleaseTimer = null;
 
+// FUNC > PTT: HOLD (press and hold, the default) or LATCH (tap to key, tap
+// again to unkey), kept per browser in wfPttMode. A latched transmission is
+// also released by Escape, by the TX time limit below, and by the server if
+// this browser disconnects (webServer: pttClient).
+var pttLatchMode = false;
+try { pttLatchMode = localStorage.getItem('wfPttMode') === 'latch'; } catch (e) {}
+var pttLatched = false;
+var pttLatchTimer = null;
+var PTT_LATCH_MAX_MS = 5 * 60 * 1000;
+
+function setPttLatchMode(on) {
+    if (!on && pttLatched) pttUnlatch();
+    pttLatchMode = !!on;
+    try { localStorage.setItem('wfPttMode', pttLatchMode ? 'latch' : 'hold'); } catch (e) {}
+}
+
+function pttLatchOn() {
+    pttLatched = true;
+    clearTimeout(pttLatchTimer);
+    pttLatchTimer = setTimeout(function () {
+        if (!pttLatched) return;
+        console.warn('[PTT] latched TX reached ' + (PTT_LATCH_MAX_MS / 60000) + ' min, releasing');
+        pttUnlatch();
+    }, PTT_LATCH_MAX_MS);
+}
+
+function pttUnlatch() {
+    pttLatched = false;
+    clearTimeout(pttLatchTimer);
+    pttLatchTimer = null;
+    releasePTT();
+}
+
 function releasePTT() {
     // Cancel any pending release
     if (pttReleaseTimer) {
@@ -7106,14 +7148,19 @@ function releasePTT() {
     function isPTT(e) { return e.target && e.target.classList && e.target.classList.contains('ptt-btn'); }
     function pttOn(e) {
         e.preventDefault();
+        // LATCH: a tap while latched (or while the rig is transmitting from
+        // this latch) is the release; the pointer-up after a keying tap is
+        // ignored.
+        if (pttLatchMode && (pttLatched || isTransmitting)) { pttUnlatch(); return; }
         if (!handlePTTPress()) return;
         if (pttReleaseTimer) {
             clearTimeout(pttReleaseTimer);
             pttReleaseTimer = null;
         }
-        pttPointerActive = true;
         flushAudio();
         send({ cmd: 'setPTT', value: true });
+        if (pttLatchMode) { pttLatchOn(); return; }
+        pttPointerActive = true;
     }
     // Press: detected on bar via delegation
     bar.addEventListener('pointerdown', function(e) {
@@ -9100,6 +9147,8 @@ document.addEventListener('keydown', function(e) {
         // immediately and leave overlays/panels in place. ESC pressed
         // again with nothing TXing falls through to the overlay close.
         if (typeof haltDigiTx === 'function' && haltDigiTx()) return;
+        // A latched PTT is released the same way.
+        if (pttLatched) { pttUnlatch(); return; }
         // Then hide overlays
         hideAllOverlays();
         closeMemoryModal();

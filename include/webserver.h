@@ -409,6 +409,10 @@ private:
     rigInput savedDataOffMod;
     bool dataOffModSaved = false;
     QWebSocket *micActiveClient = nullptr;
+    // The browser that last keyed the rig with setPTT. If it disconnects
+    // while the rig is keyed (closed tab, lost network, a latched PTT), the
+    // server unkeys rather than leave the transmitter on.
+    QWebSocket *pttClient = nullptr;
 
     // Browser-mic diagnostics.  A browser whose default input is the rig's
     // own USB codec streams the receiver audio back into the transmitter,

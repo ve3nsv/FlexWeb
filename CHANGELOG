@@ -43,6 +43,10 @@ FlexRadio:
   processor (on/off, NOR / DX / DX+), DEXP and its level, MIC level and
   the TX filter edges. The settings are the radio's own, so SmartSDR
   shows the same values.
+- FUNC > PTT: HOLD (press and hold, as before) or LATCH (tap to key, tap
+  again to unkey; Escape also releases it, and a latched transmission
+  ends after 5 minutes). The server now unkeys the rig if the browser
+  that keyed it disconnects (all radios).
 - FUNC > AUDIO has MIC and SPEAKER pickers: which of the browser
   computer's inputs is the microphone and which output plays the
   receiver (output choice in Chrome / Edge; other browsers use the
