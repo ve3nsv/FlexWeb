@@ -29,7 +29,12 @@ UNITS = {
     # and the server log lines the launcher reacts to.
     "launcher": ["launcher/src/launchconfig.cpp", "launcher/src/logparser.cpp",
                  "launcher/src/portowner.cpp"],
+    # Web login: PBKDF2 hashes, users, sessions, cookie parsing, lockout.
+    "webauth": ["src/webauth.cpp"],
 }
+
+# Units that need more than Qt5Core.
+MODULES = {"webauth": ["Qt5Core", "Qt5Network"]}
 
 
 @pytest.mark.parametrize("unit", sorted(UNITS))
@@ -37,13 +42,13 @@ def test_cpp_unit(unit, tmp_path):
     if not shutil.which("g++") or not shutil.which("pkg-config"):
         pytest.skip("C++ compiler/pkg-config unavailable")
     flags = subprocess.run(
-        ["pkg-config", "--cflags", "--libs", "Qt5Core"],
+        ["pkg-config", "--cflags", "--libs", *MODULES.get(unit, ["Qt5Core"])],
         check=False,
         capture_output=True,
         text=True,
     )
     if flags.returncode:
-        pytest.skip("Qt5Core development package unavailable")
+        pytest.skip("Qt5 development package unavailable")
 
     executable = tmp_path / f"{unit}_test"
     command = [
@@ -55,4 +60,9 @@ def test_cpp_unit(unit, tmp_path):
         "-o", str(executable),
     ]
     subprocess.run(command, check=True, cwd=ROOT)
-    subprocess.run([str(executable)], check=True, cwd=ROOT)
+    env = None
+    if unit == "webauth":
+        # QSettings writes here: keep the real user's settings out of it.
+        import os
+        env = dict(os.environ, HOME=str(tmp_path), XDG_CONFIG_HOME=str(tmp_path / "cfg"))
+    subprocess.run([str(executable)], check=True, cwd=ROOT, env=env)

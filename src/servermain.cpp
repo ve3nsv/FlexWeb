@@ -111,6 +111,8 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
                 QMetaObject::invokeMethod(web, "configureRfkit", Qt::QueuedConnection,
                                           Q_ARG(QString, rfkit));
         }
+        QMetaObject::invokeMethod(web, "setRestLan", Qt::QueuedConnection,
+                                  Q_ARG(bool, cliOverrides.restLan));
         QMetaObject::invokeMethod(web, "configureLogbook", Qt::QueuedConnection,
                                   Q_ARG(QString, cliOverrides.logbook),
                                   Q_ARG(QString, cliOverrides.remoteLogTarget),

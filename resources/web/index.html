@@ -127,6 +127,22 @@ html, body {
     border-radius: 3px;
 }
 .qso-log-btn:active { background: #048; color: #000; }
+.user-btn {
+    padding: 2px 8px;
+    background: transparent;
+    border: 1px solid var(--border, #304050);
+    color: var(--text-dim, #8ea8c0);
+    font-size: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    border-radius: 3px;
+    max-width: 12ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.user-btn.confirm { color: #ffb4b4; border-color: #a33; }
 #stepLabel { color: var(--text-faint); font-size: 10px; }
 #connDot {
     width: 8px; height: 8px; border-radius: 50%;
@@ -2279,6 +2295,7 @@ body.digi-open #bottomBar { grid-row: 5; }
         <span id="rigTag" title="Rig"></span>
         <button id="recBtn" class="rec-btn" title="Record">REC</button>
         <button id="qsoLogBtn" class="qso-log-btn" title="Log QSO">LOG</button>
+        <button id="userBtn" class="user-btn" hidden title="Signed in. Tap to sign out" onclick="userBtnClick()"></button>
         <span id="clock">--:--</span>
         <button id="fullscreenBtn" title="Full Screen" onclick="toggleFullscreen()">&#x26F6;</button>
         <button id="powerBtn" class="on" title="Power" onclick="togglePower()">&#x23FB;</button>
@@ -3426,6 +3443,36 @@ function onTransportClose() {
     txAudioAvailable = false;
     updateWarningVisibility();
     scheduleReconnect();
+    // Web login: a refused or expired session ends here too. The page itself
+    // came through the login, so a 401 now means the session is gone.
+    try {
+        fetch('/api/v1/radio/info', { cache: 'no-store', credentials: 'same-origin' })
+            .then(function (r) { if (r.status === 401) location.href = '/login'; })
+            .catch(function () {});
+    } catch (e) {}
+}
+
+// Web login: the signed-in user in the top bar; tap twice to sign out.
+var webUser = '';
+var userBtnTimer = null;
+function setWebUser(name) {
+    webUser = name || '';
+    var b = document.getElementById('userBtn');
+    if (!b) return;
+    b.hidden = !webUser;
+    b.textContent = webUser;
+    b.classList.remove('confirm');
+}
+function userBtnClick() {
+    var b = document.getElementById('userBtn');
+    if (b.classList.contains('confirm')) {
+        location.href = '/logout';
+        return;
+    }
+    b.classList.add('confirm');
+    b.textContent = 'SIGN OUT?';
+    clearTimeout(userBtnTimer);
+    userBtnTimer = setTimeout(function () { setWebUser(webUser); }, 3000);
 }
 
 function ensureWsTransport() {
@@ -3485,6 +3532,7 @@ function handleMessage(msg) {
             if (currentPanel === 'func') renderFuncOverlay();
             break;
         case 'rigInfo':
+            if (msg.webUser !== undefined) setWebUser(msg.webUser);
             if (msg.ampConfigured !== undefined) { ampConfigured = !!msg.ampConfigured; renderAmpIndicator(); }
             if (msg.version) {
                 serverVersion = msg.version;
