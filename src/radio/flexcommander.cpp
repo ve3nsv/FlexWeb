@@ -15,7 +15,13 @@
 #include "rigidentities.h"
 #include "logcategories.h"
 #include "resampler/speex_resampler.h"
-#include <opus/opus.h>
+// Same include as audioconverter.h: Windows/macOS builds put opus.h on the
+// include path directly.
+#ifndef Q_OS_LINUX
+#include "opus.h"
+#else
+#include "opus/opus.h"
+#endif
 
 // FlexRadio support for wfweb. See include/flexcommander.h for the overview.
 //
