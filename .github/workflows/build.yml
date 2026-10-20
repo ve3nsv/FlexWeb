@@ -781,7 +781,13 @@ jobs:
         shell: cmd
         run: |
           qmake wfweb.pro CONFIG+=release "VCPKG_DIR=C:/vcpkg/installed/x64-windows" "DEFINES-=FTDI_SUPPORT"
-          nmake release
+          nmake release > build.log 2>&1
+          set RC=%ERRORLEVEL%
+          type build.log
+          if not "%RC%"=="0" (
+            powershell -NoProfile -Command "Select-String -Path build.log -Pattern ' error |error C|error LNK|fatal error' | Select-Object -First 25 | ForEach-Object { '::error title=MSVC::' + $_.Line.Trim() }"
+            exit /b %RC%
+          )
 
       # Separate Qt Widgets exe that composes wfweb's command line and runs
       # it as a child process (launcher/README.md). Lands next to wfweb.exe.
@@ -790,7 +796,13 @@ jobs:
         run: |
           cd launcher
           qmake launcher.pro CONFIG+=release
-          nmake release
+          nmake release > launcher-build.log 2>&1
+          set RC=%ERRORLEVEL%
+          type launcher-build.log
+          if not "%RC%"=="0" (
+            powershell -NoProfile -Command "Select-String -Path launcher-build.log -Pattern ' error |error C|error LNK|fatal error' | Select-Object -First 25 | ForEach-Object { '::error title=MSVC launcher::' + $_.Line.Trim() }"
+            exit /b %RC%
+          )
 
       - name: Deploy Qt runtime
         shell: cmd
