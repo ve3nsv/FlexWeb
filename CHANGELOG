@@ -9,6 +9,16 @@ upstream wfview history.
 Unreleased
 ----------
 
+AetherSDR look (aether-look branch):
+- The page takes AetherSDR's "Default Dark" colours: navy-black ground,
+  slate panels, cyan accent, a monospaced frequency readout, the S meter
+  in cyan and red, PTT as an amber MOX button. The spectrum is a cyan
+  trace over a fading fill (SPAN > Spectrum: CYAN, WHITE or COLOUR), the
+  passband and VFO line are slice-A cyan with an "A" flag, and the
+  waterfall defaults to AetherSDR's colour map. Restyle only (a new
+  resources/web/aether.css plus the canvas colours): no element or
+  behaviour changes.
+
 FlexRadio:
 - FlexRadio FLEX-6000 / FLEX-8000 / Aurora SDRs are supported over the
   LAN: --manufacturer 3 --lan <radio IP> (or --lan auto to wait for the

@@ -2202,6 +2202,8 @@ body.digi-open #bottomBar { grid-row: 5; }
 <!-- JS8 messenger panel styles — shared with the standalone build via
      resources/web-shared/js8-panel.css. -->
 <link rel="stylesheet" href="js8-panel.css">
+<!-- AetherSDR-style skin: restyles only, loaded last so it wins. -->
+<link rel="stylesheet" href="aether.css">
 </head>
 <body>
 <!-- Startup Overlay -->
@@ -2366,6 +2368,7 @@ body.digi-open #bottomBar { grid-row: 5; }
 <div class="overlay-grid" id="wfPaletteGrid"></div></div>
             <div class="scope-row"><span class="scope-row-label">Spectrum</span>
                 <div class="overlay-grid">
+                    <button class="ov-btn" id="spectFillCyanBtn" onclick="setSpectFill('cyan')">CYAN</button>
                     <button class="ov-btn" id="spectFillWhiteBtn" onclick="setSpectFill('white')">WHITE</button>
                     <button class="ov-btn" id="spectFillPalBtn" onclick="setSpectFill('palette')">COLOUR</button>
                 </div></div>
@@ -4575,11 +4578,12 @@ function formatSpanWidth(hz) {
 // Each face computes its tile grid locally (density adapts to width):
 // drawSMeter for RX, drawTxMeters for TX.
 // IC-7300 colors
-var METER_BLUE = '#3f8fd6';     // segments below S9
-var METER_RED  = '#dd3327';     // segments above S9
-var METER_SCALE_RED = '#e0524a';// +20/+40/+60dB scale text and ticks
-var METER_DARK = '#1c1c1c';     // inactive segment
-var METER_BASELINE = '#999';    // thin white line under segments
+// AetherSDR skin (aether.css): accent cyan below S9, its red above.
+var METER_BLUE = '#00b4d8';     // segments below S9
+var METER_RED  = '#ff4d4d';     // segments above S9
+var METER_SCALE_RED = '#ff6a6a';// +20/+40/+60dB scale text and ticks
+var METER_DARK = '#1a2330';     // inactive segment
+var METER_BASELINE = '#506070'; // thin line under segments
 var METER_PEAK_HOLD_MS = 800;   // IC-7300 style peak-hold segment
 var meterPeakCount = 0;         // held peak fill level (in segments)
 var meterPeakTs = 0;
@@ -8161,7 +8165,7 @@ var WF_PALETTES = {
     plasma:    { name: 'PLASMA', stops: [[0.00, [0, 0, 0]], [0.25, [80, 0, 140]], [0.50, [200, 0, 120]], [0.75, [240, 120, 0]], [1.00, [255, 255, 80]]] },
     grey:      { name: 'GREY',   stops: [[0.00, [0, 0, 0]], [1.00, [255, 255, 255]]] }
 };
-var wfPalette = 'wfweb';
+var wfPalette = 'rainbow';   // AetherSDR's default colour map (aether.css skin)
 try { var savedPal = localStorage.getItem('wfPalette'); if (WF_PALETTES[savedPal]) wfPalette = savedPal; } catch (e) {}
 
 function setWfPalette(key) {
@@ -8174,19 +8178,25 @@ function setWfPalette(key) {
     if (wfImageData) { wfFillBlank(wfImageData.data, 0, wfImageData.data.length); wfBufDirty = true; }
 }
 
-// The spectrum trace: wfweb's white, or filled in the waterfall palette so a
-// signal is the same colour in both (localStorage wfSpectFill).
-var spectFill = 'white';
-try { if (localStorage.getItem('wfSpectFill') === 'palette') spectFill = 'palette'; } catch (e) {}
+// The spectrum trace: CYAN (the AetherSDR look, the default), wfweb's
+// original WHITE, or filled in the waterfall palette so a signal is the
+// same colour in both (localStorage wfSpectFill).
+var spectFill = 'cyan';
+try {
+    var savedFill = localStorage.getItem('wfSpectFill');
+    if (savedFill === 'palette' || savedFill === 'white' || savedFill === 'cyan') spectFill = savedFill;
+} catch (e) {}
 
 function setSpectFill(mode) {
-    spectFill = mode === 'palette' ? 'palette' : 'white';
+    spectFill = (mode === 'palette' || mode === 'white') ? mode : 'cyan';
     try { localStorage.setItem('wfSpectFill', spectFill); } catch (e) {}
     renderWfPaletteButtons();
 }
 
 function renderWfPaletteButtons() {
+    var cb = document.getElementById('spectFillCyanBtn');
     var wb = document.getElementById('spectFillWhiteBtn'), pb = document.getElementById('spectFillPalBtn');
+    if (cb) cb.classList.toggle('active', spectFill === 'cyan');
     if (wb) wb.classList.toggle('active', spectFill === 'white');
     if (pb) pb.classList.toggle('active', spectFill === 'palette');
     var grid = document.getElementById('wfPaletteGrid');
@@ -8744,6 +8754,17 @@ function spectTicks(w) {
     return out;
 }
 
+// The skin's font stacks (aether.css), read once for canvas text.
+var aeFontCache = null;
+function aeFonts() {
+    if (!aeFontCache) {
+        var cs = getComputedStyle(document.documentElement);
+        aeFontCache = { ui: cs.getPropertyValue('--font-ui').trim() || 'sans-serif',
+                        mono: cs.getPropertyValue('--font-mono').trim() || 'monospace' };
+    }
+    return aeFontCache;
+}
+
 function drawSpectrum() {
     var canvas = document.getElementById('spectrumCanvas');
     var ctx = canvas.getContext('2d');
@@ -8752,11 +8773,11 @@ function drawSpectrum() {
 
     ctx.setTransform(scopeDpr, 0, 0, scopeDpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#05070c';
+    ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, w, h);
 
-    // Faint grid, like the rig's scope
-    ctx.strokeStyle = 'rgba(150,171,191,0.10)';
+    // Faint grid (AetherSDR skin: its spectrum.grid token)
+    ctx.strokeStyle = '#1e2a38';
     ctx.lineWidth = 0.7;
     ctx.beginPath();
     for (var gi = 1; gi < 3; gi++) { var gy = (plotH / 3) * gi; ctx.moveTo(0, gy); ctx.lineTo(w, gy); }
@@ -8807,7 +8828,8 @@ function drawSpectrum() {
             if (hd.length !== len) continue;
             for (var hi = 0; hi < len; hi++) if (hd[hi] > peak[hi]) peak[hi] = hd[hi];
         }
-        ctx.fillStyle = 'rgba(102,112,122,0.55)';
+        // A faint afterglow: grey for WHITE, the accent's dim blue otherwise
+        ctx.fillStyle = spectFill === 'white' ? 'rgba(102,112,122,0.55)' : 'rgba(0,112,192,0.22)';
         fillTrace(peak);
     }
 
@@ -8824,10 +8846,26 @@ function drawSpectrum() {
             grad.addColorStop(gs / 24, 'rgb(' + gc[0] + ',' + gc[1] + ',' + gc[2] + ')');
         }
         ctx.fillStyle = grad;
-    } else {
+        fillTrace(spectShown);
+    } else if (spectFill === 'white') {
         ctx.fillStyle = 'rgb(237,242,247)';
+        fillTrace(spectShown);
+    } else {
+        // AetherSDR: a cyan trace over a fill that fades toward the floor.
+        var cg = ctx.createLinearGradient(0, plotH * 0.06, 0, plotH);
+        cg.addColorStop(0, 'rgba(0,180,216,0.55)');
+        cg.addColorStop(1, 'rgba(0,180,216,0.05)');
+        ctx.fillStyle = cg;
+        fillTrace(spectShown);
+        ctx.beginPath();
+        ctx.moveTo(0, barY(spectShown[0]));
+        for (var ti = 0; ti < len; ti++) ctx.lineTo((ti + 0.5) * stepX, barY(spectShown[ti]));
+        ctx.lineTo(w, barY(spectShown[len - 1]));
+        ctx.strokeStyle = '#00c8f0';
+        ctx.lineWidth = 1;
+        ctx.lineJoin = 'round';
+        ctx.stroke();
     }
-    fillTrace(spectShown);
 
     // Passband indicator bar, hung off the VFO marker
     var cx = scopeIndicatorX(w);
@@ -8845,9 +8883,9 @@ function drawSpectrum() {
         pbLeft = Math.max(0, pbLeft);
         pbRight = Math.min(w, pbRight);
         if (pbRight > pbLeft) {
-            ctx.fillStyle = 'rgba(255,255,255,0.08)';
+            ctx.fillStyle = 'rgba(0,212,255,0.14)';    // slice A tint (aether.css skin)
             ctx.fillRect(pbLeft, 0, pbRight - pbLeft, plotH);
-            ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+            ctx.strokeStyle = 'rgba(0,212,255,0.45)';
             ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(pbLeft, 0); ctx.lineTo(pbLeft, plotH); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(pbRight, 0); ctx.lineTo(pbRight, plotH); ctx.stroke();
@@ -8859,12 +8897,20 @@ function drawSpectrum() {
     if (spectStartFreq > 0 && spectEndFreq > spectStartFreq && isFinite(cx)) {
         var fxPos = cx;
         if (fxPos >= 0 && fxPos <= w) {
-            // Vertical line
-            ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-            ctx.lineWidth = 1;
+            // Vertical line, in slice A cyan
+            ctx.strokeStyle = '#00d4ff';
+            ctx.lineWidth = 1.5;
             ctx.beginPath(); ctx.moveTo(fxPos, 0); ctx.lineTo(fxPos, plotH); ctx.stroke();
-            // White triangle at bottom
-            ctx.fillStyle = '#fff';
+            // Slice flag: an "A" tab hung on the line, on whichever side has room
+            var flagW = 16, flagH = 16, flagX = (fxPos + 3 + flagW <= w) ? fxPos + 3 : fxPos - 3 - flagW;
+            ctx.fillStyle = '#00d4ff';
+            ctx.fillRect(flagX, 4, flagW, flagH);
+            ctx.fillStyle = '#041019';
+            ctx.font = 'bold 11px ' + aeFonts().ui;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('A', flagX + flagW / 2, 4 + flagH / 2 + 0.5);
+            // Triangle at the bottom
+            ctx.fillStyle = '#00d4ff';
             ctx.beginPath();
             ctx.moveTo(fxPos - 5, plotH);
             ctx.lineTo(fxPos + 5, plotH);
@@ -8874,7 +8920,7 @@ function drawSpectrum() {
         } else {
             // The VFO left a FIXED window: a chevron on the side it went to.
             var dir = fxPos < 0 ? -1 : 1, ex = dir < 0 ? 2 : w - 2, ey = plotH - 4;
-            ctx.fillStyle = '#fff';
+            ctx.fillStyle = '#00d4ff';
             ctx.beginPath();
             ctx.moveTo(ex - dir * 8, ey - 6);
             ctx.lineTo(ex, ey);
@@ -8886,8 +8932,8 @@ function drawSpectrum() {
 
     // Freq labels, on round frequencies (spectTicks)
     if (ticks.length) {
-        ctx.fillStyle = '#555';
-        ctx.font = '9px sans-serif';
+        ctx.fillStyle = '#8ea8c0';
+        ctx.font = '10px ' + aeFonts().mono;
         ctx.textAlign = 'center'; ctx.textBaseline = 'top';
         for (var li = 0; li < ticks.length; li++) ctx.fillText(ticks[li].label, ticks[li].x, plotH + 2);
     }
@@ -8929,9 +8975,9 @@ function drawWaterfall() {
         pbL = Math.max(0, pbL);
         pbR = Math.min(w, pbR);
         if (pbR > pbL) {
-            ctx.fillStyle = 'rgba(255,255,255,0.06)';
+            ctx.fillStyle = 'rgba(0,212,255,0.06)';
             ctx.fillRect(pbL, 0, pbR - pbL, h);
-            ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+            ctx.strokeStyle = 'rgba(0,212,255,0.25)';
             ctx.lineWidth = 1;
             ctx.beginPath(); ctx.moveTo(pbL, 0); ctx.lineTo(pbL, h); ctx.stroke();
             ctx.beginPath(); ctx.moveTo(pbR, 0); ctx.lineTo(pbR, h); ctx.stroke();
@@ -8940,7 +8986,7 @@ function drawWaterfall() {
 
     // Frequency indicator (at the VFO, see scopeIndicatorX)
     if (spectStartFreq > 0 && spectEndFreq > spectStartFreq && cx >= 0 && cx <= w) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.strokeStyle = 'rgba(0,212,255,0.6)';
         ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(cx, 0); ctx.lineTo(cx, h); ctx.stroke();
     }

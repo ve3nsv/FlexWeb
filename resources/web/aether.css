@@ -1,0 +1,159 @@
+/* ==========================================================================
+   AetherSDR-style skin for the server-build page.
+
+   Loaded after index.html's own <style>, so every rule here only restyles:
+   no element, id or behaviour changes (recorder.js, the mode panels and the
+   tests address the same elements as before). Colours follow AetherSDR's
+   "Default Dark" theme tokens (resources/themes/default-dark.json there):
+   navy-black ground, slate panels, cyan accent, slice A cyan, amber MOX.
+   No web fonts: the page must work with no internet, so the stacks name
+   common installed fonts and fall back to the system ones.
+   ========================================================================== */
+
+:root {
+    --ae-ground:   #0f0f1a;   /* app background            (gray.900) */
+    --ae-bar:      #0b0b14;   /* title / info bars                     */
+    --ae-strip:    #121a26;   /* slice strip, bottom bar               */
+    --ae-panel:    #1a2a3a;   /* buttons, applets          (gray.800) */
+    --ae-panel-hi: #304050;   /* headers, hover            (gray.700) */
+    --ae-line:     #2a3a4d;   /* strong borders                        */
+    --ae-hair:     #1a2330;   /* grid, hairlines           (gray.850) */
+    --ae-text:     #c8d8e8;   /* primary text              (gray.200) */
+    --ae-text-hi:  #e6f0fa;   /* frequency, values         (gray.50)  */
+    --ae-text-dim: #8ea8c0;   /* labels                    (gray.400) */
+    --ae-accent:   #00b4d8;   /* accent                    (blue.500) */
+    --ae-accent-hi:#00c8f0;   /* bright accent             (blue.300) */
+    --ae-accent-lo:#0070c0;   /* filled selection          (blue.700) */
+    --ae-slice-a:  #00d4ff;   /* slice A                               */
+    --ae-tx:       #ff4d4d;   /* transmit                  (red.500)  */
+    --ae-ok:       #4dd87a;   /* green.500                             */
+    --ae-warn:     #ffb84d;   /* amber.500                             */
+
+    /* theme.css tokens, so the .wf-* kit follows */
+    --bg:          #000;
+    --bg-app:      var(--ae-ground);
+    --bg-bar:      var(--ae-bar);
+    --bg-raised:   var(--ae-panel);
+    --border-col:  var(--ae-line);
+    --text:        var(--ae-text);
+    --text-dim:    var(--ae-text-dim);
+    --text-faint:  #6f88a0;
+    --font-ui:   'Inter', 'Segoe UI', system-ui, -apple-system, Helvetica, Arial, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, 'DejaVu Sans Mono', Menlo, monospace;
+}
+
+input[type=range] { accent-color: var(--ae-accent); }
+
+/* ---- Top bar ------------------------------------------------------------ */
+#topBar { background: var(--ae-bar); border-bottom-color: var(--ae-line); }
+#txIndicator {
+    border-radius: 3px; border-color: var(--ae-line);
+    color: var(--ae-ok); font-family: var(--font-mono);
+}
+#txIndicator.tx { background: var(--ae-tx); border-color: var(--ae-tx); color: #fff; }
+#modeBtn {
+    border: 1px solid var(--ae-accent); border-radius: 3px;
+    background: var(--ae-panel-hi); color: var(--ae-text-hi);
+}
+#modeBtn:active { background: var(--ae-accent-lo); color: var(--ae-text-hi); }
+#pbBars i { background: var(--ae-text-dim); }
+#filterText { color: var(--ae-accent-hi); }
+#filterText:active { color: var(--ae-text-hi); }
+.dsp-tag { background: var(--ae-accent-lo); color: var(--ae-text-hi); border-radius: 3px; }
+#clock { color: var(--ae-text); }
+#rigTag { color: var(--ae-text-dim); }
+.qso-log-btn { background: var(--ae-panel); border-color: var(--ae-line); color: var(--ae-accent-hi); }
+.qso-log-btn:active { background: var(--ae-accent-lo); color: var(--ae-text-hi); }
+#connDot { background: #6e1f1f; }
+#connDot.connected { background: var(--ae-ok); }
+
+/* ---- Meter + frequency: the slice strip --------------------------------- */
+#meterFreqRow { background: var(--ae-strip); border-bottom: 1px solid var(--ae-hair); }
+#vfoLabel {
+    padding: 1px 7px; border-radius: 3px;
+    background: var(--ae-slice-a); color: #041019;
+}
+#splitBadge { background: var(--ae-tx); border-radius: 3px; }
+#splitFreq { color: var(--ae-text-dim); }
+
+/* Frequency in a monospaced face instead of the digit sprite. The digit
+   elements and their classes stay exactly as the page builds them (click
+   and wheel tuning address them by position); each one just draws its
+   character as text. */
+#freqDisplay { font-family: var(--font-mono); color: var(--ae-text-hi); }
+#freqDisplay .freq-digit {
+    background-image: none;
+    width: 0.62em; height: auto;
+    font-size: 46px; font-weight: 500; line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+#freqDisplay .freq-digit.digit-dot { width: 0.32em; }
+#freqDisplay .freq-digit.digit-0::before { content: '0'; }
+#freqDisplay .freq-digit.digit-1::before { content: '1'; }
+#freqDisplay .freq-digit.digit-2::before { content: '2'; }
+#freqDisplay .freq-digit.digit-3::before { content: '3'; }
+#freqDisplay .freq-digit.digit-4::before { content: '4'; }
+#freqDisplay .freq-digit.digit-5::before { content: '5'; }
+#freqDisplay .freq-digit.digit-6::before { content: '6'; }
+#freqDisplay .freq-digit.digit-7::before { content: '7'; }
+#freqDisplay .freq-digit.digit-8::before { content: '8'; }
+#freqDisplay .freq-digit.digit-9::before { content: '9'; }
+#freqDisplay .freq-digit.digit-dot::before { content: '.'; }
+#freqDisplay .freq-digit.digit-dash { position: relative; }
+#freqDisplay .freq-digit.digit-dash::after { background: var(--ae-text-dim); }
+@media (max-height: 450px) { #freqDisplay .freq-digit { font-size: 30px; } }
+@media (max-width: 900px) and (orientation: landscape) { #freqDisplay .freq-digit { font-size: 30px; } }
+@media (orientation: portrait) {
+    #freqDisplay { height: 28px; }
+    #freqDisplay .freq-digit { font-size: 26px; }
+}
+
+/* ---- Scope -------------------------------------------------------------- */
+#scopeInfoBar { background: var(--ae-bar); border-color: var(--ae-hair); color: var(--ae-text-dim); }
+#spanIndicator { color: var(--ae-accent-hi); }
+#spanIndicator:hover { background: var(--ae-panel); color: var(--ae-text-hi); }
+#scopeLabel { color: #6f88a0; }
+#otherVfoFreq { color: var(--ae-text-dim); }
+#spectrumCanvas { background: #000; }
+#spanEdgeLeft, #spanEdgeRight { color: var(--ae-text-dim); font-family: var(--font-mono); }
+.spectrum-warning { font-family: var(--font-ui); }
+
+/* ---- Overlays and their tiles ------------------------------------------- */
+.overlay { background: rgba(15, 15, 26, 0.97); }
+.overlay-title { color: var(--ae-text-dim); }
+.ov-btn {
+    background: var(--ae-panel); border: 1px solid var(--ae-panel-hi);
+    border-radius: 3px; color: var(--ae-text);
+}
+.ov-btn:active { background: var(--ae-panel-hi); }
+.ov-btn.active {
+    background: var(--ae-accent-lo); border-color: var(--ae-accent);
+    color: var(--ae-text-hi); box-shadow: none;
+}
+.ov-btn.active .btn-state { color: var(--ae-text-hi); }
+.ov-btn:not(.active) .btn-state { color: var(--ae-text-dim); }
+.ov-btn.back-btn { border-color: var(--ae-line); color: var(--ae-text-dim); }
+
+/* ---- Bottom bar --------------------------------------------------------- */
+#bottomBar { background: var(--ae-strip); border-top-color: var(--ae-line); }
+.softBtn {
+    background: var(--ae-panel); border: 1px solid var(--ae-panel-hi);
+    border-radius: 3px; color: var(--ae-text);
+}
+.softBtn:active { background: var(--ae-panel-hi); }
+.softBtn.active { background: var(--ae-accent-lo); border-color: var(--ae-accent); color: var(--ae-text-hi); }
+.softBtn.tx-active { background: #3a1414; border-color: var(--ae-tx); color: #ffd0d0; }
+/* PTT as AetherSDR's MOX: amber at rest, red on the air */
+.softBtn.ptt-btn { background: #3a2a0e; border-color: #d08020; color: #f0c890; }
+.softBtn.ptt-btn.tx-active { background: #b02020; border-color: var(--ae-tx); color: #fff; }
+.softBtn.key-btn { background: #3a2a0e; border-color: #d08020; color: #f0c890; }
+.softBtn.key-btn.tx-active { background: #b02020; border-color: var(--ae-tx); color: #fff; }
+
+/* ---- wfweb's own panels (AMP, EQ, PROC, ANT, AUDIO) --------------------- */
+#ampOverlay .amp-tile { background: var(--ae-panel); color: var(--ae-text-dim); }
+#ampOverlay .amp-tile span { color: var(--ae-text-hi); }
+#ampOverlay .amp-track { background: var(--ae-hair); }
+#ampOverlay .amp-fill { background: var(--ae-accent); }
+.audio-dev-row select { background: var(--ae-panel); color: var(--ae-text); border-color: var(--ae-line); }
+.audio-dev-note { color: var(--ae-text-dim); }
+.dsp-row b, .eq-band b { color: var(--ae-text-hi); }

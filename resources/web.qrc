@@ -23,6 +23,7 @@
         <file alias="cw-keyer.js">web-shared/cw-keyer.js</file>
         <file alias="lamejs/lame.min.js">web-shared/lamejs/lame.min.js</file>
         <file alias="theme.css">web-shared/theme.css</file>
+        <file alias="aether.css">web/aether.css</file>
         <file alias="js8-panel.css">web-shared/js8-panel.css</file>
         <file alias="js8-panel.mjs">web-shared/js8-panel.mjs</file>
         <file alias="ft8ts.mjs">ft8ts/dist/ft8ts.mjs</file>
