@@ -20,7 +20,7 @@ import pytest
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from mock_flex_radio import MockFlexRadio  # noqa: E402
+from mock_flex_radio import MockFlexRadio, MockSmartLink, tls_context  # noqa: E402
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 WFWEB_BIN = PROJECT_ROOT / "wfweb"
@@ -336,5 +336,94 @@ def test_kicked_by_another_client():
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)
+
+
+def test_smartlink():
+    """SmartLink: --smartlink-login keeps a refresh token (never the
+    password), then --smartlink <serial> reaches the radio over TLS through
+    the broker, validates with the WAN handle and registers UDP itself."""
+    if not WFWEB_BIN.exists():
+        pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
+
+    loop = asyncio.new_event_loop()
+    tls = tls_context()
+    radio = MockFlexRadio()
+    loop.run_until_complete(radio.start(tls=tls))
+    broker = MockSmartLink(radio, tls)
+    loop.run_until_complete(broker.start())
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+
+    home = "/tmp/wfweb-flex-smartlink-test"
+    subprocess.run(["rm", "-rf", home])
+    os.makedirs(home, exist_ok=True)
+    env = os.environ.copy()
+    env.update(HOME=home, XDG_CONFIG_HOME=f"{home}/.config", WFWEB_NO_TUI="1",
+               WFWEB_SMARTLINK_AUTH=f"https://127.0.0.1:{broker.auth_port}/oauth/token",
+               WFWEB_SMARTLINK_SERVER=f"127.0.0.1:{broker.server_port}")
+    conf = Path(home) / ".config" / "wfweb" / "smartlink.conf"
+    proc = None
+    try:
+        # Not signed in yet: a wrong password is refused and nothing is kept.
+        bad = subprocess.run([str(WFWEB_BIN), "--smartlink-login", MockSmartLink.EMAIL],
+                             input=b"wrong\n", capture_output=True, env=env, timeout=40)
+        assert bad.returncode != 0, bad.stdout.decode(errors="replace")
+        assert b"Wrong email or password" in bad.stdout
+        assert not conf.exists() or "refreshToken" not in conf.read_text()
+
+        good = subprocess.run([str(WFWEB_BIN), "--smartlink-login", MockSmartLink.EMAIL],
+                              input=(MockSmartLink.PASSWORD + "\n").encode(),
+                              capture_output=True, env=env, timeout=40)
+        out = good.stdout.decode(errors="replace")
+        assert good.returncode == 0, out + good.stderr.decode(errors="replace")
+        assert "1234-5678" in out and "Mock" in out, out
+        saved = conf.read_text()
+        assert MockSmartLink.REFRESH in saved
+        assert MockSmartLink.PASSWORD not in saved
+
+        web_port = _free_port()
+        rest = f"http://127.0.0.1:{web_port + 1}/api/v1/radio"
+        proc = subprocess.Popen([str(WFWEB_BIN), "-p", str(web_port), "--smartlink", "1234-5678"],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+
+        def ready():
+            info = requests.get(f"{rest}/info", timeout=2).json()
+            status = requests.get(f"{rest}/status", timeout=2)
+            return info.get("connected") and status.status_code == 200 \
+                and (status.json().get("frequency") or 0) > 0
+
+        if not _wait(ready, timeout=40):
+            proc.terminate()
+            log = proc.communicate(timeout=5)[0].decode(errors="replace")
+            pytest.fail(f"wfweb did not come up over SmartLink:\n{log}")
+
+        # Signed in with the refresh token, registered, asked for the radio.
+        assert broker.token_requests[-1].get("grant_type") == "refresh_token"
+        assert any(l.startswith("application register name=wfweb") for l in broker.lines)
+        assert any(l.startswith("application connect serial=1234-5678 hole_punch_port=") for l in broker.lines)
+        # The radio heard the WAN handle first, then the usual session.
+        assert radio.commands[0] == f"wan validate handle={radio.wan_handle}"
+        assert radio.find("client gui")
+        assert not radio.find("client udpport")
+        # UDP: registered from our side, and the radio's VITA-49 reaches us.
+        assert radio.udp_registers and radio.udp_registers[0] == \
+            f"client udp_register handle=0x{radio.handle:08X}".encode()
+        meters = _wait(lambda: (lambda m: m if abs(m.get("sMeter", -99) - 10.0) < 0.5 else None)(
+            requests.get(f"{rest}/meters", timeout=2).json()), timeout=10)
+        assert meters, "no meters over SmartLink UDP"
+        r = requests.put(f"{rest}/frequency", json={"hz": 7_074_000}, timeout=5)
+        assert r.status_code == 202
+        assert _wait(lambda: "slice tune 0 7.074000" in radio.commands, timeout=5)
+        # The radio's certificate is remembered for next time.
+        assert "certPins" in conf.read_text()
+    finally:
+        if proc:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=2)

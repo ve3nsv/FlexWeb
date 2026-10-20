@@ -19,11 +19,13 @@ Run standalone to point a real wfweb at it:
 from __future__ import annotations
 
 import argparse
+import json
 import asyncio
 import math
 import random
 import struct
 import time
+from pathlib import Path
 
 OUI = 0x001C2D
 ICC = 0x534C
@@ -76,17 +78,28 @@ class MockFlexRadio:
         self._count = 0
         self._fft_frame = 0
         self._phase = 0.0
+        # SmartLink: the radio is reached over TLS and waits for
+        # "wan validate handle=<wan_handle>" before it says V/H.
+        self.wan = False
+        self.wan_handle = "WANHANDLE42"
+        self.udp_registers: list[bytes] = []
 
     # ── lifecycle ──────────────────────────────────────────────────────────
 
-    async def start(self, port: int = 0, vita_port: int = 0) -> None:
-        self._server = await asyncio.start_server(self._client, "127.0.0.1", port)
+    async def start(self, port: int = 0, vita_port: int = 0, tls=None) -> None:
+        self.wan = tls is not None
+        self._server = await asyncio.start_server(self._client, "127.0.0.1", port, ssl=tls)
         self.control_port = self._server.sockets[0].getsockname()[1]
         loop = asyncio.get_running_loop()
         radio = self
 
         class Proto(asyncio.DatagramProtocol):
             def datagram_received(self, data, addr):
+                if data.startswith(b"client udp_register"):
+                    # SmartLink: VITA-49 goes back to where this came from.
+                    radio.udp_registers.append(data)
+                    radio.client_addr = addr
+                    return
                 radio.dax_tx.append(data)
                 radio.dax_tx_times.append(time.monotonic())
                 if radio.verbose and len(radio.dax_tx) % 25 == 1:
@@ -141,8 +154,9 @@ class MockFlexRadio:
         self.slice = {}
         self.pan = {}
         self.client_addr = None
-        self._send("V1.4.0.0")
-        self._send(f"H{self.handle:08X}")
+        if not self.wan:
+            self._send("V1.4.0.0")
+            self._send(f"H{self.handle:08X}")
         try:
             while True:
                 raw = await reader.readline()
@@ -152,6 +166,16 @@ class MockFlexRadio:
                 if not line.startswith("C") or "|" not in line:
                     continue
                 seq, cmd = line[1:].split("|", 1)
+                if self.wan and cmd.startswith("wan validate"):
+                    self.commands.append(cmd)
+                    if cmd != f"wan validate handle={self.wan_handle}":
+                        self._send(f"R{seq}|50000016|bad handle")
+                        break
+                    self._send(f"R{seq}|0|")
+                    self._send("V1.4.0.0")
+                    self._send(f"H{self.handle:08X}")
+                    await writer.drain()
+                    continue
                 if cmd != "ping":
                     self.commands.append(cmd)
                     if self.verbose:
@@ -178,6 +202,8 @@ class MockFlexRadio:
     def _handle(self, cmd: str) -> tuple[int, str]:
         words = cmd.split()
         if cmd.startswith("client udpport"):
+            if self.wan:
+                return 0x50001000, "not supported over WAN"
             self.client_addr = (self._peer_ip, int(words[2]))
             return 0, ""
         if cmd.startswith("sub meter"):
@@ -331,6 +357,100 @@ class MockFlexRadio:
 
     def find(self, prefix: str) -> list[str]:
         return [c for c in self.commands if c.startswith(prefix)]
+
+
+class MockSmartLink:
+    """The FlexRadio account service and the SmartLink broker, for one radio.
+
+    HTTPS on ``auth_port`` answers the Auth0 token requests (password and
+    refresh-token grants); TLS on ``server_port`` speaks the SmartLink line
+    protocol: register -> radio list, application connect -> connect_ready.
+    Point wfweb at it with WFWEB_SMARTLINK_AUTH / WFWEB_SMARTLINK_SERVER.
+    """
+
+    EMAIL = "op@example.com"
+    PASSWORD = "secret-pw"
+    ID_TOKEN = "id-token-1"
+    REFRESH = "refresh-token-1"
+
+    def __init__(self, radio: MockFlexRadio, tls):
+        self.radio = radio
+        self.tls = tls
+        self.auth_port = 0
+        self.server_port = 0
+        self.token_requests: list[dict] = []
+        self.lines: list[str] = []
+        self._servers = []
+
+    async def start(self) -> None:
+        a = await asyncio.start_server(self._auth, "127.0.0.1", 0, ssl=self.tls)
+        b = await asyncio.start_server(self._broker, "127.0.0.1", 0, ssl=self.tls)
+        self._servers = [a, b]
+        self.auth_port = a.sockets[0].getsockname()[1]
+        self.server_port = b.sockets[0].getsockname()[1]
+
+    async def stop(self) -> None:
+        for srv in self._servers:
+            srv.close()
+
+    async def _auth(self, reader, writer) -> None:
+        try:
+            head = await reader.readuntil(b"\r\n\r\n")
+            length = 0
+            for h in head.decode(errors="replace").split("\r\n"):
+                if h.lower().startswith("content-length:"):
+                    length = int(h.split(":", 1)[1])
+            req = json.loads(await reader.readexactly(length) or b"{}")
+            self.token_requests.append(req)
+            ok = (req.get("username") == self.EMAIL and req.get("password") == self.PASSWORD) \
+                or req.get("refresh_token") == self.REFRESH
+            if ok:
+                status, body = "200 OK", {"id_token": self.ID_TOKEN, "refresh_token": self.REFRESH}
+            else:
+                status, body = "403 Forbidden", {"error": "invalid_grant",
+                                                 "error_description": "Wrong email or password."}
+            data = json.dumps(body).encode()
+            writer.write(f"HTTP/1.1 {status}\r\nContent-Type: application/json\r\n"
+                         f"Content-Length: {len(data)}\r\nConnection: close\r\n\r\n".encode() + data)
+            await writer.drain()
+        except (asyncio.IncompleteReadError, ConnectionResetError, ValueError):
+            pass
+        finally:
+            writer.close()
+
+    async def _broker(self, reader, writer) -> None:
+        r = self.radio
+        try:
+            while True:
+                raw = await reader.readline()
+                if not raw:
+                    break
+                line = raw.decode(errors="replace").strip()
+                self.lines.append(line)
+                if line.startswith("application register"):
+                    if f"token={self.ID_TOKEN}" not in line:
+                        writer.write(b"application registration_invalid\n")
+                        continue
+                    writer.write(b"application info public_ip=127.0.0.1\n")
+                    writer.write((f"radio list name=Mock radio_name=Mock callsign=VE3NSV serial=1234-5678 "
+                                  f"model={r.model} status=Available public_ip=127.0.0.1 "
+                                  f"public_tls_port={r.control_port} public_udp_port={r.vita_port} "
+                                  f"upnp_supported=0 gui_client_programs=|\n").encode())
+                elif line.startswith("application connect"):
+                    serial = dict(w.split("=", 1) for w in line.split() if "=" in w).get("serial")
+                    writer.write(f"radio connect_ready handle={r.wan_handle} serial={serial}\n".encode())
+                await writer.drain()
+        except (ConnectionResetError, asyncio.IncompleteReadError):
+            pass
+
+
+def tls_context():
+    """Server-side TLS for the mocks (self-signed, localhost tests only)."""
+    import ssl
+    here = Path(__file__).resolve().parent
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ctx.load_cert_chain(here / "smartlink_test_cert.pem", here / "smartlink_test_key.pem")
+    return ctx
 
 
 async def _main() -> None:

@@ -4,6 +4,9 @@
 #include <QDebug>
 #include <QSettings>
 #include <QUuid>
+#include <QCryptographicHash>
+#include <QSslCertificate>
+#include <QSslConfiguration>
 #include <QtEndian>
 #include <cmath>
 #include <cstdlib>
@@ -110,8 +113,10 @@ void flexCommander::commSetup(rigTypedef rigList, quint16 rigCivAddr, udpPrefere
     closing = false;
 
     const QString host = prefs.ipAddress.trimmed();
-    useDiscovery = host.isEmpty() || host.compare("auto", Qt::CaseInsensitive) == 0;
-    radioAddress = useDiscovery ? QHostAddress() : QHostAddress(host);
+    wan = host.startsWith(QLatin1String("smartlink:"), Qt::CaseInsensitive);
+    wanRadioName = wan ? host.mid(10).trimmed() : QString();
+    useDiscovery = !wan && (host.isEmpty() || host.compare("auto", Qt::CaseInsensitive) == 0);
+    radioAddress = (useDiscovery || wan) ? QHostAddress() : QHostAddress(host);
     if (!useDiscovery && radioAddress.isNull()) {
         // Not a literal address: let QTcpSocket resolve the name.
         radioAddress = QHostAddress();
@@ -148,8 +153,14 @@ void flexCommander::commSetup(rigTypedef rigList, quint16 rigCivAddr, udpPrefere
     }
     connect(udp, &QUdpSocket::readyRead, this, &flexCommander::udpReadyRead);
 
-    tcp = new QTcpSocket(this);
+    tcp = new QSslSocket(this);
     tcp->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+    // SmartLink only: the radio's certificate is self-signed, so the TLS
+    // handshake cannot verify it; wanEncrypted() pins it on first use.
+    connect(tcp, QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors), this, [this](const QList<QSslError>&) {
+        if (wan && tcp) tcp->ignoreSslErrors();
+    });
+    connect(tcp, &QSslSocket::encrypted, this, &flexCommander::wanEncrypted);
     connect(tcp, &QTcpSocket::connected, this, &flexCommander::tcpConnected);
     connect(tcp, &QTcpSocket::disconnected, this, &flexCommander::tcpDisconnected);
     connect(tcp, &QTcpSocket::readyRead, this, &flexCommander::tcpReadyRead);
@@ -168,6 +179,14 @@ void flexCommander::commSetup(rigTypedef rigList, quint16 rigCivAddr, udpPrefere
     reconnectTimer->setInterval(3000);
     connect(reconnectTimer, &QTimer::timeout, this, &flexCommander::reconnectTick);
 
+    wanRegisterTimer = new QTimer(this);
+    connect(wanRegisterTimer, &QTimer::timeout, this, &flexCommander::sendUdpRegister);
+    wanWatchdog = new QTimer(this);
+    wanWatchdog->setSingleShot(true);
+    connect(wanWatchdog, &QTimer::timeout, this, [this]() {
+        if (!handshakeDone) wanRetry("SmartLink connection timed out", 5000);
+    });
+
     startConnect();
 }
 
@@ -175,6 +194,10 @@ void flexCommander::startConnect()
 {
     if (closing)
         return;
+    if (wan) {
+        startWan();
+        return;
+    }
     if (useDiscovery && radioAddress.isNull()) {
         if (discovery == nullptr) {
             discovery = new QUdpSocket(this);
@@ -237,6 +260,7 @@ void flexCommander::closeComm()
             if (transmitting) tcp->write(buildCommand(nextSeq++, "xmit 0"));
             if (rxStreamId) tcp->write(buildCommand(nextSeq++, QString("stream remove 0x%1").arg(rxStreamId, 0, 16)));
             if (txStreamId) tcp->write(buildCommand(nextSeq++, QString("stream remove 0x%1").arg(txStreamId, 0, 16)));
+            if (wan) tcp->write("\x04");   // SmartLink disconnect marker (FlexLib)
             tcp->waitForBytesWritten(300);
         }
         tcp->disconnect(this);
@@ -261,6 +285,14 @@ void flexCommander::closeComm()
         discovery->deleteLater();
         discovery = nullptr;
     }
+    if (smartLink != nullptr) {
+        smartLink->disconnect(this);
+        smartLink->close();
+        smartLink->deleteLater();
+        smartLink = nullptr;
+    }
+    if (wanRegisterTimer) { wanRegisterTimer->stop(); wanRegisterTimer->deleteLater(); wanRegisterTimer = nullptr; }
+    if (wanWatchdog) { wanWatchdog->stop(); wanWatchdog->deleteLater(); wanWatchdog = nullptr; }
     if (pingTimer) { pingTimer->deleteLater(); pingTimer = nullptr; }
     if (reconnectTimer) { reconnectTimer->deleteLater(); reconnectTimer = nullptr; }
     // Drop the queue's pointer to our caps, so the setRigCaps() of the next
@@ -299,6 +331,10 @@ void flexCommander::resetSession()
     udpSeen.clear();
     udpStats.clear();
     txAccumulator.clear();
+    wanHandle.clear();
+    wanConnectRequested = false;
+    wanUdpConfirmed = false;
+    if (wanRegisterTimer) wanRegisterTimer->stop();
 }
 
 void flexCommander::setStatus(const QString& message, bool connected)
@@ -332,7 +368,7 @@ void flexCommander::tcpDisconnected()
     resetSession();
     if (!closing) {
         setStatus("Flex: connection to the radio lost, retrying", false);
-        if (reconnectTimer) reconnectTimer->start();
+        if (reconnectTimer) reconnectTimer->start(wan ? 15000 : 3000);
     }
 }
 
@@ -345,8 +381,161 @@ void flexCommander::tcpError(QAbstractSocket::SocketError err)
         setStatus(QString("Flex: cannot connect to %1:%2 (%3), retrying")
                   .arg(radioAddress.isNull() ? prefs.ipAddress : radioAddress.toString())
                   .arg(radioPort).arg(tcp->errorString()), false);
-        if (reconnectTimer) reconnectTimer->start();
+        if (reconnectTimer) reconnectTimer->start(wan ? 15000 : 3000);
     }
+}
+
+// ─── SmartLink ─────────────────────────────────────────────────────────────
+//
+// Sign in with the stored refresh token -> the SmartLink server lists the
+// account's radios -> "application connect" for ours (with our UDP port for
+// the radio's NAT bookkeeping) -> "radio connect_ready handle=" -> TLS to the
+// radio's public address -> "wan validate handle=" -> the radio answers V/H
+// like on the LAN and processLine() takes over.
+
+void flexCommander::startWan()
+{
+    if (closing)
+        return;
+    wanConnectRequested = false;
+    wanHandle.clear();
+    if (tcp && tcp->state() != QAbstractSocket::UnconnectedState)
+        tcp->abort();
+    if (smartLink == nullptr) {
+        smartLink = new smartLinkClient(this);
+        connect(smartLink, &smartLinkClient::authFailed, this, [this](const QString& err) {
+            emit havePortError(errorType(true, "SmartLink", "SmartLink sign-in failed: " + err));
+            wanRetry("SmartLink sign-in failed: " + err, 60000);
+        });
+        connect(smartLink, &smartLinkClient::serverConnected, this, [this]() {
+            if (!handshakeDone)
+                setStatus("Flex: signed in to SmartLink, waiting for the radio list", false);
+        });
+        connect(smartLink, &smartLinkClient::serverDisconnected, this, [this]() {
+            // Once the radio session is up, the broker is no longer needed.
+            if (!handshakeDone && !closing && tcp && tcp->state() == QAbstractSocket::UnconnectedState)
+                wanRetry("lost the SmartLink server", 10000);
+        });
+        connect(smartLink, &smartLinkClient::radioList, this, &flexCommander::wanRadioList);
+        connect(smartLink, &smartLinkClient::connectReady, this, &flexCommander::wanConnectReady);
+    }
+    smartLink->close();
+    if (!smartLink->loginWithStoredToken()) {
+        const QString msg = "Not signed in to SmartLink. Run  wfweb --smartlink-login  once to sign in.";
+        qWarning(logRig()).noquote() << "Flex:" << msg;
+        emit havePortError(errorType(true, "SmartLink", msg));
+        wanRetry("not signed in to SmartLink (wfweb --smartlink-login)", 60000);
+        return;
+    }
+    setStatus("Flex: signing in to SmartLink", false);
+    if (wanWatchdog) wanWatchdog->start(30000);
+}
+
+void flexCommander::wanRetry(const QString& why, int ms)
+{
+    if (closing)
+        return;
+    qWarning(logRig()).noquote() << "Flex:" << why;
+    if (wanWatchdog) wanWatchdog->stop();
+    if (smartLink) smartLink->close();
+    if (tcp && tcp->state() != QAbstractSocket::UnconnectedState)
+        tcp->abort();
+    setStatus(QString("Flex: %1, retrying in %2 s").arg(why).arg(ms / 1000), false);
+    if (reconnectTimer) reconnectTimer->start(ms);
+}
+
+void flexCommander::wanRadioList(const QList<smartLinkRadio>& radios)
+{
+    if (wanConnectRequested || handshakeDone || closing)
+        return;
+    QStringList names;
+    for (const smartLinkRadio& r : radios)
+        names << QString("%1 \"%2\" serial %3 (%4)").arg(r.model, r.nickname, r.serial, r.status);
+    const int i = smartLinkClient::findRadio(radios, wanRadioName);
+    if (i < 0) {
+        QString msg;
+        if (radios.isEmpty())
+            msg = "no radios are online on this SmartLink account";
+        else if (wanRadioName.isEmpty() || wanRadioName.compare("auto", Qt::CaseInsensitive) == 0)
+            msg = "several radios on this SmartLink account; choose one with --smartlink <serial or name>: " + names.join(", ");
+        else
+            msg = QString("radio \"%1\" is not online on this SmartLink account (found: %2)")
+                      .arg(wanRadioName, names.isEmpty() ? "none" : names.join(", "));
+        // The server sends a new list whenever a radio comes or goes.
+        qWarning(logRig()).noquote() << "Flex:" << msg;
+        setStatus("Flex: " + msg, false);
+        if (wanWatchdog) wanWatchdog->start(60000);
+        return;
+    }
+    const smartLinkRadio& r = radios[i];
+    qInfo(logRig()).noquote() << QString("SmartLink: %1 \"%2\" serial %3, %4, public %5 TLS %6 UDP %7%8")
+        .arg(r.model, r.nickname, r.serial, r.status, r.publicIp).arg(r.publicTlsPort).arg(r.publicUdpPort)
+        .arg(r.upnp ? " (UPnP)" : "");
+    if (r.needsHolePunch) {
+        const QString msg = QString("radio \"%1\" has no forwarded or UPnP ports, and wfweb cannot hole-punch yet. "
+                                    "Turn on UPnP in the router, or forward ports to the radio and enter them "
+                                    "in SmartSDR's SmartLink setup.").arg(r.nickname);
+        emit havePortError(errorType(true, "SmartLink", msg));
+        wanRetry(msg, 60000);
+        return;
+    }
+    wanRadio = r;
+    wanConnectRequested = true;
+    setStatus(QString("Flex: asking SmartLink for %1 \"%2\"").arg(r.model, r.nickname), false);
+    smartLink->requestConnect(r.serial, udp ? udp->localPort() : 0);
+    if (wanWatchdog) wanWatchdog->start(30000);
+}
+
+void flexCommander::wanConnectReady(const QString& handle, const QString& serial)
+{
+    if (!wanConnectRequested || serial != wanRadio.serial || handshakeDone || closing || tcp == nullptr)
+        return;
+    wanHandle = handle;
+    radioAddress = QHostAddress(wanRadio.publicIp);
+    radioPort = quint16(wanRadio.publicTlsPort);
+    radioUdpPort = quint16(wanRadio.publicUdpPort);
+    QSslConfiguration cfg = tcp->sslConfiguration();
+    cfg.setPeerVerifyMode(QSslSocket::VerifyNone);
+    tcp->setSslConfiguration(cfg);
+    tcp->abort();
+    lineBuffer.clear();
+    setStatus(QString("Flex: connecting to \"%1\" over SmartLink (%2:%3)")
+              .arg(wanRadio.nickname, wanRadio.publicIp).arg(radioPort), false);
+    tcp->connectToHostEncrypted(wanRadio.publicIp, radioPort);
+}
+
+void flexCommander::wanEncrypted()
+{
+    if (!wan || tcp == nullptr)
+        return;
+    // Trust on first use: the radio's certificate is self-signed, so the
+    // first one seen for this serial is remembered and must match later.
+    const QSslCertificate cert = tcp->peerCertificate();
+    if (!cert.isNull()) {
+        const QString fp = QString::fromLatin1(cert.digest(QCryptographicHash::Sha256).toHex());
+        const QString pinned = smartLinkClient::certPin(wanRadio.serial);
+        if (pinned.isEmpty()) {
+            smartLinkClient::setCertPin(wanRadio.serial, fp);
+            qInfo(logRig()) << "SmartLink: remembered the radio's certificate, sha256" << fp;
+        } else if (pinned != fp) {
+            const QString msg = QString("the radio's TLS certificate changed (expected sha256 %1, got %2). "
+                                        "If the radio was replaced or updated, run  wfweb --smartlink-login  "
+                                        "again to trust the new one.").arg(pinned, fp);
+            emit havePortError(errorType(true, "SmartLink", msg));
+            wanRetry("refused: " + msg, 300000);
+            return;
+        }
+    }
+    tcp->write(buildCommand(nextSeq++, "wan validate handle=" + wanHandle));
+}
+
+void flexCommander::sendUdpRegister()
+{
+    if (!wan || udp == nullptr || clientHandle == 0 || radioAddress.isNull() || radioUdpPort == 0)
+        return;
+    const QByteArray cmd = QString("client udp_register handle=0x%1")
+        .arg(QString::number(clientHandle, 16).toUpper().rightJustified(8, QChar('0'))).toLatin1();
+    udp->writeDatagram(cmd, radioAddress, radioUdpPort);
 }
 
 void flexCommander::reconnectTick()
@@ -448,8 +637,15 @@ void flexCommander::processLine(const QString& line)
             // Everything below is queued behind client gui on the socket,
             // so it runs whether or not the id variant was accepted.
             if (pingTimer) pingTimer->start();
-            if (udp)
+            if (wan) {
+                // Over SmartLink the radio learns our public UDP address
+                // from these datagrams; repeat until its VITA-49 arrives.
+                if (wanWatchdog) wanWatchdog->stop();
+                sendUdpRegister();
+                if (wanRegisterTimer) wanRegisterTimer->start(50);
+            } else if (udp) {
                 sendCmd(QString("client udpport %1").arg(udp->localPort()));
+            }
             sendCmd("info", [this](quint32 c, const QString& b) {
                 infoDone = true;
                 if (c != 0) {
@@ -913,6 +1109,11 @@ void flexCommander::udpReadyRead()
         if (!p.valid || !p.hasClassId || p.oui != FLEX_OUI) {
             ++udpStats["other"];
             continue;
+        }
+        if (wan && !wanUdpConfirmed) {
+            wanUdpConfirmed = true;
+            if (wanRegisterTimer) wanRegisterTimer->setInterval(5000);
+            qInfo(logRig()) << "SmartLink: UDP from the radio is arriving";
         }
 
         // Diagnostics: name each stream the first time it shows up, and

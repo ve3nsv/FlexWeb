@@ -40,6 +40,14 @@
 #include "logcategories.h"
 
 #include "direwolfprocessor.h"
+#include "smartlinkclient.h"
+
+#include <QEventLoop>
+#include <QTimer>
+#include <string>
+#ifndef Q_OS_WIN
+#include <termios.h>
+#endif
 
 bool debugMode=false;
 
@@ -168,6 +176,87 @@ void initDaemon() {
 void messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg);
 #endif
 
+// Read a line from the console without echoing it (the SmartLink password).
+static std::string readHidden()
+{
+    std::string line;
+#ifdef Q_OS_WIN
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode = 0;
+    const bool console = GetConsoleMode(h, &mode);
+    if (console) SetConsoleMode(h, mode & ~ENABLE_ECHO_INPUT);
+    std::getline(std::cin, line);
+    if (console) SetConsoleMode(h, mode);
+#else
+    termios old {};
+    const bool tty = tcgetattr(STDIN_FILENO, &old) == 0;
+    if (tty) {
+        termios quiet = old;
+        quiet.c_lflag &= ~tcflag_t(ECHO);
+        tcsetattr(STDIN_FILENO, TCSANOW, &quiet);
+    }
+    std::getline(std::cin, line);
+    if (tty) tcsetattr(STDIN_FILENO, TCSANOW, &old);
+#endif
+    std::cout << "\n";
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    return line;
+}
+
+// wfweb --smartlink-login [email]: sign in to the FlexRadio account once,
+// keep the refresh token (not the password), list the account's radios.
+static int smartLinkLogin(QString email)
+{
+    if (email.isEmpty()) {
+        std::cout << "FlexRadio SmartLink account e-mail: " << std::flush;
+        std::string e;
+        std::getline(std::cin, e);
+        email = QString::fromStdString(e).trimmed();
+    }
+    if (email.isEmpty()) {
+        std::cout << "No e-mail given.\n";
+        return 1;
+    }
+    std::cout << "Password (not shown, not stored): " << std::flush;
+    const QString password = QString::fromStdString(readHidden());
+
+    smartLinkClient client;
+    QEventLoop loop;
+    int rc = 1;
+    QObject::connect(&client, &smartLinkClient::authFailed, &loop, [&](const QString& err) {
+        std::cout << "Sign-in failed: " << err.toStdString() << "\n";
+        loop.quit();
+    });
+    QObject::connect(&client, &smartLinkClient::authenticated, &loop, [&]() {
+        std::cout << "Signed in. Asking SmartLink for your radios...\n";
+    });
+    QObject::connect(&client, &smartLinkClient::radioList, &loop, [&](const QList<smartLinkRadio>& radios) {
+        rc = 0;
+        if (radios.isEmpty())
+            std::cout << "No radios are online on this account right now (the sign-in is saved).\n";
+        for (const smartLinkRadio& r : radios) {
+            std::cout << QString("  %1  \"%2\"  serial %3  %4  %5")
+                .arg(r.model, r.nickname, r.serial, r.status,
+                     r.needsHolePunch ? "(no forwarded/UPnP ports: wfweb cannot reach it yet)"
+                                      : QString("(%1 TLS %2 UDP %3)").arg(r.publicIp).arg(r.publicTlsPort).arg(r.publicUdpPort))
+                .toStdString() << "\n";
+        }
+        std::cout << "\nThe sign-in is saved. Start wfweb with\n"
+                     "  wfweb --smartlink <serial or radio name>\n"
+                     "(--smartlink auto picks the only radio on the account).\n";
+        loop.quit();
+    });
+    QTimer::singleShot(30000, &loop, [&]() {
+        std::cout << "SmartLink did not answer within 30 s.\n";
+        loop.quit();
+    });
+    smartLinkClient::forgetCertPins();
+    client.login(email, password);
+    loop.exec();
+    client.close();
+    return rc;
+}
+
 int main(int argc, char *argv[])
 {
 #ifndef Q_OS_WIN
@@ -253,6 +342,12 @@ int main(int argc, char *argv[])
         "                          program (GridTracker, JTAlert, Log4OM, ...) which\n"
         "                          listens for the WSJT-X UDP protocol; port 2237 if omitted\n"
         "  --no-remote-log         Disable remote logging even if enabled in settings\n"
+        "  --smartlink <radio>     FlexRadio over the internet through SmartLink: the\n"
+        "                          radio's serial or name, or 'auto' (implies\n"
+        "                          --manufacturer 3). Sign in once with --smartlink-login\n"
+        "  --smartlink-login [email]  Sign in to SmartLink, list the account's radios, exit.\n"
+        "                          Keeps a sign-in token, never the password\n"
+        "  --smartlink-logout      Forget the SmartLink sign-in\n"
         "  --rfkit <host[:port]>   RF-KIT (RF2K-S) amplifier on the LAN (REST API, port\n"
         "                          8080 if omitted); shown under FUNC > AMP\n"
         "  --remote-log-decodes    Also forward FT8/FT4 decodes to the remote logger\n"
@@ -468,6 +563,24 @@ int main(int argc, char *argv[])
             if (argc > c + 1) overrides.remoteLogTarget = argv[++c];
             else { std::cout << "Error: --remote-log requires host[:port]\n"; return -1; }
         }
+        else if (currentArg == "--smartlink")
+        {
+            if (argc > c + 1) overrides.lanIP = QString("smartlink:") + argv[++c];
+            else { std::cout << "Error: --smartlink requires a radio serial or name (or auto)\n"; return -1; }
+        }
+        else if (currentArg == "--smartlink-login")
+        {
+            QString email;
+            if (argc > c + 1 && argv[c + 1][0] != '-') email = argv[++c];
+            return smartLinkLogin(email);
+        }
+        else if (currentArg == "--smartlink-logout")
+        {
+            smartLinkClient::forgetCredentials();
+            smartLinkClient::forgetCertPins();
+            std::cout << "SmartLink sign-in removed.\n";
+            return 0;
+        }
         else if (currentArg == "--rfkit")
         {
             if (argc > c + 1) overrides.rfkit = argv[++c];
@@ -630,6 +743,10 @@ int main(int argc, char *argv[])
         }
 
     }
+
+    // --smartlink is FlexRadio only.
+    if (overrides.lanIP.startsWith("smartlink:") && overrides.manufacturer < 0)
+        overrides.manufacturer = 3;
 
     // Container-friendly alternative to --no-autoconnect (issue #70)
     if (qEnvironmentVariableIntValue("WFWEB_NO_AUTOCONNECT") > 0)
