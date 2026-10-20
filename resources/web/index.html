@@ -8296,6 +8296,28 @@ function renderScope() {
     if (more) scopeScheduleAnim();
 }
 
+// Frequency scale: labels on round multiples of a 1/2/5 step chosen for
+// about one label per 90 px (7.160 7.170 7.180 ... rather than fifths of
+// the span, which land on odd values whenever the VFO is not round), kept
+// clear of the corners where the edge readouts sit. Shown with as many
+// decimals as the step needs.
+function spectTicks(w) {
+    if (!(spectStartFreq > 0 && spectEndFreq > spectStartFreq) || w <= 0) return [];
+    var spanKHz = (spectEndFreq - spectStartFreq) * 1000;
+    var want = Math.max(2, Math.min(10, Math.floor(w / 90)));
+    var raw = spanKHz / want, mag = Math.pow(10, Math.floor(Math.log10(raw))), step = mag;
+    [1, 2, 5, 10].some(function (m) { step = m * mag; return step >= raw * 0.999; });
+    var dec = Math.max(0, Math.min(6, 3 - Math.floor(Math.log10(step) + 1e-9)));
+    if (spectStartFreq >= 1000) dec = Math.max(dec, 1);
+    var startK = spectStartFreq * 1000, out = [];
+    for (var k = Math.ceil(startK / step) * step; k <= spectEndFreq * 1000 + 1e-6; k += step) {
+        var x = (k - startK) / spanKHz * w;
+        if (x < 30 || x > w - 30) continue;
+        out.push({ x: x, label: (k / 1000).toFixed(dec) });
+    }
+    return out;
+}
+
 function drawSpectrum() {
     var canvas = document.getElementById('spectrumCanvas');
     var ctx = canvas.getContext('2d');
@@ -8312,7 +8334,14 @@ function drawSpectrum() {
     ctx.lineWidth = 0.7;
     ctx.beginPath();
     for (var gi = 1; gi < 3; gi++) { var gy = (plotH / 3) * gi; ctx.moveTo(0, gy); ctx.lineTo(w, gy); }
-    for (var gx = 1; gx < 8; gx++) { var gxx = (w / 8) * gx; ctx.moveTo(gxx, 0); ctx.lineTo(gxx, plotH); }
+    // Vertical lines on the labelled frequencies (spectTicks), so the scale
+    // and the grid agree; evenly split while no sweep has arrived.
+    var ticks = spectTicks(w);
+    if (ticks.length) {
+        for (var tk = 0; tk < ticks.length; tk++) { ctx.moveTo(ticks[tk].x, 0); ctx.lineTo(ticks[tk].x, plotH); }
+    } else {
+        for (var gx = 1; gx < 8; gx++) { var gxx = (w / 8) * gx; ctx.moveTo(gxx, 0); ctx.lineTo(gxx, plotH); }
+    }
     ctx.stroke();
 
     // Y scale: the rig's fixed scale (spectAmpMax counts ≈ 45 dB), with
@@ -8429,20 +8458,12 @@ function drawSpectrum() {
         }
     }
 
-    // Freq labels
-    if (spectStartFreq > 0 && spectEndFreq > spectStartFreq) {
+    // Freq labels, on round frequencies (spectTicks)
+    if (ticks.length) {
         ctx.fillStyle = '#555';
         ctx.font = '9px sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        for (var li = 0; li <= 5; li++) {
-            // On fixed glass the corner labels would sit under the edge
-            // readouts (spanEdgeLeft/Right show the exact edges there).
-            if (scopeMode !== 0 && (li === 0 || li === 5)) continue;
-            var frac = li / 5;
-            var freq = spectStartFreq + (spectEndFreq - spectStartFreq) * frac;
-            var label = freq >= 1000 ? freq.toFixed(1) : freq >= 100 ? freq.toFixed(2) : freq.toFixed(3);
-            ctx.fillText(label, frac * w, plotH + 2);
-        }
+        for (var li = 0; li < ticks.length; li++) ctx.fillText(ticks[li].label, ticks[li].x, plotH + 2);
     }
     return easing;
 }
