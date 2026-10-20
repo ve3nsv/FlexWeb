@@ -347,6 +347,7 @@ SOURCES += \
     src/radio/kenwoodserver.cpp \
     src/radio/yaesucommander.cpp \
     src/radio/flexcommander.cpp \
+    src/radio/smartlinkclient.cpp \
     src/radio/flexprotocol.cpp \
     src/rfkitconnection.cpp \
     src/rfkitprotocol.cpp \
@@ -426,6 +427,7 @@ HEADERS  += \
     include/kenwoodserver.h \
     include/yaesucommander.h \
     include/flexcommander.h \
+    include/smartlinkclient.h \
     include/flexprotocol.h \
     include/rfkitconnection.h \
     include/rfkitprotocol.h \

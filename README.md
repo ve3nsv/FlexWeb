@@ -142,7 +142,17 @@ A Flex is controlled entirely over the network, so there is nothing to plug in: 
 
 wfweb joins the radio as a SmartSDR GUI client (alongside SmartSDR, Maestro or AetherSDR if they are connected) and opens its own panadapter and slice. VFO A is that slice; the scope is its panadapter; receive audio is the slice's `remote_audio_rx` stream; the browser microphone goes to the radio as DAX TX audio (wfweb sets `transmit dax=1` while the browser mic is in use, as it switches DATA MOD to LAN on an Icom). Tuning, mode and filter (FIL1-3 map to SmartSDR's preset widths), AF gain, AGC threshold (RF gain), squelch, NB/NR/ANF, preamp/attenuator (panadapter RF gain), RX antenna, RIT, RF power, monitor, speech processor, ATU tune, CW speed and CWX keying, PTT and the S, Po and SWR meters all work; modes are LSB, USB, CW, AM, SAM, FM, NFM, DIGU, DIGL, RTTY and DFM.
 
-Not supported yet: a second slice as VFO B / split, memories (wfweb's own memory list is used), FreeDV waveforms built into the radio, and SmartLink — wfweb talks to the radio on the LAN, so run it on the station network and reach the browser page from anywhere. Power on/off is not offered from the page. The FlexRadio support uses the SmartSDR protocol work of [AetherSDR](https://github.com/aethersdr/AetherSDR).
+Not supported yet: a second slice as VFO B / split, memories (wfweb's own memory list is used), and FreeDV waveforms built into the radio. Power on/off is not offered from the page. The FlexRadio support uses the SmartSDR protocol work of [AetherSDR](https://github.com/aethersdr/AetherSDR).
+
+**SmartLink (radio somewhere else).** When wfweb cannot reach the radio on its LAN, it can go through FlexRadio's SmartLink service like SmartSDR does. Sign in once with your FlexRadio account; wfweb keeps a sign-in token, never the password, and lists the radios on the account:
+
+```bash
+./wfweb --smartlink-login you@example.com     # asks for the password
+./wfweb --smartlink 1234-5678-9012-3456       # serial or radio name; 'auto' = the only radio
+./wfweb --smartlink-logout                    # forget the sign-in
+```
+
+The radio needs SmartLink set up in SmartSDR with UPnP or forwarded ports (radios that need NAT hole punching are not supported yet). The session is TLS; the radio's certificate is remembered on first use and a changed one is refused until you sign in again. Receive audio is uncompressed (about 1.5 Mbit/s from the radio) plus the panadapter. If wfweb can run on the radio's own network, `--lan` with the browser reaching wfweb over a VPN such as Tailscale uses much less bandwidth.
 
 **Sharing the radio.** With `--on-demand` wfweb connects to the Flex only while a browser has the page open, and lets it go 30 seconds after the last one closes (`--on-demand 10` for 10 s), so SmartSDR, Maestro or other software can use its slices and panadapters in between. A page reload within that time keeps the session. Works for any LAN rig.
 

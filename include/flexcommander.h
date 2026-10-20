@@ -23,6 +23,8 @@
 #include "flexprotocol.h"
 
 #include <QTcpSocket>
+#include <QSslSocket>
+#include "smartlinkclient.h"
 #include <QUdpSocket>
 #include <QHostAddress>
 #include <QTimer>
@@ -128,7 +130,8 @@ private:
     void setTransmit(bool on);
 
     // Transport
-    QTcpSocket* tcp = nullptr;
+    // A QSslSocket: plain TCP on the LAN, TLS to the radio over SmartLink.
+    QSslSocket* tcp = nullptr;
     QUdpSocket* udp = nullptr;
     QUdpSocket* discovery = nullptr;
     QTimer* pingTimer = nullptr;
@@ -139,6 +142,26 @@ private:
     quint16 radioUdpPort = 4991;
     bool useDiscovery = false;
     bool closing = false;
+
+    // SmartLink (--smartlink <radio>, prefs.ipAddress "smartlink:<radio>"):
+    // the SmartLink server brokers the session, the radio is reached on its
+    // public address over TLS, and UDP is registered from our side
+    // ("client udp_register") instead of "client udpport".
+    bool wan = false;
+    QString wanRadioName;
+    smartLinkClient* smartLink = nullptr;
+    smartLinkRadio wanRadio;
+    QString wanHandle;
+    bool wanConnectRequested = false;
+    bool wanUdpConfirmed = false;
+    QTimer* wanRegisterTimer = nullptr;
+    QTimer* wanWatchdog = nullptr;
+    void startWan();
+    void wanRadioList(const QList<smartLinkRadio>& radios);
+    void wanConnectReady(const QString& handle, const QString& serial);
+    void wanEncrypted();
+    void wanRetry(const QString& why, int ms);
+    void sendUdpRegister();
 
     quint32 nextSeq = 1;
     QHash<quint32, responseFn> pending;
