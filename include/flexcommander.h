@@ -259,6 +259,15 @@ private:
     SpeexResamplerState_* txResampler = nullptr;
     quint32 rxSeq = 0;
     QVector<float> txAccumulator;   // mono 24 kHz, waiting for a full packet
+    // DAX TX audio between "xmit 1" and the radio actually transmitting
+    // (interlock TRANSMITTING) is held, not sent: the radio drops DAX audio
+    // until it is on the air, which cut the start of every FT8/JS8 frame
+    // (and a voice over's first syllable). Sent as soon as it is on the air.
+    bool txRequested = false;       // we sent xmit 1, no xmit 0 since
+    bool onAir = false;             // interlock state TRANSMITTING
+    QVector<QByteArray> txPending;
+    QElapsedTimer txKeyTimer;       // xmit 1 -> on the air, for the log
+    static constexpr int kMaxPendingPackets = 24000 / 128;   // 1 s of 128-frame DAX packets
 
     QHash<quint16, rigInfo> rigList;
 };

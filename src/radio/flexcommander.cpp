@@ -277,6 +277,9 @@ void flexCommander::resetSession()
     pending.clear();
     nextSeq = 1;
     clientHandle = 0;
+    txRequested = false;
+    onAir = false;
+    txPending.clear();
     handshakeDone = false;
     rigIdentified = false;
     infoDone = false;
@@ -687,6 +690,22 @@ void flexCommander::handleStatus(const message& msg)
         if (msg.kvs.contains("state")) {
             const QString st = msg.kvs.value("state").toUpper();
             const bool tx = (st == "TRANSMITTING" || st == "PTT_REQUESTED");
+            const bool nowOnAir = (st == "TRANSMITTING");
+            if (nowOnAir && !onAir) {
+                onAir = true;
+                // Release what was said while the radio was keying up, in
+                // order and at once; the radio's DAX buffer absorbs it.
+                if (!txPending.isEmpty() && udp != nullptr) {
+                    for (const QByteArray& pkt : txPending)
+                        udp->writeDatagram(pkt, radioAddress, radioUdpPort);
+                }
+                qInfo(logRig()).noquote() << QString("Flex: on the air %1 ms after xmit 1, sent %2 ms of held audio")
+                    .arg(txKeyTimer.isValid() ? txKeyTimer.elapsed() : -1)
+                    .arg(txPending.size() * DAX_TX_FRAMES * 1000 / DAX_RATE);
+                txPending.clear();
+            } else if (!nowOnAir) {
+                onAir = false;
+            }
             if (tx != transmitting) {
                 transmitting = tx;
                 if (tx) { lastAlc = 0.0; txPeakWindow = 0.0f; }
@@ -1147,7 +1166,14 @@ void flexCommander::webTxAudio(const audioPacket& data)
         }
         txAccumulator.remove(0, DAX_TX_FRAMES);
         const QByteArray pkt = buildDaxTxPacket(txStreamId, txPacketCount++, stereo, DAX_TX_FRAMES);
-        udp->writeDatagram(pkt, radioAddress, radioUdpPort);
+        if (onAir) {
+            udp->writeDatagram(pkt, radioAddress, radioUdpPort);
+        } else if (txRequested) {
+            // Keyed but not on the air yet: hold it (see txPending).
+            txPending.append(pkt);
+            if (txPending.size() > kMaxPendingPackets) txPending.removeFirst();
+        }
+        // Neither: receiving, and a running mic has nowhere to go.
     }
 }
 
@@ -1377,6 +1403,12 @@ void flexCommander::applyFilterWidth(int widthHz)
 
 void flexCommander::setTransmit(bool on)
 {
+    txRequested = on;
+    if (on) {
+        txKeyTimer.start();
+    } else {
+        txPending.clear();
+    }
     if (on && sliceId >= 0)
         sendCmd(QString("slice set %1 tx=1").arg(sliceId));
     sendCmd(QString("xmit %1").arg(on ? 1 : 0), [this, on](quint32 code, const QString& body) {

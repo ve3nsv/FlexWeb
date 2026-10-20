@@ -4994,8 +4994,10 @@ function renderProcOverlay() {
     body.appendChild(wrap);
 }
 
+var isFlexRig = false;
 function setDigiDriveCaps(manufacturer) {
     var flex = manufacturer === 'FlexRadio';
+    isFlexRig = flex;
     var max = flex ? 1.0 : 0.5;
     if (max === ALC_MAX_GAIN) return;
     ALC_MAX_GAIN = max;
@@ -11837,7 +11839,8 @@ function streamDigiAudio(samples12k, onDone, onFirstChunk) {
             monSrc.onended = function () {
                 if (digiMonitorSrc === monSrc) digiMonitorSrc = null;
             };
-            monSrc.start();
+            // Started with PTT (sendInt16Chunk), not with the first audio
+            // chunk, so the monitor does not run ahead of the transmitter.
         }
     } catch (e) {
         console.warn('[DIGI stream] sidetone error:', e);
@@ -11867,7 +11870,10 @@ function streamDigiAudio(samples12k, onDone, onFirstChunk) {
     var chunksSent = 0;
     // Fire PTT after ~100 ms of audio is in the ALSA buffer (≈9 batches of 512 samples
     // at 48 kHz = 96 ms) so ALSA has enough cushion to survive brief main-thread stalls.
-    var PTT_AFTER_CHUNKS = 9;
+    // A Flex keys at once: its server holds the DAX audio until the radio
+    // reports it is on the air (flexcommander.cpp, txPending), so nothing is
+    // lost and the transmission is not delayed by the cushion.
+    var PTT_AFTER_CHUNKS = isFlexRig ? 1 : 9;
 
     function sendInt16Chunk(i16buf) {
         if (!txAudioReady()) {
@@ -11891,6 +11897,7 @@ function streamDigiAudio(samples12k, onDone, onFirstChunk) {
         if (chunksSent === PTT_AFTER_CHUNKS) {
             console.log('[DIGI stream] PTT trigger threshold reached (' + chunksSent + ' chunks)');
             if (onFirstChunk) onFirstChunk();
+            if (monSrc) { try { monSrc.start(); } catch (e) {} }
         }
     }
 

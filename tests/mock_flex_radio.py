@@ -58,6 +58,10 @@ class MockFlexRadio:
         self.vita_port = 0
         self.commands: list[str] = []
         self.dax_tx: list[bytes] = []
+        self.dax_tx_times: list[float] = []
+        self.key_delay = 0.0        # seconds from xmit 1 to TRANSMITTING
+        self.on_air_at = 0.0
+        self._xmit_requested = False
         self.client_addr: tuple[str, int] | None = None
         self.slice: dict[str, str] = {}
         self.pan: dict[str, str] = {}
@@ -84,6 +88,7 @@ class MockFlexRadio:
         class Proto(asyncio.DatagramProtocol):
             def datagram_received(self, data, addr):
                 radio.dax_tx.append(data)
+                radio.dax_tx_times.append(time.monotonic())
                 if radio.verbose and len(radio.dax_tx) % 25 == 1:
                     print(f"  DAX TX packets received: {len(radio.dax_tx)}", flush=True)
 
@@ -101,6 +106,13 @@ class MockFlexRadio:
             await self._server.wait_closed()
         if self._udp:
             self._udp.close()
+
+    def _go_on_air(self) -> None:
+        if not self._xmit_requested or self.transmitting:
+            return
+        self.transmitting = True
+        self.on_air_at = time.monotonic()
+        self.status("interlock state=TRANSMITTING source=SW")
 
     def kick_client(self) -> None:
         """Another client disconnects us, as SmartSDR's multiFLEX does: the
@@ -228,8 +240,18 @@ class MockFlexRadio:
         if cmd.startswith("stream remove"):
             return 0, ""
         if cmd.startswith("xmit"):
-            self.transmitting = words[1] == "1"
-            self.status(f"interlock state={'TRANSMITTING' if self.transmitting else 'READY'} source=SW")
+            on = words[1] == "1"
+            self._xmit_requested = on
+            if on and self.key_delay > 0:
+                # A real radio reports PTT_REQUESTED, then TRANSMITTING once
+                # its TX delays have run; DAX audio before that is lost.
+                self.status("interlock state=PTT_REQUESTED source=SW")
+                asyncio.get_running_loop().call_later(self.key_delay, self._go_on_air)
+            else:
+                self.transmitting = on
+                if on:
+                    self.on_air_at = time.monotonic()
+                self.status(f"interlock state={'TRANSMITTING' if self.transmitting else 'READY'} source=SW")
             return 0, ""
         if cmd.startswith("transmit set"):
             kv = dict(w.split("=", 1) for w in words[2:] if "=" in w)
