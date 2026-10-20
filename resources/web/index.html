@@ -585,6 +585,21 @@ body.meter-needle #meterCanvas { width: auto; height: 128px; aspect-ratio: 611 /
 #audioMicOverlay.visible { justify-content: center; }
 #audioMicOverlay .rx-vol-row { margin: 10px 0 0; }
 
+/* AMP / EQ / PROC overlays: a 5-column tile grid like AUDIO, then their
+   own rows under it. */
+#ampOverlay.visible, #eqOverlay.visible, #procOverlay.visible {
+    flex-direction: column;
+    padding: 4px 12px;
+    justify-content: center;
+    overflow-y: auto;
+}
+#ampOverlay .overlay-grid, #eqOverlay .overlay-grid, #procOverlay .overlay-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 5px; padding: 4px 0;
+    width: 100%; max-width: 720px; margin: 0 auto;
+}
+
 /* SPAN overlay */
 /* SPAN / REF is a bottom sheet, not a full cover: both settings change what
    the scope shows, so the spectrum and the newest waterfall rows stay in
@@ -2034,6 +2049,17 @@ body.digi-open #bottomBar { grid-row: 5; }
 .audio-dev-row select:disabled { opacity: 0.45; }
 .audio-dev-note { font-size: 11px; color: #777; margin-top: 2px; }
 
+/* FlexRadio EQ / PROC panels */
+.flex-dsp { width: 100%; max-width: 720px; margin: 0 auto; }
+.eq-bands { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin: 8px 0; }
+.eq-band { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: #aaa; }
+.eq-band input[type=range] { writing-mode: vertical-lr; direction: rtl; height: 130px; width: 28px; accent-color: var(--accent, #2bc4c4); }
+.eq-band b { color: #ddd; font-weight: normal; font-variant-numeric: tabular-nums; margin-bottom: 2px; }
+.dsp-row { display: grid; grid-template-columns: 90px 1fr 56px; align-items: center; gap: 8px; margin: 8px 0; font-size: 12px; color: #aaa; }
+.dsp-row input[type=range] { width: 100%; accent-color: var(--accent, #2bc4c4); }
+.dsp-row b { color: #ddd; font-weight: normal; text-align: right; font-variant-numeric: tabular-nums; }
+.dsp-row:has(input:disabled) { opacity: 0.45; }
+
 /* ============ RESPONSIVE ============ */
 @media (max-height: 450px) {
     #radio { grid-template-rows: 28px 64px 16px 1fr 40px; }
@@ -2793,6 +2819,16 @@ body.digi-open #bottomBar { grid-row: 5; }
         </div>
 
         <!-- Audio/Mic enable menu -->
+        <!-- FlexRadio graphic equalisers and TX processing (flexDsp). -->
+        <div id="eqOverlay" class="overlay">
+            <div class="overlay-title">EQUALIZER</div>
+            <div id="eqBody" style="width:100%"></div>
+        </div>
+        <div id="procOverlay" class="overlay">
+            <div class="overlay-title">TX PROCESSING</div>
+            <div id="procBody" style="width:100%"></div>
+        </div>
+
         <!-- RF-KIT amplifier (server --rfkit). Filled by renderAmpOverlay(). -->
         <div id="ampOverlay" class="overlay">
             <div class="overlay-title">AMPLIFIER</div>
@@ -3403,6 +3439,12 @@ function handleMessage(msg) {
     // Forward to read-only consumer modules before main state-machine switch.
     if (window.Packet && window.Packet.onMessage) window.Packet.onMessage(msg);
     switch (msg.type) {
+        case 'flexDsp':
+            flexDsp = msg;
+            if (document.getElementById('eqOverlay').classList.contains('visible')) renderEqOverlay();
+            if (document.getElementById('procOverlay').classList.contains('visible')) renderProcOverlay();
+            if (currentPanel === 'func') renderFuncOverlay();
+            break;
         case 'amp':
             ampState = msg;
             renderAmpIndicator();
@@ -4787,6 +4829,168 @@ function drawTxMeterScale(ctx, barX, barW, tickY, numY, fs, tickH, face) {
         ctx.fillText(face.tail, barX + barW, numY);
     }
 }
+// ============================================================
+// FLEXRADIO EQ AND TX PROCESSING (flexDsp)
+// ============================================================
+// The radio's 8-band RX and TX graphic equalisers and its SmartSDR-style
+// TX chain (PROC NOR/DX/DX+, DEXP, MIC level, TX filter). Settings live in
+// the radio, so SmartSDR sees the same values. A slider being dragged is
+// not repainted from the server until it is let go.
+var flexDsp = null;
+var eqSide = 'rx';
+try { if (localStorage.getItem('wfEqSide') === 'tx') eqSide = 'tx'; } catch (e) {}
+var EQ_BAND_LABELS = ['63', '125', '250', '500', '1k', '2k', '4k', '8k'];
+var flexDspSendTimers = {};
+
+function sendFlexDsp(key, index, value, now) {
+    var id = key + ':' + index;
+    clearTimeout(flexDspSendTimers[id]);
+    var fire = function () { send({ cmd: 'flexDsp', key: key, index: index, value: value }); };
+    if (now) fire(); else flexDspSendTimers[id] = setTimeout(fire, 80);
+}
+
+function dspDragging(el) { return el && el.dataset.dragging === '1'; }
+
+function dspSlider(input, onValue) {
+    input.addEventListener('pointerdown', function () { input.dataset.dragging = '1'; });
+    var done = function () { input.dataset.dragging = ''; };
+    input.addEventListener('pointerup', done);
+    input.addEventListener('pointercancel', done);
+    input.addEventListener('input', function () { onValue(parseInt(input.value, 10), false); });
+    input.addEventListener('change', function () { done(); onValue(parseInt(input.value, 10), true); });
+}
+
+function dspBackButton() {
+    var back = document.createElement('button');
+    back.className = 'ov-btn back-btn';
+    back.innerHTML = '&#x21A9;';
+    back.onclick = function () { setPanel('default'); };
+    return back;
+}
+
+function renderEqOverlay() {
+    var body = document.getElementById('eqBody');
+    if (!body || !flexDsp) return;
+    var key = eqSide === 'rx' ? 'rx' : 'tx', eq = flexDsp[key + 'Eq'];
+    // Keep a slider the user is holding: rebuild only what is not in use.
+    var holding = body.querySelector('input[data-dragging="1"]');
+    if (holding && body.dataset.side === key) {
+        body.querySelectorAll('input[type=range]').forEach(function (r, i) {
+            if (!dspDragging(r)) { r.value = eq.bands[i]; r.previousSibling.textContent = fmtDb(eq.bands[i]); }
+        });
+        return;
+    }
+    body.dataset.side = key;
+    body.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'flex-dsp';
+    var grid = document.createElement('div');
+    grid.className = 'overlay-grid';
+    grid.appendChild(makeFuncBtn('RX EQ', flexDsp.rxEq.on ? 'ON' : 'OFF', eqSide === 'rx', function () {
+        eqSide = 'rx'; try { localStorage.setItem('wfEqSide', 'rx'); } catch (e) {} renderEqOverlay();
+    }));
+    grid.appendChild(makeFuncBtn('TX EQ', flexDsp.txEq.on ? 'ON' : 'OFF', eqSide === 'tx', function () {
+        eqSide = 'tx'; try { localStorage.setItem('wfEqSide', 'tx'); } catch (e) {} renderEqOverlay();
+    }));
+    grid.appendChild(makeFuncBtn(key.toUpperCase() + ' EQ', eq.on ? 'ON' : 'OFF', eq.on, function () {
+        sendFlexDsp(key + 'EqOn', 0, eq.on ? 0 : 1, true);
+    }));
+    grid.appendChild(makeFuncBtn('FLAT', 'ALL 0 dB', false, function () { sendFlexDsp(key + 'EqFlat', 0, 0, true); }));
+    grid.appendChild(dspBackButton());
+    wrap.appendChild(grid);
+
+    var bands = document.createElement('div');
+    bands.className = 'eq-bands';
+    eq.bands.forEach(function (v, i) {
+        var col = document.createElement('label');
+        col.className = 'eq-band';
+        var val = document.createElement('b');
+        val.textContent = fmtDb(v);
+        var r = document.createElement('input');
+        r.type = 'range'; r.min = -10; r.max = 10; r.step = 1; r.value = v;
+        r.setAttribute('aria-label', EQ_BAND_LABELS[i] + ' Hz');
+        dspSlider(r, function (nv, final) { val.textContent = fmtDb(nv); sendFlexDsp(key + 'EqBand', i, nv, final); });
+        var lab = document.createElement('span');
+        lab.textContent = EQ_BAND_LABELS[i];
+        col.appendChild(val); col.appendChild(r); col.appendChild(lab);
+        bands.appendChild(col);
+    });
+    wrap.appendChild(bands);
+    body.appendChild(wrap);
+}
+
+function fmtDb(v) { return (v > 0 ? '+' : '') + v; }
+
+// TX filter edges offered as steps (SmartSDR's own choices cover these).
+var TX_LO_STEPS = [0, 50, 100, 150, 200, 300, 400, 500];
+var TX_HI_STEPS = [2400, 2600, 2700, 2800, 2900, 3000, 3100, 3300, 3500, 4000];
+
+function renderProcOverlay() {
+    var body = document.getElementById('procBody');
+    if (!body || !flexDsp) return;
+    var holding = body.querySelector('input[data-dragging="1"]');
+    if (holding) {
+        body.querySelectorAll('input[type=range]').forEach(function (r) {
+            if (dspDragging(r)) return;
+            var k = r.dataset.key;
+            r.value = flexDsp[k];
+            r.nextSibling.textContent = flexDsp[k];
+        });
+        return;
+    }
+    body.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'flex-dsp';
+    var grid = document.createElement('div');
+    grid.className = 'overlay-grid';
+    grid.appendChild(makeFuncBtn('PROC', flexDsp.proc ? 'ON' : 'OFF', !!flexDsp.proc, function () {
+        sendFlexDsp('proc', 0, flexDsp.proc ? 0 : 1, true);
+    }));
+    ['NOR', 'DX', 'DX+'].forEach(function (name, lvl) {
+        grid.appendChild(makeFuncBtn(name, lvl === 0 ? 'LEVEL' : '', flexDsp.procLevel === lvl, function () {
+            sendFlexDsp('procLevel', 0, lvl, true);
+        }));
+    });
+    grid.appendChild(makeFuncBtn('DEXP', flexDsp.dexp ? 'ON' : 'OFF', !!flexDsp.dexp, function () {
+        sendFlexDsp('dexp', 0, flexDsp.dexp ? 0 : 1, true);
+    }));
+    function stepBtn(label, key, steps) {
+        var cur = flexDsp[key];
+        return makeFuncBtn(label, cur + ' Hz', false, function () {
+            var next = steps[0];
+            for (var i = 0; i < steps.length; i++) if (steps[i] > cur) { next = steps[i]; break; }
+            sendFlexDsp(key, 0, next, true);
+        });
+    }
+    grid.appendChild(stepBtn('TX LOW', 'txLo', TX_LO_STEPS));
+    grid.appendChild(stepBtn('TX HIGH', 'txHi', TX_HI_STEPS));
+    grid.appendChild(dspBackButton());
+    wrap.appendChild(grid);
+
+    function row(label, key, min, max, enabled) {
+        var r = document.createElement('label');
+        r.className = 'dsp-row';
+        var name = document.createElement('span');
+        name.textContent = label;
+        var input = document.createElement('input');
+        input.type = 'range'; input.min = min; input.max = max; input.step = 1;
+        input.value = flexDsp[key]; input.dataset.key = key; input.disabled = !enabled;
+        var val = document.createElement('b');
+        val.textContent = flexDsp[key];
+        dspSlider(input, function (v, final) { val.textContent = v; sendFlexDsp(key, 0, v, final); });
+        r.appendChild(name); r.appendChild(input); r.appendChild(val);
+        wrap.appendChild(r);
+    }
+    row('MIC LEVEL', 'micLevel', 0, 100, true);
+    row('DEXP LEVEL', 'dexpLevel', 0, 100, !!flexDsp.dexp);
+    var note = document.createElement('div');
+    note.className = 'audio-dev-note';
+    note.textContent = 'TX filter ' + flexDsp.txLo + '\u2013' + flexDsp.txHi +
+        ' Hz. TX LOW / TX HIGH step through common edges. These settings are kept in the radio.';
+    wrap.appendChild(note);
+    body.appendChild(wrap);
+}
+
 function setDigiDriveCaps(manufacturer) {
     var flex = manufacturer === 'FlexRadio';
     var max = flex ? 1.0 : 0.5;
@@ -5135,6 +5339,8 @@ function setPanel(name) {
     else if (name === 'freqinp') renderFreqInput();
     else if (name === 'cw') renderCWOverlay();
     else if (name === 'memory') openMemoryBrowser();
+    else if (name === 'eq') { renderEqOverlay(); document.getElementById('eqOverlay').classList.add('visible'); }
+    else if (name === 'proc') { renderProcOverlay(); document.getElementById('procOverlay').classList.add('visible'); }
     else if (name === 'amp') { renderAmpOverlay(); document.getElementById('ampOverlay').classList.add('visible'); }
     renderBottomBar();
 }
@@ -5402,6 +5608,16 @@ function renderFuncOverlay() {
         grid.appendChild(makeFuncBtn('AMP', ampSt, !!(ampState && ampState.connected && ampState.operate), function() {
             setPanel('amp');
         }));
+    }
+
+    // EQ and PROC: the Flex's own equalisers and TX audio processing, once
+    // the server has reported them (flexDsp).
+    if (flexDsp) {
+        var eqOn = flexDsp.rxEq.on || flexDsp.txEq.on;
+        grid.appendChild(makeFuncBtn('EQ', (flexDsp.rxEq.on ? 'RX' : '') + (flexDsp.rxEq.on && flexDsp.txEq.on ? '+' : '') +
+            (flexDsp.txEq.on ? 'TX' : '') || 'OFF', eqOn, function() { setPanel('eq'); }));
+        grid.appendChild(makeFuncBtn('PROC', flexDsp.proc ? ['NOR', 'DX', 'DX+'][flexDsp.procLevel] || 'ON' : 'OFF',
+            !!flexDsp.proc, function() { setPanel('proc'); }));
     }
 
     // FIL opens the FILTER window (FIL1/2/3, width, twin PBT, shape) the way

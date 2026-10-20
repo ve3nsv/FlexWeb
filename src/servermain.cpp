@@ -352,6 +352,11 @@ void servermain::makeRig()
             if (web != Q_NULLPTR) {
                 connect(radio->rig, SIGNAL(haveAudioData(audioPacket)), web, SLOT(receiveRxAudio(audioPacket)));
                 connect(web, SIGNAL(haveTxAudioData(audioPacket)), radio->rig, SLOT(receiveWebTxAudio(audioPacket)));
+                // FlexRadio EQ and TX processing (FUNC > EQ / PROC).
+                if (auto* flex = qobject_cast<flexCommander*>(radio->rig)) {
+                    connect(flex, &flexCommander::flexDspState, web, &webServer::onFlexDspState, Qt::QueuedConnection);
+                    connect(web, &webServer::flexDspSet, flex, &flexCommander::setFlexDsp, Qt::QueuedConnection);
+                }
             }
 
             if (radio->rigThread->isRunning()) {

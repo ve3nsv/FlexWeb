@@ -38,6 +38,11 @@ FlexRadio:
   dropping whatever arrived inside 100 ms, and the radio sends its meters
   in several packets, so a packet of other meters often swallowed the S
   reading. The latest reading is now held and sent when the window ends.
+- FUNC > EQ: the radio's 8-band RX and TX graphic equalisers (63 Hz to
+  8 kHz, +/-10 dB), with on/off and FLAT. FUNC > PROC: the speech
+  processor (on/off, NOR / DX / DX+), DEXP and its level, MIC level and
+  the TX filter edges. The settings are the radio's own, so SmartSDR
+  shows the same values.
 - FUNC > AUDIO has MIC and SPEAKER pickers: which of the browser
   computer's inputs is the microphone and which output plays the
   receiver (output choice in Chrome / Edge; other browsers use the

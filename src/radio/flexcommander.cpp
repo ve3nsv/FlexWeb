@@ -1,4 +1,5 @@
 #include "flexcommander.h"
+#include <QJsonArray>
 
 #include <QDebug>
 #include <QSettings>
@@ -411,6 +412,9 @@ void flexCommander::processLine(const QString& line)
         sendCmd("sub slice all");
         sendCmd("sub pan all");
         sendCmd("sub meter all");
+        // The two graphic equalisers answer with an "eq rxsc/txsc" status.
+        sendCmd("eq rxsc info");
+        sendCmd("eq txsc info");
 
         // A stable client id lets the radio restore our slice/pan after a
         // reconnect when its persistence option is on. Derived from the
@@ -648,6 +652,11 @@ void flexCommander::handleStatus(const message& msg)
         handleTransmitStatus(msg.kvs);
         return;
     }
+    if (obj.compare(QLatin1String("eq rxsc"), Qt::CaseInsensitive) == 0
+        || obj.compare(QLatin1String("eq txsc"), Qt::CaseInsensitive) == 0) {
+        handleEqStatus(obj.endsWith(QLatin1String("txsc"), Qt::CaseInsensitive), msg.kvs);
+        return;
+    }
     if (obj == QLatin1String("interlock")) {
         if (msg.kvs.contains("state")) {
             const QString st = msg.kvs.value("state").toUpper();
@@ -800,6 +809,14 @@ void flexCommander::handleTransmitStatus(const QMap<QString, QString>& kvs)
     if (kvs.contains("mon")) { monitor = truthy(kvs.value("mon")); reportCurrent(funcMonitor); }
     if (kvs.contains("mon_gain_sb")) { monitorGain = kvs.value("mon_gain_sb").toInt(); reportCurrent(funcMonitorGain); }
     if (kvs.contains("speech_processor_enable")) { processor = truthy(kvs.value("speech_processor_enable")); reportCurrent(funcCompressor); }
+    bool dsp = false;
+    if (kvs.contains("speech_processor_enable") || kvs.contains("miclevel") || kvs.contains("mic_level")) dsp = true;
+    if (kvs.contains("speech_processor_level")) { procLevel = qBound(0, kvs.value("speech_processor_level").toInt(), 2); dsp = true; }
+    if (kvs.contains("compander")) { dexpOn = truthy(kvs.value("compander")); dsp = true; }
+    if (kvs.contains("compander_level")) { dexpLevel = qBound(0, kvs.value("compander_level").toInt(), 100); dsp = true; }
+    if (kvs.contains("lo")) { txFilterLo = kvs.value("lo").toInt(); dsp = true; }
+    if (kvs.contains("hi")) { txFilterHi = kvs.value("hi").toInt(); dsp = true; }
+    if (dsp) publishDsp();
     if (kvs.contains("tune")) tuning = truthy(kvs.value("tune"));
     if (kvs.contains("speed")) { cwSpeed = kvs.value("speed").toInt(); reportCurrent(funcKeySpeed); }
     if (kvs.contains("pitch")) { cwPitch = kvs.value("pitch").toInt(); reportCurrent(funcCwPitch); }
@@ -1521,7 +1538,9 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         reportCurrent(funcUSBModLevel);
         return;
     case funcMicGain:
-        sendCmd(QString("transmit set miclevel=%1").arg(to100(value.toInt())));
+        micLevel = to100(value.toInt());
+        sendCmd(QString("transmit set miclevel=%1").arg(micLevel));
+        publishDsp();
         return;
     case funcDATAOffMod:
     case funcDATA1Mod: {
@@ -1546,6 +1565,7 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         processor = value.toInt() != 0;
         sendCmd(QString("transmit set speech_processor_enable=%1").arg(processor ? 1 : 0));
         reportCurrent(funcCompressor);
+        publishDsp();
         return;
     case funcTunerStatus: {
         const int v = value.toInt();
@@ -1873,3 +1893,104 @@ void flexCommander::identify()
 void flexCommander::setCIVAddr(quint16 civAddr) { Q_UNUSED(civAddr) }
 void flexCommander::handleNewData(const QByteArray& data) { Q_UNUSED(data) }
 void flexCommander::receiveBaudRate(quint32 baudrate) { Q_UNUSED(baudrate) }
+
+// ─── EQ and TX audio processing (FUNC > EQ, FUNC > PROC) ─────────────────────
+
+namespace {
+const char* const kEqBandKeys[8] = { "63Hz", "125Hz", "250Hz", "500Hz", "1000Hz", "2000Hz", "4000Hz", "8000Hz" };
+}
+
+void flexCommander::handleEqStatus(bool tx, const QMap<QString, QString>& kvs)
+{
+    eqState& eq = tx ? eqTx : eqRx;
+    if (kvs.contains("mode")) eq.on = truthy(kvs.value("mode"));
+    for (int i = 0; i < 8; ++i) {
+        const QString key = QLatin1String(kEqBandKeys[i]);
+        // The status spells the keys as the commands do ("63Hz"); accept any case.
+        for (auto it = kvs.constBegin(); it != kvs.constEnd(); ++it)
+            if (it.key().compare(key, Qt::CaseInsensitive) == 0)
+                eq.bands[i] = qBound(-10, it.value().toInt(), 10);
+    }
+    publishDsp();
+}
+
+// Coalesced: a slider drag or a status burst sends one snapshot per 50 ms.
+void flexCommander::publishDsp()
+{
+    if (dspPublishTimer == nullptr) {
+        dspPublishTimer = new QTimer(this);
+        dspPublishTimer->setSingleShot(true);
+        dspPublishTimer->setInterval(50);
+        connect(dspPublishTimer, &QTimer::timeout, this, [this]() {
+            auto eqJson = [](const eqState& e) {
+                QJsonObject o;
+                o["on"] = e.on;
+                QJsonArray b;
+                for (int v : e.bands) b.append(v);
+                o["bands"] = b;
+                return o;
+            };
+            QJsonObject st;
+            st["rxEq"] = eqJson(eqRx);
+            st["txEq"] = eqJson(eqTx);
+            st["proc"] = processor;
+            st["procLevel"] = procLevel;
+            st["dexp"] = dexpOn;
+            st["dexpLevel"] = dexpLevel;
+            st["micLevel"] = micLevel;
+            st["txLo"] = txFilterLo;
+            st["txHi"] = txFilterHi;
+            emit flexDspState(st);
+        });
+    }
+    if (!dspPublishTimer->isActive()) dspPublishTimer->start();
+}
+
+void flexCommander::setFlexDsp(QString key, int index, int value)
+{
+    if (tcp == nullptr || !handshakeDone) return;
+    const bool rx = key.startsWith(QLatin1String("rx"));
+    eqState& eq = rx ? eqRx : eqTx;
+    const QString eqObj = rx ? QStringLiteral("eq rxsc") : QStringLiteral("eq txsc");
+
+    if (key == "rxEqOn" || key == "txEqOn") {
+        eq.on = value != 0;
+        sendCmd(QString("%1 mode=%2").arg(eqObj).arg(eq.on ? 1 : 0));
+    } else if (key == "rxEqBand" || key == "txEqBand") {
+        if (index < 0 || index > 7) return;
+        eq.bands[index] = qBound(-10, value, 10);
+        sendCmd(QString("%1 %2=%3").arg(eqObj, QLatin1String(kEqBandKeys[index])).arg(eq.bands[index]));
+    } else if (key == "rxEqFlat" || key == "txEqFlat") {
+        QStringList parts;
+        for (int i = 0; i < 8; ++i) {
+            eq.bands[i] = 0;
+            parts << QString("%1=0").arg(QLatin1String(kEqBandKeys[i]));
+        }
+        sendCmd(QString("%1 %2").arg(eqObj, parts.join(' ')));
+    } else if (key == "proc") {
+        processor = value != 0;
+        sendCmd(QString("transmit set speech_processor_enable=%1").arg(processor ? 1 : 0));
+        reportCurrent(funcCompressor);
+    } else if (key == "procLevel") {
+        procLevel = qBound(0, value, 2);
+        sendCmd(QString("transmit set speech_processor_level=%1").arg(procLevel));
+    } else if (key == "dexp") {
+        dexpOn = value != 0;
+        sendCmd(QString("transmit set compander=%1").arg(dexpOn ? 1 : 0));
+    } else if (key == "dexpLevel") {
+        dexpLevel = qBound(0, value, 100);
+        sendCmd(QString("transmit set compander_level=%1").arg(dexpLevel));
+    } else if (key == "micLevel") {
+        micLevel = qBound(0, value, 100);
+        sendCmd(QString("transmit set miclevel=%1").arg(micLevel));
+    } else if (key == "txLo" || key == "txHi") {
+        // The radio keeps at least 50 Hz between the edges; so do we.
+        if (key == "txLo") txFilterLo = qBound(0, value, txFilterHi - 50);
+        else txFilterHi = qBound(txFilterLo + 50, value, 10000);
+        sendCmd(QString("transmit set filter_low=%1 filter_high=%2").arg(txFilterLo).arg(txFilterHi));
+    } else {
+        qWarning(logRig()) << "Flex: unknown DSP setting" << key;
+        return;
+    }
+    publishDsp();
+}

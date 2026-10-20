@@ -28,6 +28,7 @@
 #include <QTimer>
 #include <QSet>
 #include <QElapsedTimer>
+#include <QJsonObject>
 #include <functional>
 
 struct SpeexResamplerState_;
@@ -58,6 +59,17 @@ public slots:
     void receiveBaudRate(quint32 baudrate) override;
 
     void receiveCommand(funcs func, QVariant value, uchar receiver) override;
+
+    // FUNC > EQ and FUNC > PROC on the page (webServer::flexDspSet). Keys:
+    // rxEqOn / txEqOn (value 0/1), rxEqBand / txEqBand (index 0-7, value
+    // -10..10 dB), rxEqFlat / txEqFlat, proc (0/1), procLevel (0 NOR, 1 DX,
+    // 2 DX+), dexp (0/1), dexpLevel (0-100), micLevel (0-100), txLo / txHi
+    // (TX filter edges, Hz).
+    void setFlexDsp(QString key, int index, int value);
+
+signals:
+    // The radio's EQ and TX audio processing, as the page shows it.
+    void flexDspState(QJsonObject state);
 
 private slots:
     void tcpConnected();
@@ -167,6 +179,18 @@ private:
     bool monitor = false;
     int monitorGain = 50;
     bool processor = false;
+    // EQ and processor state for flexDspState. The radio does not echo a
+    // client's own changes here either, so every set updates these at once.
+    struct eqState { bool on = false; int bands[8] = {0, 0, 0, 0, 0, 0, 0, 0}; };
+    eqState eqRx, eqTx;
+    int procLevel = 0;              // speech_processor_level: 0 NOR, 1 DX, 2 DX+
+    bool dexpOn = false;            // compander (downward expander)
+    int dexpLevel = 0;
+    int txFilterLo = 100, txFilterHi = 2900;
+    bool dspStateDirty = false;
+    QTimer* dspPublishTimer = nullptr;
+    void handleEqStatus(bool tx, const QMap<QString, QString>& kvs);
+    void publishDsp();
     int cwSpeed = 20;
     int cwPitch = 600;
     bool transmitting = false;

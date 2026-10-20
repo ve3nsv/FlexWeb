@@ -93,6 +93,8 @@ signals:
     void requestPowerOff();
     void requestLanDisconnect();
     void requestLanReconnect();
+    // Page -> flexCommander::setFlexDsp (see there for the keys).
+    void flexDspSet(QString key, int index, int value);
     void setupConverter(QAudioFormat inFormat, codecType inCodec,
                         QAudioFormat outFormat, codecType outCodec,
                         quint8 opusComplexity, quint8 resampleQuality);
@@ -128,6 +130,9 @@ public slots:
     // --rfkit host[:port]: an RF-KIT (RF2K-S) amplifier on the LAN, shown in
     // the AMP panel. Runs on the web thread; empty = no amplifier.
     void configureRfkit(const QString &target);
+    // FlexRadio EQ / TX audio processing snapshot (flexCommander::flexDspState),
+    // pushed to the page as {type:'flexDsp'} for FUNC > EQ and FUNC > PROC.
+    void onFlexDspState(QJsonObject state);
     // --on-demand: hold the rig's LAN session only while a browser is
     // connected; release it idleSeconds after the last one leaves.
     void setOnDemand(int idleSeconds);
@@ -613,6 +618,7 @@ private:
     AetherSDR::RfkitConnection *rfkit_ = nullptr;
     QString rfkitTarget_;
     QJsonObject ampJson_;
+    QJsonObject flexDspJson_;   // last flexDsp snapshot, replayed to new browsers
 
     // --on-demand (setOnDemand). onDemandPending_ is set between asking
     // servermain to connect and its setLanInfo() answer, so a burst of

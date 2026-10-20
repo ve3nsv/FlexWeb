@@ -2675,6 +2675,10 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
             emit requestPowerOff();
         }
     }
+    else if (type == "flexDsp") {
+        // FUNC > EQ / PROC on a Flex: {cmd:'flexDsp', key, index, value}.
+        emit flexDspSet(cmd["key"].toString(), cmd["index"].toInt(), cmd["value"].toInt());
+    }
     else if (type == "disconnectLan") {
         emit requestLanDisconnect();
     }
@@ -3797,9 +3801,15 @@ void webServer::sendCurrentState(QWebSocket *client)
     info["stationCallsign"] = reporterCallsign;
     info["stationGrid"] = reporterGrid;
     info["ampConfigured"] = !rfkitTarget_.isEmpty();
+
     sendJsonTo(client, info);
     if (!rfkitTarget_.isEmpty() && !ampJson_.isEmpty())
         sendJsonTo(client, ampJson_);
+    if (!flexDspJson_.isEmpty()) {
+        QJsonObject d = flexDspJson_;
+        d["type"] = "flexDsp";
+        sendJsonTo(client, d);
+    }
     // The log itself is paged over REST; this only tells the browser to fetch page 1.
     sendJsonTo(client, logbookSummary());
 
@@ -8522,4 +8532,11 @@ void webServer::onDemandBrowserLeft()
     qInfo() << "On-demand: last browser closed, releasing the rig in"
             << onDemandIdleSec_ << "s unless one comes back";
     onDemandTimer_->start(onDemandIdleSec_ * 1000);
+}
+
+void webServer::onFlexDspState(QJsonObject state)
+{
+    flexDspJson_ = state;
+    state["type"] = "flexDsp";
+    sendJsonToAll(state);
 }
