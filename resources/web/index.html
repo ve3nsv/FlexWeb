@@ -1995,6 +1995,35 @@ body.digi-open #bottomBar { grid-row: 5; }
     font-size: 14px;
 }
 
+/* RF-KIT amplifier: a readout in the scope's top-right corner (left of it is
+   the rig-state stack), opening the AMP panel. Green while in OPERATE. */
+#ampIndicator {
+    left: auto;
+    right: 6px;
+    font-size: 14px;
+    color: #888;
+}
+#ampIndicator.operate { color: #3c3; }
+#ampIndicator.fault { color: #e33; }
+#ampOverlay .amp-head { display: flex; justify-content: space-between; align-items: baseline;
+    width: 100%; max-width: 720px; margin: 0 auto 8px; font-size: 13px; color: #aaa; }
+#ampOverlay .amp-head b { color: #ddd; font-size: 15px; }
+#ampOverlay .amp-bars { width: 100%; max-width: 720px; margin: 0 auto; }
+#ampOverlay .amp-bar { display: grid; grid-template-columns: 52px 1fr 92px; align-items: center;
+    gap: 8px; margin: 5px 0; font-size: 13px; color: #aaa; }
+#ampOverlay .amp-track { position: relative; height: 12px; background: #1a1d22; border-radius: 2px; overflow: hidden; }
+#ampOverlay .amp-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #2f7fd0; transition: width 0.2s; }
+#ampOverlay .amp-fill.warn { background: #e09020; }
+#ampOverlay .amp-fill.bad { background: #e03030; }
+#ampOverlay .amp-val { text-align: right; color: #ddd; font-variant-numeric: tabular-nums; }
+#ampOverlay .amp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 6px; width: 100%; max-width: 720px; margin: 10px auto; }
+#ampOverlay .amp-tile { background: #15181c; border-radius: 3px; padding: 5px 8px; font-size: 11px; color: #888; }
+#ampOverlay .amp-tile span { display: block; font-size: 14px; color: #ddd; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ampOverlay .amp-tile.bad span { color: #e33; }
+#ampOverlay .ov-btn:disabled { opacity: 0.35; cursor: default; }
+
 /* ============ RESPONSIVE ============ */
 @media (max-height: 450px) {
     #radio { grid-template-rows: 28px 64px 16px 1fr 40px; }
@@ -2749,6 +2778,12 @@ body.digi-open #bottomBar { grid-row: 5; }
         </div>
 
         <!-- Audio/Mic enable menu -->
+        <!-- RF-KIT amplifier (server --rfkit). Filled by renderAmpOverlay(). -->
+        <div id="ampOverlay" class="overlay">
+            <div class="overlay-title">AMPLIFIER</div>
+            <div id="ampBody" style="width:100%"></div>
+        </div>
+
         <div id="audioMicOverlay" class="overlay">
             <div class="overlay-title">AUDIO / TX</div>
             <div class="overlay-grid" id="audioMicGrid"></div>
@@ -2768,6 +2803,7 @@ body.digi-open #bottomBar { grid-row: 5; }
         <div id="toneIndicator" class="spectrum-warning" style="display: none;" onclick="openToneModal()"></div>
         <div id="rfGainIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('gain')"></div>
         <div id="rxVolIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('gain')"></div>
+        <div id="ampIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('amp')" title="RF-KIT amplifier"></div>
     </div>
 
     <!-- Row 5: Bottom bar -->
@@ -3341,7 +3377,14 @@ function handleMessage(msg) {
     // Forward to read-only consumer modules before main state-machine switch.
     if (window.Packet && window.Packet.onMessage) window.Packet.onMessage(msg);
     switch (msg.type) {
+        case 'amp':
+            ampState = msg;
+            renderAmpIndicator();
+            if (document.getElementById('ampOverlay').classList.contains('visible')) renderAmpOverlay();
+            if (currentPanel === 'func') renderFuncOverlay();
+            break;
         case 'rigInfo':
+            if (msg.ampConfigured !== undefined) { ampConfigured = !!msg.ampConfigured; renderAmpIndicator(); }
             if (msg.version) {
                 serverVersion = msg.version;
                 var el = document.getElementById('splashVersion');
@@ -5049,6 +5092,7 @@ function setPanel(name) {
     else if (name === 'freqinp') renderFreqInput();
     else if (name === 'cw') renderCWOverlay();
     else if (name === 'memory') openMemoryBrowser();
+    else if (name === 'amp') { renderAmpOverlay(); document.getElementById('ampOverlay').classList.add('visible'); }
     renderBottomBar();
 }
 
@@ -5309,6 +5353,14 @@ function renderFuncOverlay() {
         send({ cmd: 'setNoiseReduction', value: !nrOn });
     }));
 
+    // AMP: the RF-KIT amplifier panel, when the server was started with --rfkit.
+    if (ampConfigured) {
+        var ampSt = !ampState || !ampState.connected ? 'OFFLINE' : (ampState.operate ? 'OPERATE' : 'STANDBY');
+        grid.appendChild(makeFuncBtn('AMP', ampSt, !!(ampState && ampState.connected && ampState.operate), function() {
+            setPanel('amp');
+        }));
+    }
+
     // FIL opens the FILTER window (FIL1/2/3, width, twin PBT, shape) the way
     // DUP and TONE open theirs; the tile carries the passband it's set to.
     grid.appendChild(makeFuncBtn('FIL', filterFuncState(), false, openFilterModal));
@@ -5360,6 +5412,128 @@ function renderFuncOverlay() {
 
     updateFuncAttRow(multiStepAtt);
     document.getElementById('funcOverlay').classList.add('visible');
+}
+
+// ============================================================
+// RF-KIT AMPLIFIER (server --rfkit; ported from AetherSDR's RF-KIT applet)
+// ============================================================
+// The server polls the amplifier and pushes {type:'amp'} snapshots. Controls
+// never latch locally: the panel repaints from the amplifier's own reply.
+var ampConfigured = false;
+var ampState = null;
+
+function ampEsc(t) {
+    return String(t === undefined || t === null ? '' : t).replace(/[&<>"]/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+}
+
+function renderAmpIndicator() {
+    var el = document.getElementById('ampIndicator');
+    if (!el) return;
+    if (!ampConfigured) { el.style.display = 'none'; return; }
+    el.style.display = '';
+    el.classList.remove('operate', 'fault');
+    if (!ampState || !ampState.connected) { el.textContent = 'AMP OFFLINE'; el.classList.add('fault'); return; }
+    var fwd = ampState.fwd !== undefined ? ' ' + ampState.fwd + ' W' : '';
+    el.textContent = 'AMP ' + (ampState.operate ? 'OPR' : 'STBY') + fwd;
+    if (ampState.ampError) el.classList.add('fault');
+    else if (ampState.operate) el.classList.add('operate');
+}
+
+function ampBar(label, value, max, text, level) {
+    var pct = value === undefined ? 0 : Math.max(0, Math.min(100, value / max * 100));
+    return '<div class="amp-bar"><span>' + label + '</span><div class="amp-track"><div class="amp-fill' +
+        (level ? ' ' + level : '') + '" style="width:' + pct + '%"></div></div><span class="amp-val">' +
+        (value === undefined ? '\u2014' : text) + '</span></div>';
+}
+
+function ampTile(label, value, bad) {
+    return '<div class="amp-tile' + (bad ? ' bad' : '') + '">' + label + '<span>' +
+        (value === undefined || value === '' ? '\u2014' : ampEsc(value)) + '</span></div>';
+}
+
+function renderAmpOverlay() {
+    var body = document.getElementById('ampBody');
+    if (!body) return;
+    var a = ampState || {};
+    var up = !!a.connected;
+    var html = '<div class="amp-head"><b>' + ampEsc(a.device || 'RF-KIT') + '</b><span>' +
+        (up ? 'connected ' : 'offline ') + ampEsc(a.target || '') + '</span></div>';
+    if (!up && a.error) html += '<div class="amp-head"><span style="color:#e33">' + ampEsc(a.error) + '</span></div>';
+
+    // Fixed scales matching the amplifier's own display (see AetherSDR's
+    // rfkit-amplifier-design.md). Reflected power and SWR stay at baseline
+    // below 1 W forward.
+    var keyed = up && a.fwd !== undefined && a.fwd >= 1;
+    var swr = keyed ? a.swr : undefined;
+    var swrLevel = swr >= 2 ? 'bad' : (swr >= 1.5 ? 'warn' : '');
+    var ref = keyed ? a.ref : undefined;
+    var refLevel = '';
+    if (keyed && a.fwd > 0) {
+        var rho = Math.sqrt(a.ref / a.fwd), s = rho < 1 ? (1 + rho) / (1 - rho) : 99;
+        refLevel = s >= 2 ? 'bad' : (s >= 1.5 ? 'warn' : '');
+    }
+    html += '<div class="amp-bars">' +
+        ampBar('FWD', up ? a.fwd : undefined, 1600, (a.fwd || 0) + ' W') +
+        ampBar('REF', ref, 200, (ref || 0) + ' W', refLevel) +
+        ampBar('SWR', swr === undefined ? undefined : Math.min(swr, 5) - 1, 4,
+               swr === undefined ? '' : swr.toFixed(2) + ':1', swrLevel) +
+        '</div>';
+
+    html += '<div class="amp-tiles">' +
+        ampTile('BAND', up ? a.band : undefined) +
+        ampTile('FREQ', up ? a.freq : undefined) +
+        ampTile('TEMP', up && a.temp !== undefined ? a.temp.toFixed(0) + ' \u00b0C' : undefined, a.temp >= 60) +
+        ampTile('VOLTS', up && a.volts !== undefined ? a.volts.toFixed(1) + ' V' : undefined) +
+        ampTile('CURRENT', up && a.amps !== undefined ? a.amps.toFixed(1) + ' A' : undefined) +
+        ampTile('TUNER', up ? a.tuner : undefined) +
+        ampTile('INTERFACE', up ? a.iface : undefined) +
+        ampTile('STATUS', up ? a.status : undefined) +
+        (up && a.ampError ? ampTile('ERROR', a.ampError, true) : '') +
+        '</div>';
+    body.innerHTML = html;
+
+    var grid = document.createElement('div');
+    grid.className = 'overlay-grid';
+    var opBtn = makeFuncBtn('OPERATE', up ? (a.operate ? 'ON' : 'STANDBY') : '\u2014', up && !!a.operate, function () {
+        send({ cmd: 'ampOperate', value: !(ampState && ampState.operate) });
+    });
+    opBtn.disabled = !up;
+    grid.appendChild(opBtn);
+    var ants = (up && a.antennas) || [];
+    for (var n = 1; n <= 4; n++) {
+        var ant = null;
+        for (var i = 0; i < ants.length; i++) if (!ants[i].external && ants[i].num === n) ant = ants[i];
+        (function (num, info) {
+            var active = !!(info && info.state === 'active');
+            var b = makeFuncBtn('ANT ' + num, info ? info.state.toUpperCase() : '\u2014', active, function () {
+                send({ cmd: 'ampAntenna', value: num });
+            });
+            b.disabled = !up || !info || info.state === 'disabled' || active;
+            grid.appendChild(b);
+        })(n, ant);
+    }
+    // The external antenna is shown, never switched (see the design note).
+    for (var j = 0; j < ants.length; j++) {
+        if (ants[j].external && ants[j].state === 'active') {
+            var ext = makeFuncBtn(ants[j].label || 'EXT', 'ACTIVE', true, function () {});
+            ext.disabled = true;
+            grid.appendChild(ext);
+        }
+    }
+    var reset = makeFuncBtn('RESET', 'ERROR', false, function () {
+        if (confirm('Reset the amplifier error state?\n\nThe error latch protects the amplifier; reset only once the cause is fixed.'))
+            send({ cmd: 'ampErrorReset' });
+    });
+    reset.disabled = !up;
+    grid.appendChild(reset);
+    var back = document.createElement('button');
+    back.className = 'ov-btn back-btn';
+    back.innerHTML = '&#x21A9;';
+    back.onclick = function () { setPanel('default'); };
+    grid.appendChild(back);
+    body.appendChild(grid);
 }
 
 function makeFuncBtn(label, state, active, onclick) {

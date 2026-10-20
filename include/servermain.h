@@ -76,6 +76,7 @@ struct cmdLineOverrides {
     QString remoteLogTarget;
     bool noRemoteLog = false;
     bool remoteLogDecodes = false;
+    QString rfkit;             // --rfkit host[:port]: RF-KIT (RF2K-S) amplifier
 };
 
 class servermain : public QObject

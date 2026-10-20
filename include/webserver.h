@@ -23,6 +23,7 @@
 #include <memory>
 #include <atomic>
 #include "logbook.h"
+namespace AetherSDR { class RfkitConnection; }
 
 #if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
 #include <QAudioDeviceInfo>
@@ -124,6 +125,9 @@ public slots:
     // --name tag: sent to the browser as rigInfo.name so the top bar and
     // tab title show it instead of the rig model.
     void setInstanceName(const QString &name);
+    // --rfkit host[:port]: an RF-KIT (RF2K-S) amplifier on the LAN, shown in
+    // the AMP panel. Runs on the web thread; empty = no amplifier.
+    void configureRfkit(const QString &target);
     // Logbook path and remote-logging (WSJT-X UDP) setup from settings +
     // command-line overrides; runs once on the web thread at startup.
     void configureLogbook(const QString &logbookOverride,
@@ -601,6 +605,12 @@ private:
     // resolves the -s flag.  Empty means "use the default (QSettings org/app)".
     QString packetSettingsFile_;
     QString instanceName_;
+    // RF-KIT amplifier (rfkitconnection.h). ampJson_ is the last "amp"
+    // message, replayed to browsers that connect later.
+    AetherSDR::RfkitConnection *rfkit_ = nullptr;
+    QString rfkitTarget_;
+    QJsonObject ampJson_;
+    void publishAmp();
     Logbook logbook_;
     bool logbookPersistent_ = true;   // false: container without a volume, file dies with it
     QUdpSocket *wsjtxSocket_ = nullptr;

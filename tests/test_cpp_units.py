@@ -23,6 +23,8 @@ UNITS = {
     "consolestatus": ["src/consolestatus.cpp"],
     # FlexRadio SmartSDR line parser, VITA-49 decoders, DAX TX packets.
     "flexprotocol": ["src/radio/flexprotocol.cpp"],
+    # RF-KIT (RF2K-S) amplifier REST/JSON codec.
+    "rfkitprotocol": ["src/rfkitprotocol.cpp"],
     # Windows launcher helpers: wfweb command line composed from the form,
     # and the server log lines the launcher reacts to.
     "launcher": ["launcher/src/launchconfig.cpp", "launcher/src/logparser.cpp",

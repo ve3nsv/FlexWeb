@@ -101,6 +101,16 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
             QMetaObject::invokeMethod(web, "setInstanceName", Qt::QueuedConnection,
                                       Q_ARG(QString, cliOverrides.name));
         }
+        {
+            // RF-KIT amplifier: --rfkit wins, else the settings file's
+            // [Amplifier] Rfkit=host[:port].
+            QString rfkit = cliOverrides.rfkit;
+            if (rfkit.isEmpty() && settings)
+                rfkit = settings->value("Amplifier/Rfkit", QString()).toString();
+            if (!rfkit.isEmpty())
+                QMetaObject::invokeMethod(web, "configureRfkit", Qt::QueuedConnection,
+                                          Q_ARG(QString, rfkit));
+        }
         QMetaObject::invokeMethod(web, "configureLogbook", Qt::QueuedConnection,
                                   Q_ARG(QString, cliOverrides.logbook),
                                   Q_ARG(QString, cliOverrides.remoteLogTarget),

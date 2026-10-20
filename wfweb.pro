@@ -348,6 +348,8 @@ SOURCES += \
     src/radio/yaesucommander.cpp \
     src/radio/flexcommander.cpp \
     src/radio/flexprotocol.cpp \
+    src/rfkitconnection.cpp \
+    src/rfkitprotocol.cpp \
     src/radio/yaesuserver.cpp \
     src/radio/yaesuudpaudio.cpp \
     src/radio/yaesuudpbase.cpp \
@@ -425,6 +427,8 @@ HEADERS  += \
     include/yaesucommander.h \
     include/flexcommander.h \
     include/flexprotocol.h \
+    include/rfkitconnection.h \
+    include/rfkitprotocol.h \
     include/yaesuserver.h \
     include/yaesuudpaudio.h \
     include/yaesuudpbase.h \

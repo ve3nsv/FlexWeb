@@ -1,4 +1,5 @@
 #include "webserver.h"
+#include "rfkitconnection.h"
 #include "freedvprocessor.h"
 #include <QtMath>
 #include <codec2/freedv_api.h>
@@ -2642,6 +2643,23 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         queue->add(priorityImmediate, queueItem(funcKeySpeed, QVariant::fromValue<ushort>(wpm), false, 0));
         qCDebug(logWebServer) << "setCWSpeed:" << wpm << "WPM";
     }
+    else if (type == "ampOperate") {
+        // RF-KIT: OPERATE / STANDBY. The panel repaints from the amplifier's
+        // reply, never from this request.
+        if (rfkit_) rfkit_->setOperate(cmd["value"].toBool());
+    }
+    else if (type == "ampAntenna") {
+        // Internal antennas 1-4 only; the connection refuses anything else.
+        if (rfkit_) {
+            AetherSDR::Rfkit::Antenna a;
+            a.type = AetherSDR::Rfkit::AntennaType::Internal;
+            a.number = cmd["value"].toInt();
+            rfkit_->selectAntenna(a);
+        }
+    }
+    else if (type == "ampErrorReset") {
+        if (rfkit_) rfkit_->resetError();
+    }
     else if (type == "stopCW") {
         // Send empty string to stop CW transmission
         queue->add(priorityImmediate, queueItem(funcSendCW, QVariant::fromValue<QString>(QString())));
@@ -3776,7 +3794,10 @@ void webServer::sendCurrentState(QWebSocket *client)
     // The browser adopts these on connect instead of pushing its own copy.
     info["stationCallsign"] = reporterCallsign;
     info["stationGrid"] = reporterGrid;
+    info["ampConfigured"] = !rfkitTarget_.isEmpty();
     sendJsonTo(client, info);
+    if (!rfkitTarget_.isEmpty() && !ampJson_.isEmpty())
+        sendJsonTo(client, ampJson_);
     // The log itself is paged over REST; this only tells the browser to fetch page 1.
     sendJsonTo(client, logbookSummary());
 
@@ -6914,6 +6935,113 @@ void webServer::wsjtxSendDecode(const QJsonObject &cmd)
     d.mode = cmd["mode"].toString();
     d.message = cmd["message"].toString();
     wsjtxSendDatagram(WsjtxMessage::decode(wsjtxId_, d));
+}
+
+void webServer::configureRfkit(const QString &target)
+{
+    using namespace AetherSDR;
+    rfkitTarget_ = target.trimmed();
+    if (rfkit_) {
+        rfkit_->disconnect();
+        rfkit_->deleteLater();
+        rfkit_ = nullptr;
+    }
+    ampJson_ = QJsonObject();
+    if (rfkitTarget_.isEmpty())
+        return;
+
+    // host or host:port (the amplifier's REST API defaults to 8080).
+    QString host = rfkitTarget_;
+    quint16 port = Rfkit::kDefaultPort;
+    const int colon = host.lastIndexOf(':');
+    if (colon > 0 && !host.contains("::")) {
+        bool ok = false;
+        const int p = host.mid(colon + 1).toInt(&ok);
+        if (ok && p > 0 && p < 65536) { port = quint16(p); host = host.left(colon); }
+    }
+
+    rfkit_ = new RfkitConnection(this);
+    rfkit_->setAutoReconnect(true);
+    connect(rfkit_, &RfkitConnection::connected, this, [this]() {
+        qCInfo(logWebServer) << "RF-KIT amplifier connected:" << rfkit_->description();
+    });
+    connect(rfkit_, &RfkitConnection::disconnected, this, [this]() {
+        ampJson_ = QJsonObject();
+        publishAmp();
+    });
+    connect(rfkit_, &RfkitConnection::connectionFailed, this, [this](const QString &why) {
+        qCInfo(logWebServer) << "RF-KIT amplifier not reachable at" << rfkitTarget_ << "-" << why;
+        ampJson_ = QJsonObject();
+        ampJson_["type"] = "amp";
+        ampJson_["connected"] = false;
+        ampJson_["target"] = rfkitTarget_;
+        ampJson_["error"] = why;
+        sendJsonToAll(ampJson_);
+    });
+    connect(rfkit_, &RfkitConnection::statusUpdated, this, [this](const Rfkit::Status &st) {
+        QJsonObject o;
+        o["type"] = "amp";
+        o["connected"] = true;
+        o["target"] = rfkitTarget_;
+        if (st.info) {
+            o["device"] = st.info->customName.isEmpty() ? st.info->device : st.info->customName;
+            o["model"] = st.info->device;
+        }
+        if (st.operate)
+            o["operate"] = (*st.operate == Rfkit::OperateMode::Operate);
+        if (st.power) {
+            const Rfkit::Power &p = *st.power;
+            o["fwd"] = p.forward.value;
+            o["ref"] = p.reflected.value;
+            o["swr"] = double(p.swr.value);
+            o["temp"] = double(Rfkit::temperatureCelsius(p.temperature));
+            o["volts"] = double(p.voltage.value);
+            o["amps"] = double(p.current.value);
+        }
+        if (st.data) {
+            o["band"] = Rfkit::formatBand(st.data->band);
+            o["freq"] = Rfkit::formatFrequency(st.data->frequency);
+            o["status"] = st.data->status;
+        }
+        if (st.tuner) {
+            o["tuner"] = Rfkit::tunerModeLabel(st.tuner->mode);
+            o["tunerSetup"] = Rfkit::tunerSetupLabel(st.tuner->setup);
+        }
+        if (st.interfaceState) {
+            o["iface"] = Rfkit::interfaceLabel(st.interfaceState->active);
+            o["ampError"] = st.interfaceState->error;
+        }
+        if (st.antennas) {
+            QJsonArray ants;
+            for (const Rfkit::AntennaWithState &a : *st.antennas) {
+                QJsonObject j;
+                const bool ext = a.antenna.type == Rfkit::AntennaType::External;
+                j["external"] = ext;
+                j["num"] = a.antenna.number;
+                j["label"] = ext && a.externalPort ? QString("EXT %1").arg(a.externalPort)
+                                                   : Rfkit::antennaLabel(a.antenna);
+                j["state"] = a.state == Rfkit::AntennaState::Active ? "active"
+                           : a.state == Rfkit::AntennaState::Disabled ? "disabled" : "available";
+                ants.append(j);
+            }
+            o["antennas"] = ants;
+        }
+        ampJson_ = o;
+        publishAmp();
+    });
+    qCInfo(logWebServer) << "RF-KIT amplifier: connecting to" << host << port;
+    rfkit_->connectNetwork(host, port);
+}
+
+void webServer::publishAmp()
+{
+    QJsonObject o = ampJson_;
+    if (o.isEmpty()) {
+        o["type"] = "amp";
+        o["connected"] = false;
+        o["target"] = rfkitTarget_;
+    }
+    sendJsonToAll(o);
 }
 
 void webServer::setInstanceName(const QString &name)

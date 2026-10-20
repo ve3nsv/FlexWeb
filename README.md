@@ -144,6 +144,8 @@ wfweb joins the radio as a SmartSDR GUI client (alongside SmartSDR, Maestro or A
 
 Not supported yet: a second slice as VFO B / split, memories (wfweb's own memory list is used), FreeDV waveforms built into the radio, and SmartLink — wfweb talks to the radio on the LAN, so run it on the station network and reach the browser page from anywhere. Power on/off is not offered from the page. The FlexRadio support uses the SmartSDR protocol work of [AetherSDR](https://github.com/aethersdr/AetherSDR).
 
+**RF-KIT amplifier (RF2K-S).** Add `--rfkit <amp IP>` (port 8080 unless you give `host:port`) and the server talks to the amplifier over its LAN REST API, on any radio. FUNC > AMP opens its panel: forward and reflected power, SWR, temperature, voltage, current, band, tuner and interface, OPERATE/STANDBY, antenna 1-4 and error reset (behind a confirmation). The scope's top-right corner shows `AMP OPR 850 W` / `AMP STBY`. Nothing here keys the amplifier; the RF-KIT support is ported from [AetherSDR](https://github.com/aethersdr/AetherSDR).
+
 ### 3. Docker
 
 No build, no dependencies. The image `k1fm/wfweb` is multi-arch (`linux/amd64` and `linux/arm64`) — it runs on x86 servers, Raspberry Pi, and everything in between.
