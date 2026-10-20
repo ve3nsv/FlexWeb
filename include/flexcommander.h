@@ -74,6 +74,9 @@ signals:
     // dropped us for a duplicate client id. servermain closes the LAN session
     // so wfweb stays off the radio until a browser asks to connect again.
     void evicted(QString reason);
+    // The SmartSDR session is up (true) or gone (false): the terminal status
+    // page shows the radio as connected only while it is up.
+    void linkState(bool up);
 
 private slots:
     void tcpConnected();

@@ -289,6 +289,9 @@ private:
     unsigned char setFilterVal=0;
 
     bool usingLAN = false;
+    // FlexRadio: whether the SmartSDR session is up right now (flexCommander
+    // linkState). Other radios leave it true; rigAvailable says the rest.
+    bool radioLinkUp = true;
 
     struct preferences {
         manufacturersType_t manufacturer;
