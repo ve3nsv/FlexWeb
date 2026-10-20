@@ -28,6 +28,12 @@ FlexRadio:
   does not echo a client's own changes, so wfweb keeps them itself.
 - Waterfall colour schemes (SPAN > Colour), after AetherSDR's.
 
+- --on-demand [seconds] (LAN rigs, or WFWEB_ON_DEMAND=<seconds>): the
+  server connects to the radio only while a browser has the page open,
+  and releases it 30 s (or the given time) after the last one closes, so
+  SmartSDR or other programs can have the radio meanwhile. A page reload
+  inside that time keeps the session.
+
 RF-KIT amplifier:
 - --rfkit <host[:port]> (or Amplifier/Rfkit in the settings file)
   connects the server to an RF-KIT RF2K-S over its REST API (port 8080

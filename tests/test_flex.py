@@ -193,3 +193,91 @@ def test_cw(flex):
     assert _wait(lambda: 'cwx send "CQ\x7fDE\x7fVE3NSV"' in radio.commands, timeout=5)
     requests.delete(f"{rest}/cw", timeout=5)
     assert _wait(lambda: "cwx clear" in radio.commands, timeout=5)
+
+
+# ── --on-demand ─────────────────────────────────────────────────────────────
+
+def _open_browser_ws(port: int):
+    """A bare WebSocket handshake on the HTTPS port, as the page makes one."""
+    import base64
+    import socket
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    sock = ctx.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=5))
+    key = base64.b64encode(os.urandom(16)).decode()
+    sock.sendall((f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
+                  f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+                  "Sec-WebSocket-Version: 13\r\n\r\n").encode())
+    head = b""
+    while b"\r\n\r\n" not in head:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        head += chunk
+    assert head.startswith(b"HTTP/1.1 101"), head[:200]
+    return sock
+
+
+def test_on_demand():
+    """--on-demand: no radio session until a browser connects, released
+    after the idle time once the last browser has gone."""
+    if not WFWEB_BIN.exists():
+        pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
+
+    loop = asyncio.new_event_loop()
+    radio = MockFlexRadio()
+    loop.run_until_complete(radio.start())
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+
+    web_port = _free_port()
+    rest = f"http://127.0.0.1:{web_port + 1}/api/v1/radio"
+    env = os.environ.copy()
+    env["HOME"] = "/tmp/wfweb-flex-ondemand-test"
+    env["WFWEB_NO_TUI"] = "1"
+    os.makedirs(env["HOME"], exist_ok=True)
+    proc = subprocess.Popen(
+        [str(WFWEB_BIN), "-p", str(web_port), "--manufacturer", "3",
+         "--lan", "127.0.0.1",
+         "--lan-control", str(radio.control_port),
+         "--lan-audio", str(radio.vita_port),
+         "--on-demand", "2"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    try:
+        assert _wait(lambda: requests.get(f"{rest}/info", timeout=2).status_code == 200,
+                     timeout=30), "wfweb did not start"
+        time.sleep(2)
+        assert not radio.commands, "connected to the radio with no browser open"
+
+        ws = _open_browser_ws(web_port)
+        assert _wait(lambda: radio.find("slice create"), timeout=15), \
+            "a browser connected but wfweb did not connect to the radio"
+        assert radio._writer is not None
+
+        # A reload: the page goes away and comes back inside the idle time.
+        ws.close()
+        time.sleep(0.5)
+        ws = _open_browser_ws(web_port)
+        time.sleep(3)
+        assert radio._writer is not None, "released the radio during a page reload"
+        assert len(radio.find("client gui")) == 1
+
+        ws.close()
+        assert _wait(lambda: radio._writer is None, timeout=10), \
+            "the radio was not released after the last browser left"
+
+        # And taken again by the next browser.
+        ws = _open_browser_ws(web_port)
+        assert _wait(lambda: len(radio.find("client gui")) == 2, timeout=15), \
+            "the next browser did not reconnect the radio"
+        ws.close()
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)

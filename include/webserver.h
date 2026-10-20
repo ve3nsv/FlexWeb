@@ -128,6 +128,9 @@ public slots:
     // --rfkit host[:port]: an RF-KIT (RF2K-S) amplifier on the LAN, shown in
     // the AMP panel. Runs on the web thread; empty = no amplifier.
     void configureRfkit(const QString &target);
+    // --on-demand: hold the rig's LAN session only while a browser is
+    // connected; release it idleSeconds after the last one leaves.
+    void setOnDemand(int idleSeconds);
     // Logbook path and remote-logging (WSJT-X UDP) setup from settings +
     // command-line overrides; runs once on the web thread at startup.
     void configureLogbook(const QString &logbookOverride,
@@ -610,6 +613,15 @@ private:
     AetherSDR::RfkitConnection *rfkit_ = nullptr;
     QString rfkitTarget_;
     QJsonObject ampJson_;
+
+    // --on-demand (setOnDemand). onDemandPending_ is set between asking
+    // servermain to connect and its setLanInfo() answer, so a burst of
+    // browser connections asks once.
+    int onDemandIdleSec_ = 0;
+    QTimer *onDemandTimer_ = nullptr;
+    bool onDemandPending_ = false;
+    void onDemandBrowserArrived();
+    void onDemandBrowserLeft();
     void publishAmp();
     Logbook logbook_;
     bool logbookPersistent_ = true;   // false: container without a volume, file dies with it

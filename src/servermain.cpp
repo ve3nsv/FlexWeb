@@ -154,13 +154,26 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
     // web UI Reconnect button performs the first connect (reconnectLan() ->
     // openRig()). Serial mode has no reconnect UI, so honoring the flag there
     // would strand the user — warn and connect normally instead.
-    bool startDisconnected = cliOverrides.noAutoConnect && prefs.enableLAN;
+    //
+    // --on-demand goes further: the web server opens the session when the
+    // first browser arrives and closes it once the last one has been gone
+    // for the idle time, so other programs can use the radio in between.
+    bool onDemand = cliOverrides.onDemandIdle > 0 && prefs.enableLAN;
+    if (cliOverrides.onDemandIdle > 0 && !prefs.enableLAN)
+        qWarning(logSystem()) << "--on-demand is only supported with LAN rigs; connecting normally";
+    bool startDisconnected = (cliOverrides.noAutoConnect || onDemand) && prefs.enableLAN;
     if (cliOverrides.noAutoConnect && !prefs.enableLAN)
         qWarning(logSystem()) << "--no-autoconnect is only supported with LAN rigs; connecting normally";
 
-    if (startDisconnected)
+    if (onDemand && web != Q_NULLPTR) {
+        QMetaObject::invokeMethod(web, "setOnDemand", Qt::QueuedConnection,
+                                  Q_ARG(int, cliOverrides.onDemandIdle));
+        qInfo(logSystem()) << "On-demand: connecting to the rig when a browser opens the page,"
+                           << "releasing it" << cliOverrides.onDemandIdle << "s after the last one closes";
+    } else if (startDisconnected) {
         qInfo(logSystem()) << "Auto-connect disabled; use the web UI Reconnect button to connect to the rig";
-    else
+    }
+    if (!startDisconnected)
         openRig();
 
     if (web != Q_NULLPTR) {

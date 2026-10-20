@@ -1745,6 +1745,7 @@ void webServer::onWsNewConnection()
     wsClients.append(pSocket);
     browserCount_ = wsClients.size();
     qInfo() << "Web client connected:" << pSocket->peerAddress().toString();
+    onDemandBrowserArrived();
 
     // Send current state to new client
     sendCurrentState(pSocket);
@@ -1806,6 +1807,7 @@ void webServer::onWsDisconnected()
         wsClients.removeAll(pClient);
         browserCount_ = wsClients.size();
         pClient->deleteLater();
+        onDemandBrowserLeft();
     }
 }
 
@@ -5476,8 +5478,16 @@ void webServer::setLanInfo(bool isLan, bool connected)
 {
     bool changed = (lanMode != isLan) || (lanConnected != connected);
     bool justConnected = connected && !lanConnected;
+    // The startup report: with --on-demand, a browser that reconnected to a
+    // restarted server before this arrived still has to open the rig.
+    bool firstReport = isLan && !lanMode;
     lanMode = isLan;
     lanConnected = connected;
+    onDemandPending_ = false;
+    // Disconnected (by the idle timer, or the page's Disconnect button):
+    // nothing left to time out.
+    if (!connected && onDemandTimer_) onDemandTimer_->stop();
+    if (firstReport && !connected && !wsClients.isEmpty()) onDemandBrowserArrived();
     if (!changed) return;
     QJsonObject obj;
     obj["type"] = "lanStatus";
@@ -8462,4 +8472,54 @@ void webServer::readUsbAudio()
     memcpy(msg.data() + headerSize, data.constData(), data.size());
 
     sendBinaryToAudioClients(msg);
+}
+
+// ============================================================
+// --on-demand: hold the rig only while a browser is connected
+// ============================================================
+// The rig is opened when the first browser arrives and closed once the last
+// one has been gone for onDemandIdleSec_. The grace period covers a page
+// reload or a dropped Wi-Fi link, which reconnect within seconds. Only the
+// browser WebSocket counts: the REST API and rigctld neither open the
+// session nor hold it open.
+
+void webServer::setOnDemand(int idleSeconds)
+{
+    onDemandIdleSec_ = qMax(0, idleSeconds);
+    if (onDemandIdleSec_ == 0) {
+        if (onDemandTimer_) onDemandTimer_->stop();
+        return;
+    }
+    if (!onDemandTimer_) {
+        onDemandTimer_ = new QTimer(this);
+        onDemandTimer_->setSingleShot(true);
+        connect(onDemandTimer_, &QTimer::timeout, this, [this]() {
+            if (!wsClients.isEmpty() || !lanConnected) return;
+            qInfo() << "On-demand: no browser for" << onDemandIdleSec_
+                    << "s, releasing the rig";
+            emit requestLanDisconnect();
+        });
+    }
+    // A browser may already be connected (it raced the startup).
+    if (!wsClients.isEmpty()) onDemandBrowserArrived();
+}
+
+void webServer::onDemandBrowserArrived()
+{
+    if (onDemandIdleSec_ == 0) return;
+    if (onDemandTimer_) onDemandTimer_->stop();
+    if (lanMode && !lanConnected && !onDemandPending_) {
+        qInfo() << "On-demand: browser connected, connecting to the rig";
+        onDemandPending_ = true;
+        emit requestLanReconnect();
+    }
+}
+
+void webServer::onDemandBrowserLeft()
+{
+    if (onDemandIdleSec_ == 0 || !wsClients.isEmpty() || !onDemandTimer_) return;
+    if (!lanConnected && !onDemandPending_) return;
+    qInfo() << "On-demand: last browser closed, releasing the rig in"
+            << onDemandIdleSec_ << "s unless one comes back";
+    onDemandTimer_->start(onDemandIdleSec_ * 1000);
 }

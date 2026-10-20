@@ -240,6 +240,11 @@ int main(int argc, char *argv[])
         "  --no-autoconnect        Start without connecting to the rig (LAN only; connect\n"
         "                          later with the web UI Reconnect button). Also enabled\n"
         "                          by setting WFWEB_NO_AUTOCONNECT=1 in the environment\n"
+        "  --on-demand [seconds]   Connect to the rig only while a browser has the page\n"
+        "                          open, and release it this many seconds (default 30)\n"
+        "                          after the last one closes, so other programs can use\n"
+        "                          the radio meanwhile (LAN only). Also enabled by\n"
+        "                          setting WFWEB_ON_DEMAND=<seconds> in the environment\n"
         "  --no-tui                Print the plain log on an interactive terminal instead\n"
         "                          of the status page. Also enabled by setting\n"
         "                          WFWEB_NO_TUI=1 in the environment\n"
@@ -590,6 +595,20 @@ int main(int argc, char *argv[])
         {
             overrides.noAutoConnect = true;
         }
+        else if (currentArg == "--on-demand")
+        {
+            // Optional idle time: only a plain number is taken as one.
+            overrides.onDemandIdle = 30;
+            if (argc > c + 1) {
+                bool ok = false;
+                int secs = QString(argv[c + 1]).toInt(&ok);
+                if (ok) {
+                    if (secs < 1) { std::cout << "Error: --on-demand needs at least 1 second\n"; return -1; }
+                    overrides.onDemandIdle = secs;
+                    ++c;
+                }
+            }
+        }
         else if (currentArg == "--no-tui")
         {
             noTui = true;
@@ -615,6 +634,8 @@ int main(int argc, char *argv[])
     // Container-friendly alternative to --no-autoconnect (issue #70)
     if (qEnvironmentVariableIntValue("WFWEB_NO_AUTOCONNECT") > 0)
         overrides.noAutoConnect = true;
+    if (overrides.onDemandIdle == 0 && qEnvironmentVariableIntValue("WFWEB_ON_DEMAND") > 0)
+        overrides.onDemandIdle = qEnvironmentVariableIntValue("WFWEB_ON_DEMAND");
     if (qEnvironmentVariableIntValue("WFWEB_NO_TUI") > 0)
         noTui = true;
 

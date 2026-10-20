@@ -67,6 +67,10 @@ struct cmdLineOverrides {
     bool rigCtlBindAll = false; // --rigctld-bind-all
     // startup behavior
     bool noAutoConnect = false; // --no-autoconnect / WFWEB_NO_AUTOCONNECT (LAN only)
+    // --on-demand [seconds]: LAN only. Hold the rig only while a browser is
+    // open: connect when the first one arrives, close the session this many
+    // seconds after the last one leaves (0 = option off).
+    int onDemandIdle = 0;
     // -n/--name: label shown in the web UI top bar and browser tab instead
     // of the rig model, to tell several wfweb instances apart
     QString name;
