@@ -64,9 +64,11 @@ jobs:
         run: |
           sudo apt-get install -y python3-pytest python3-requests
           # Failures also go out as annotations, readable without the log.
+          # POSIX sh: the Debian container jobs run steps with sh, not bash.
           set +e
-          python3 -m pytest tests/ -v -rfE --tb=short 2>&1 | tee pytest.log
-          rc=${PIPESTATUS[0]}
+          python3 -m pytest tests/ -v -rfE --tb=short > pytest.log 2>&1
+          rc=$?
+          cat pytest.log
           grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
           exit $rc
 
@@ -199,9 +201,11 @@ jobs:
         run: |
           apt-get install -y python3-pytest python3-requests
           # Failures also go out as annotations, readable without the log.
+          # POSIX sh: the Debian container jobs run steps with sh, not bash.
           set +e
-          python3 -m pytest tests/ -v -rfE --tb=short 2>&1 | tee pytest.log
-          rc=${PIPESTATUS[0]}
+          python3 -m pytest tests/ -v -rfE --tb=short > pytest.log 2>&1
+          rc=$?
+          cat pytest.log
           grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
           exit $rc
 
@@ -333,9 +337,11 @@ jobs:
         run: |
           apt-get install -y python3-pytest python3-requests
           # Failures also go out as annotations, readable without the log.
+          # POSIX sh: the Debian container jobs run steps with sh, not bash.
           set +e
-          python3 -m pytest tests/ -v -rfE --tb=short 2>&1 | tee pytest.log
-          rc=${PIPESTATUS[0]}
+          python3 -m pytest tests/ -v -rfE --tb=short > pytest.log 2>&1
+          rc=$?
+          cat pytest.log
           grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
           exit $rc
 
@@ -618,9 +624,11 @@ jobs:
         run: |
           pip3 install --break-system-packages pytest requests
           # Failures also go out as annotations, readable without the log.
+          # POSIX sh: the Debian container jobs run steps with sh, not bash.
           set +e
-          python3 -m pytest tests/ -v -rfE --tb=short 2>&1 | tee pytest.log
-          rc=${PIPESTATUS[0]}
+          python3 -m pytest tests/ -v -rfE --tb=short > pytest.log 2>&1
+          rc=$?
+          cat pytest.log
           grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
           exit $rc
 
