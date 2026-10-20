@@ -43,6 +43,9 @@ FlexRadio:
   processor (on/off, NOR / DX / DX+), DEXP and its level, MIC level and
   the TX filter edges. The settings are the radio's own, so SmartSDR
   shows the same values.
+- FT8/FT4: CALL 1ST (next to CALL CQ), as in WSJT-X: while calling CQ,
+  the first station that answers is taken automatically and the QSO runs
+  to the log without a click. Kept per browser (all radios).
 - Transmit audio is no longer clipped at key-up: the radio drops DAX
   audio until it is actually on the air, so the first part of every
   FT8/JS8 frame (and of a voice over) was lost. wfweb now holds the audio

@@ -1218,6 +1218,7 @@ body.digi-open #bottomBar { grid-row: 5; }
 }
 .digi-call-cq-btn:hover { background: #003a28; border-color: #0f0; color: #0f0; }
 .digi-call-cq-btn.active { background: #004030; border-color: #0d0; color: #0f0; }
+.digi-cq-parity-btn.active { background: #004030; border-color: #0d0; color: #0f0; }
 
 /* 6 QSO message rows — compact, lives inside the msg column */
 .digi-msg-col {
@@ -2538,6 +2539,7 @@ body.digi-open #bottomBar { grid-row: 5; }
                     <div class="digi-msg-cq-bar">
                         <button id="digiCqParityBtn" class="digi-cq-parity-btn" onclick="toggleDigiCqParity()">TX EVEN</button>
                         <button id="digiCallCqBtn" class="digi-call-cq-btn wf-btn" onclick="digiCallCq()">CALL CQ</button>
+                        <button id="digiCall1stBtn" class="digi-cq-parity-btn" onclick="toggleDigiCall1st()" title="While calling CQ, answer the first station that replies and run the QSO to the log (WSJT-X Call 1st)">CALL 1ST</button>
                     </div>
                     <div id="digiMsgRows" class="digi-msg-rows"></div>
                 </div>
@@ -10728,6 +10730,51 @@ function toggleDigiCqParity() {
     if (btn) btn.textContent = digiCqParity === 0 ? 'TX EVEN' : 'TX ODD';
 }
 
+// CALL 1ST (WSJT-X "Call 1st"): while a CQ is armed, the first decode
+// addressed to us starts the QSO as if its row had been clicked, and the
+// auto-sequencer takes it to the log. Kept per browser in wfDigiCall1st.
+var digiCall1st = false;
+try { digiCall1st = localStorage.getItem('wfDigiCall1st') === '1'; } catch (e) {}
+function toggleDigiCall1st() {
+    digiCall1st = !digiCall1st;
+    try { localStorage.setItem('wfDigiCall1st', digiCall1st ? '1' : '0'); } catch (e) {}
+    var b = document.getElementById('digiCall1stBtn');
+    if (b) b.classList.toggle('active', digiCall1st);
+}
+
+// A reply to our CQ ("<MY> <CALLER> <grid|report>"): take the caller.
+// Returns true when it started a QSO.
+function digiCall1stTake(parts, snr, dSlot) {
+    var myCall = getMyCall();
+    if (!digiCall1st || !digiTxEnabled || !digiTxQueued || digiTxQueued.indexOf('CQ ') !== 0) return false;
+    if (parts.length < 2 || parts[0] !== myCall || !parts[1] || parts[1] === myCall) return false;
+    var tok = parts[2] || '';
+    if (tok === 'RR73' || tok === 'RRR' || tok === '73') return false;   // not the start of a QSO
+    var caller = parts[1];
+    var dxEl = document.getElementById('digiDxCall');
+    if (dxEl) dxEl.value = caller;
+    digiQsoPartner = caller;
+    digiQsoPartnerBusyWith = '';
+    var r = Math.round(snr || 0), ourSnrStr = (r >= 0 ? '+' : '') + r;
+    if (/^R[-+]?\d+$/i.test(tok)) {
+        digiQsoState = 'RREPORT';                 // they skipped ahead: R-report → RR73
+        digiTheirReport = digiReportFromToken(tok);
+        digiOurReport = ourSnrStr;
+    } else if (/^[-+]?\d+$/.test(tok)) {
+        digiQsoState = 'REPORT';                  // plain report → R-report
+        digiTheirReport = digiReportFromToken(tok);
+        digiOurReport = ourSnrStr;
+    } else {
+        digiQsoState = 'ANSWERED';                // grid → our plain report
+        digiTheirReport = '';
+        digiOurReport = ourSnrStr;
+    }
+    console.log('[DIGI QSO] CALL 1ST: answering ' + caller + ' (' + tok + ') state=' + digiQsoState);
+    armMessageForQsoState(dSlot);
+    updateDigiStatus('Call 1st: ' + caller, '');
+    return true;
+}
+
 // Start calling CQ: enable TX, arm the CQ message, use the user-selected parity
 function digiCallCq() {
     if (!checkDigiCallGrid()) return;
@@ -11124,6 +11171,9 @@ function handleDigiAutoQso(decodes, decodedSlotIndex) {
         // Each decode's slot index (prefer per-decode if present, fall back to argument)
         var dSlot = (decodes[i].slotIndex !== undefined) ? decodes[i].slotIndex : decodedSlotIndex;
 
+        if (digiQsoState === 'IDLE' && !multi && digiCall1stTake(parts, decodes[i].snr, dSlot)) {
+            break;
+        }
         if (digiQsoState === 'IDLE') {
             // Look for CQ <CALL> <GRID> — only auto-arm if the user has already
             // targeted this specific station in the DX field. Never auto-select
@@ -12971,6 +13021,8 @@ function initDigiHandlers() {
     }
 
     // Hold TX Freq button
+    var call1stBtn = document.getElementById('digiCall1stBtn');
+    if (call1stBtn) call1stBtn.classList.toggle('active', digiCall1st);
     var holdTxBtn = document.getElementById('digiHoldTxBtn');
     if (holdTxBtn) {
         holdTxBtn.addEventListener('click', function() {
