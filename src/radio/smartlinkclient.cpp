@@ -52,8 +52,12 @@ quint16 serverPort()
 
 QSettings& store()
 {
-    static QSettings s("wfweb", "smartlink");
-    return s;
+    // WFWEB_CONFIG_DIR (tests): an ini file there, as webAuth does.
+    static QSettings s(qEnvironmentVariableIsEmpty("WFWEB_CONFIG_DIR")
+                           ? QString() : qEnvironmentVariable("WFWEB_CONFIG_DIR") + "/smartlink.ini",
+                       QSettings::IniFormat);
+    static QSettings native("wfweb", "smartlink");
+    return qEnvironmentVariableIsEmpty("WFWEB_CONFIG_DIR") ? native : s;
 }
 
 QMap<QString, QString> words(const QString& text)

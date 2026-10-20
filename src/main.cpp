@@ -259,6 +259,8 @@ static int webUserPassword(const QString& name, bool mustBeNew)
     return 0;
 }
 
+static int smartLinkRun(const QString& email, const QString& password);
+
 // wfweb --smartlink-login [email]: sign in to the FlexRadio account once,
 // keep the refresh token (not the password), list the account's radios.
 static int smartLinkLogin(QString email)
@@ -275,7 +277,25 @@ static int smartLinkLogin(QString email)
     }
     std::cout << "Password (not shown, not stored): " << std::flush;
     const QString password = QString::fromStdString(readHidden());
+    smartLinkClient::forgetCertPins();
+    return smartLinkRun(email, password);
+}
 
+// wfweb --smartlink-radios: the account's radios with the stored sign-in
+// (the Windows launcher's radio list). Exit code 2 = not signed in.
+static int smartLinkRadios()
+{
+    if (!smartLinkClient::haveStoredToken()) {
+        std::cout << "Not signed in to SmartLink.\n";
+        return 2;
+    }
+    return smartLinkRun(QString(), QString());
+}
+
+// One SmartLink session: sign in (password, or the stored token when the
+// password is empty), print the radio list, sign out of the broker.
+static int smartLinkRun(const QString& email, const QString& password)
+{
     smartLinkClient client;
     QEventLoop loop;
     int rc = 1;
@@ -306,8 +326,10 @@ static int smartLinkLogin(QString email)
         std::cout << "SmartLink did not answer within 30 s.\n";
         loop.quit();
     });
-    smartLinkClient::forgetCertPins();
-    client.login(email, password);
+    if (password.isEmpty())
+        client.loginWithStoredToken();
+    else
+        client.login(email, password);
     loop.exec();
     client.close();
     return rc;
@@ -403,6 +425,7 @@ int main(int argc, char *argv[])
         "                          --manufacturer 3). Sign in once with --smartlink-login\n"
         "  --smartlink-login [email]  Sign in to SmartLink, list the account's radios, exit.\n"
         "                          Keeps a sign-in token, never the password\n"
+        "  --smartlink-radios      List the SmartLink account's radios (stored sign-in)\n"
         "  --smartlink-logout      Forget the SmartLink sign-in\n"
         "  --flex-audio <mode>     FlexRadio receive audio: opus (~50 kbit/s), none\n"
         "                          (uncompressed, ~1.5 Mbit/s) or auto (default: Opus\n"
@@ -671,6 +694,10 @@ int main(int argc, char *argv[])
         else if (currentArg == "--rest")
         {
             overrides.restLan = true;
+        }
+        else if (currentArg == "--smartlink-radios")
+        {
+            return smartLinkRadios();
         }
         else if (currentArg == "--smartlink-logout")
         {

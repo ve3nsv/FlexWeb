@@ -361,10 +361,10 @@ def test_smartlink():
     subprocess.run(["rm", "-rf", home])
     os.makedirs(home, exist_ok=True)
     env = os.environ.copy()
-    env.update(HOME=home, XDG_CONFIG_HOME=f"{home}/.config", WFWEB_NO_TUI="1",
+    env.update(HOME=home, XDG_CONFIG_HOME=f"{home}/.config", WFWEB_NO_TUI="1", WFWEB_CONFIG_DIR=home,
                WFWEB_SMARTLINK_AUTH=f"https://127.0.0.1:{broker.auth_port}/oauth/token",
                WFWEB_SMARTLINK_SERVER=f"127.0.0.1:{broker.server_port}")
-    conf = Path(home) / ".config" / "wfweb" / "smartlink.conf"
+    conf = Path(home) / "smartlink.ini"
     proc = None
     try:
         # Not signed in yet: a wrong password is refused and nothing is kept.
@@ -372,8 +372,7 @@ def test_smartlink():
                              input=b"wrong\n", capture_output=True, env=env, timeout=40)
         assert bad.returncode != 0, bad.stdout.decode(errors="replace")
         assert b"Wrong email or password" in bad.stdout
-        # QSettings writes this ini file on Linux only (a plist on macOS).
-        check_conf = sys.platform.startswith("linux")
+        check_conf = True
         assert not check_conf or not conf.exists() or "refreshToken" not in conf.read_text()
 
         good = subprocess.run([str(WFWEB_BIN), "--smartlink-login", MockSmartLink.EMAIL],

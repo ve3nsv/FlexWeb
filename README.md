@@ -152,7 +152,20 @@ Not supported yet: a second slice as VFO B / split, memories (wfweb's own memory
 ./wfweb --smartlink-logout                    # forget the sign-in
 ```
 
-The radio needs SmartLink set up in SmartSDR with UPnP or forwarded ports (radios that need NAT hole punching are not supported yet). The session is TLS; the radio's certificate is remembered on first use and a changed one is refused until you sign in again. Receive audio is uncompressed (about 1.5 Mbit/s from the radio) plus the panadapter. If wfweb can run on the radio's own network, `--lan` with the browser reaching wfweb over a VPN such as Tailscale uses much less bandwidth.
+The radio needs SmartLink set up in SmartSDR with UPnP or forwarded ports (radios that need NAT hole punching are not supported yet). The session is TLS; the radio's certificate is remembered on first use and a changed one is refused until you sign in again. Over SmartLink the radio sends its audio as Opus (about 50 kbit/s); `--flex-audio none` asks for uncompressed audio (about 1.5 Mbit/s), `--flex-audio opus` uses Opus on the LAN too. `--smartlink-radios` lists the account's radios.
+
+**Several operators.** Any number of browsers can use the page at once; one transmits at a time. Another browser's PTT is refused while someone transmits, and every page shows `TX: <user>`. Under FUNC > AUDIO each browser chooses what it hears while someone else transmits (**TX LISTEN**): OPERATOR (their microphone, straight through), ON-AIR (the radio's monitor of the signal) or OFF, at its own **LISTEN VOL**; FT8, JS8 and other data modes stay quiet unless DIGI LISTEN is on.
+
+**Password protection.** Before forwarding the web port on your router, add web users. With at least one user, the page asks to sign in:
+
+```bash
+./wfweb --add-user tom          # asks for the password twice (8+ characters)
+./wfweb --passwd tom            # change it (signs tom out everywhere)
+./wfweb --remove-user tom       # the last one removed turns login off
+./wfweb --list-users
+```
+
+Only a PBKDF2 hash of each password is kept. Sessions last 12 hours, or 30 days with "Keep me signed in"; five wrong passwords lock the address out for 15 minutes. Forward only the web port (8080). The REST port next to it (8081, plain HTTP) answers on the server's own computer only; `--rest` opens it to the LAN, where it then needs a web user's name and password (HTTP Basic). A VPN such as Tailscale is still the safer way in: nothing is exposed at all.
 
 **Sharing the radio.** With `--on-demand` wfweb connects to the Flex only while a browser has the page open, and lets it go 30 seconds after the last one closes (`--on-demand 10` for 10 s), so SmartSDR, Maestro or other software can use its slices and panadapters in between. A page reload within that time keeps the session. Works for any LAN rig.
 
