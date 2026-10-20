@@ -16,4 +16,8 @@
 
 #define WFWEB_VERSION "0.9.3"
 
+// The program name this fork reports to outside services (FreeDV Reporter,
+// PSK Reporter): FlexWeb, ve3nsv's FlexRadio fork of wfweb.
+#define WFWEB_REPORT_NAME "FlexWeb"
+
 #endif // WFWEB_VERSION_H

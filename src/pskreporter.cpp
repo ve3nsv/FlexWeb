@@ -322,7 +322,7 @@ QByteArray PskReporter::buildPacket(bool withTemplates)
         appendU16(rset, RECEIVER_TEMPLATE_ID);
         appendU16(rset, 0);          // set length (patched)
 
-        QByteArray softwareTag = QString("wfweb %1")
+        QByteArray softwareTag = QString(WFWEB_REPORT_NAME " %1")
             .arg(QStringLiteral(WFWEB_VERSION)).toUtf8();
 
         rset.append(encodeVarField(callsign_.toUtf8()));
