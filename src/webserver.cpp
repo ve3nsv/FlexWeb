@@ -1821,6 +1821,14 @@ void webServer::onWsNewConnection()
 
     // Send current state to new client
     sendCurrentState(pSocket);
+    if (pttClient) {
+        QJsonObject st;
+        st["type"] = "txState";
+        st["on"] = true;
+        st["by"] = clientLabel(pttClient);
+        st["mine"] = false;
+        sendJsonTo(pSocket, st);
+    }
 }
 
 void webServer::onWsTextMessage(QString message)
@@ -1846,6 +1854,7 @@ void webServer::onWsDisconnected()
         qInfo() << "Web client disconnected:" << pClient->peerAddress().toString();
         if (pClient == pttClient) {
             pttClient = nullptr;
+            QTimer::singleShot(0, this, [this]() { broadcastTxState(); updateAutoMon(); });
             if (queue) {
                 qWarning() << "Web: the browser holding PTT disconnected, unkeying";
                 queue->add(priorityImmediate, queueItem(funcTransceiverStatus, QVariant::fromValue<bool>(false), false, uchar(0)));
@@ -1885,6 +1894,7 @@ void webServer::onWsDisconnected()
         packetUsbTxActive = false;
         audioClients.remove(pClient);
         wsUser.remove(pClient);
+        txListen.remove(pClient);
         wsClients.removeAll(pClient);
         browserCount_ = wsClients.size();
         pClient->deleteLater();
@@ -1899,6 +1909,12 @@ void webServer::onWsBinaryMessage(QByteArray message)
     quint8 msgType = static_cast<quint8>(message[0]);
 
     if (msgType != 0x03) return; // Only handle TX audio (0x03)
+
+    // TX lock: while a browser holds PTT, only its audio goes to the radio;
+    // another browser's open mic would otherwise be mixed into the
+    // transmission.
+    QWebSocket *from = qobject_cast<QWebSocket *>(sender());
+    if (pttClient && from && from != pttClient) return;
 
     if (!txAudioConfigured) return;
 
@@ -1928,6 +1944,10 @@ void webServer::onWsBinaryMessage(QByteArray message)
         lastModemAudioMs = nowMs;
     else if (nowMs - lastModemAudioMs < 300)
         return;
+
+    // Intercom: the browsers listening to the operator hear this frame.
+    if (pttClient && from == pttClient)
+        forwardOperatorAudio(pcmData, modemTagged);
 
     // Modem audio must never enter the FreeDV/RADE voice codec — if the
     // FreeDV mode was left enabled (it survives mode changes between voice
@@ -2296,6 +2316,20 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     }
     else if (type == "setPTT") {
         bool on = cmd["value"].toBool();
+        // TX lock: one browser transmits at a time. Another browser can
+        // neither key over it nor unkey it (its own release after a refused
+        // press must not cut the operator off).
+        if (pttClient && pttClient != client && wsClients.contains(pttClient)) {
+            if (on) {
+                QJsonObject busy;
+                busy["type"] = "txBusy";
+                busy["by"] = clientLabel(pttClient);
+                sendJsonTo(client, busy);
+                qInfo().noquote() << "Web: PTT refused for" << clientLabel(client)
+                                  << "- the radio is keyed by" << clientLabel(pttClient);
+            }
+            return;
+        }
         // On PTT-off with RADE: synthesise an EOO frame carrying the callsign
         // and delay the radio unkey so the OFDM frame plays out before the
         // radio stops transmitting. RadeProcessor::sendEoo() emits txReady;
@@ -2304,6 +2338,9 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         bool radeUnkey = !on && freedvEnabled && freedvModeName == "RADE" && radeProcessor;
         bool hasTxOut  = (usbAudioOutput && txAudioConfigured) || txConverter;
         if (radeUnkey && hasTxOut) {
+            pttClient = nullptr;
+            broadcastTxState();
+            updateAutoMon();
             QMetaObject::invokeMethod(radeProcessor, "sendEoo", Qt::BlockingQueuedConnection);
             qInfo() << "Web: queued RADE EOO frame, delaying unkey 300ms";
             QTimer::singleShot(300, this, [this]() {
@@ -2315,6 +2352,8 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         }
         queue->add(priorityImmediate, queueItem(funcTransceiverStatus, QVariant::fromValue<bool>(on), false, uchar(0)));
         pttClient = on ? client : nullptr;
+        broadcastTxState();
+        updateAutoMon();
         // Start/stop ALC meter polling for web clients
         if (on) {
             queue->addUnique(priorityHighest, queueItem(funcALCMeter, true, 0));
@@ -2379,6 +2418,11 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     else if (type == "setCompressor") {
         bool on = cmd["value"].toBool();
         queue->add(priorityImmediate, queueItem(funcCompressor, QVariant::fromValue<uchar>(on ? 1 : 0), false, 0));
+    }
+    else if (type == "setTxListen") {
+        const QString mode = cmd["mode"].toString();
+        txListen.insert(client, (mode == "op" || mode == "air") ? mode : QString("off"));
+        updateAutoMon();
     }
     else if (type == "setMonitor") {
         bool on = cmd["value"].toBool();
@@ -4716,8 +4760,79 @@ void webServer::sendBinaryToAll(const QByteArray &data)
 
 void webServer::sendBinaryToAudioClients(const QByteArray &data)
 {
+    // While a browser transmits, receive audio (0x02) goes to the other
+    // browsers only if they chose to hear the radio's monitor ("air"); the
+    // operator hears it unless MON was switched on just for the listeners.
+    const bool rxAudio = !data.isEmpty() && quint8(data[0]) == 0x02;
     for (QWebSocket *client : audioClients) {
+        if (rxAudio && pttClient && wsClients.contains(pttClient)) {
+            if (client == pttClient ? autoMon : txListen.value(client) != "air")
+                continue;
+        }
         client->sendBinaryMessage(data);
+    }
+}
+
+void webServer::forwardOperatorAudio(const QByteArray &pcm, bool modemTagged)
+{
+    QList<QWebSocket *> to;
+    for (QWebSocket *c : audioClients)
+        if (c != pttClient && txListen.value(c) == "op")
+            to.append(c);
+    if (to.isEmpty() || pcm.size() < 2)
+        return;
+    // Mic frames are 48 kHz; the page plays at the rig's rate (FT8/JS8
+    // frames already are at it). Linear resampling is plenty for a voice
+    // feed that only listeners hear.
+    const int inRate = modemTagged && rigSampleRate ? int(rigSampleRate) : 48000;
+    const int outRate = rigSampleRate ? int(rigSampleRate) : 48000;
+    QByteArray out = pcm;
+    if (inRate != outRate) {
+        const int n = pcm.size() / 2;
+        const int m = int(qint64(n) * outRate / inRate);
+        const qint16 *src = reinterpret_cast<const qint16 *>(pcm.constData());
+        out.resize(m * 2);
+        qint16 *dst = reinterpret_cast<qint16 *>(out.data());
+        for (int i = 0; i < m; ++i) {
+            const double x = double(i) * inRate / outRate;
+            const int k = int(x);
+            const double f = x - k;
+            const qint16 a = src[qMin(k, n - 1)], b = src[qMin(k + 1, n - 1)];
+            dst[i] = qint16(a + (b - a) * f);
+        }
+    }
+    // [0x02][0x01 = intercom][seq][rateDiv][PCM]: the page plays it at the
+    // listen volume and keeps it out of its decoders.
+    QByteArray msg(6, 0);
+    msg[0] = 0x02;
+    msg[1] = 0x01;
+    const quint16 seq = audioSeq++;
+    const quint16 rateDiv = quint16(outRate / 1000);
+    memcpy(msg.data() + 2, &seq, 2);
+    memcpy(msg.data() + 4, &rateDiv, 2);
+    msg.append(out);
+    for (QWebSocket *c : to)
+        c->sendBinaryMessage(msg);
+}
+
+void webServer::updateAutoMon()
+{
+    bool want = false;
+    if (pttClient && wsClients.contains(pttClient))
+        for (QWebSocket *c : audioClients)
+            if (c != pttClient && txListen.value(c) == "air")
+                want = true;
+    if (want && !autoMon) {
+        const cacheItem mon = queue ? queue->getCache(funcMonitor, 0) : cacheItem();
+        if (mon.value.isValid() && mon.value.toBool())
+            return;   // MON already on: the operator chose to hear it
+        autoMon = true;
+        queue->add(priorityImmediate, queueItem(funcMonitor, QVariant::fromValue<uchar>(1), false, 0));
+        qInfo() << "Web: MON on for listeners during TX";
+    } else if (!want && autoMon) {
+        autoMon = false;
+        if (queue) queue->add(priorityImmediate, queueItem(funcMonitor, QVariant::fromValue<uchar>(0), false, 0));
+        qInfo() << "Web: MON off again after TX";
     }
 }
 
@@ -8577,6 +8692,30 @@ void webServer::readUsbAudio()
 // reload or a dropped Wi-Fi link, which reconnect within seconds. Only the
 // browser WebSocket counts: the REST API and rigctld neither open the
 // session nor hold it open.
+
+QString webServer::clientLabel(QWebSocket *c) const
+{
+    if (!c) return QString();
+    const QString user = wsUser.value(c);
+    if (!user.isEmpty()) return user;
+    QString addr = c->peerAddress().toString();
+    if (addr.startsWith("::ffff:")) addr = addr.mid(7);
+    return addr;
+}
+
+// Who is transmitting, for every browser: the page shows "TX: <who>" and
+// holds its PTT while another browser has the radio.
+void webServer::broadcastTxState()
+{
+    for (QWebSocket *c : wsClients) {
+        QJsonObject st;
+        st["type"] = "txState";
+        st["on"] = pttClient != nullptr;
+        st["by"] = clientLabel(pttClient);
+        st["mine"] = c == pttClient;
+        sendJsonTo(c, st);
+    }
+}
 
 void webServer::setRestLan(bool lan)
 {
