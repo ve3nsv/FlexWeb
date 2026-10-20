@@ -143,6 +143,24 @@ html, body {
     white-space: nowrap;
 }
 .user-btn.confirm { color: #ffb4b4; border-color: #a33; }
+/* TX lock: another browser is transmitting. */
+#txByLabel {
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: #4a1010;
+    border: 1px solid #c33;
+    color: #ffd0d0;
+    font-size: 10px;
+    font-weight: bold;
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    max-width: 18ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#txByLabel.flash { animation: txByFlash 0.4s ease-in-out 3; }
+@keyframes txByFlash { 50% { background: #c33; color: #fff; } }
+body.tx-other .ptt-btn { opacity: 0.45; }
 #stepLabel { color: var(--text-faint); font-size: 10px; }
 #connDot {
     width: 8px; height: 8px; border-radius: 50%;
@@ -2285,6 +2303,7 @@ body.digi-open #bottomBar { grid-row: 5; }
     <div id="topBar">
         <span id="txIndicator">RX</span>
         <span id="tuneLabel">TUNE</span>
+        <span id="txByLabel" hidden role="status"></span>
         <button id="modeBtn" onclick="setPanel('mode')">---</button>
         <span id="pbBars"><i></i><i></i></span>
         <span id="filterText" onclick="openFilterModal()">FIL1</span>
@@ -3401,6 +3420,7 @@ function onTransportOpen() {
     document.getElementById('connDot').title = 'Connected';
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     send({ cmd: 'getStatus' });
+    sendTxListen(true);
     // The station callsign is server state: rigInfo brings it and we adopt
     // it (see the rigInfo handler).  Pushing our saved copy here is exactly
     // what let a stale tab overwrite the call for everyone.
@@ -3504,6 +3524,13 @@ function handleMessage(msg) {
             renderAmpIndicator();
             if (document.getElementById('ampOverlay').classList.contains('visible')) renderAmpOverlay();
             if (currentPanel === 'func') renderFuncOverlay();
+            break;
+        case 'txState':
+            setTxOther(msg.on && !msg.mine ? (msg.by || 'another browser') : '');
+            break;
+        case 'txBusy':
+            setTxOther(msg.by || 'another browser');
+            txBusyRefused();
             break;
         case 'rigInfo':
             if (msg.webUser !== undefined) setWebUser(msg.webUser);
@@ -5943,6 +5970,19 @@ function renderAudioMicOverlay() {
         grid.appendChild(buf);
     }
 
+    // Intercom: what this browser hears while another browser transmits.
+    if (audioAvailable) {
+        var tl = makeFuncBtn('TX LISTEN', txListenLabel(), txListenMode !== 'off', cycleTxListen);
+        tl.title = 'While another browser transmits: OPERATOR = their microphone, ON-AIR = the radio\'s monitor, OFF = silence.';
+        grid.appendChild(tl);
+        var tv = makeFuncBtn('LISTEN VOL', txListenVol + '%', txListenVol !== 100, cycleTxListenVol);
+        tv.title = 'Volume of the TX listen audio, separate from the receiver volume.';
+        grid.appendChild(tv);
+        var td = makeFuncBtn('DIGI LISTEN', txListenDigi ? 'ON' : 'OFF', txListenDigi, toggleTxListenDigi);
+        td.title = 'Also listen while another browser transmits FT8, JS8 or other data modes.';
+        grid.appendChild(td);
+    }
+
     // Fill remaining slots + back
     var total = grid.children.length;
     var cols = 5;
@@ -7156,7 +7196,90 @@ function updateWarningVisibility() {
     updateDupIndicator();
 }
 
+// Intercom during TX (server webServer::forwardOperatorAudio): what this
+// browser hears while ANOTHER browser transmits. OFF = silence, OPERATOR =
+// the operator's microphone straight through, ON-AIR = the radio's monitor
+// of the transmission. Data modes stay silent unless DIGI LISTEN is on.
+var txListenMode = 'op';
+var txListenVol = 100;
+var txListenDigi = false;
+try {
+    txListenMode = localStorage.getItem('wfTxListen') || 'op';
+    txListenVol = parseInt(localStorage.getItem('wfTxListenVol'), 10) || 100;
+    txListenDigi = localStorage.getItem('wfTxListenDigi') === '1';
+} catch (e) {}
+var txListenSent = null;
+function txListenEffective() {
+    var digi = /^(DIG|RTTY|PKT|FT|JS8)|-D$/.test(currentMode || '');   // DIGU/DIGL, RTTY, Icom USB-D...
+    return (digi && !txListenDigi) ? 'off' : txListenMode;
+}
+function sendTxListen(force) {
+    var m = txListenEffective();
+    if (!force && m === txListenSent) return;
+    txListenSent = m;
+    send({ cmd: 'setTxListen', mode: m });
+}
+function txListenLabel() {
+    return txListenMode === 'op' ? 'OPERATOR' : txListenMode === 'air' ? 'ON-AIR' : 'OFF';
+}
+function cycleTxListen() {
+    txListenMode = txListenMode === 'op' ? 'air' : txListenMode === 'air' ? 'off' : 'op';
+    try { localStorage.setItem('wfTxListen', txListenMode); } catch (e) {}
+    sendTxListen(true);
+    renderAudioMicOverlay();
+}
+function cycleTxListenVol() {
+    var steps = [25, 50, 75, 100, 150, 200];
+    var i = steps.indexOf(txListenVol);
+    txListenVol = steps[(i + 1) % steps.length];
+    try { localStorage.setItem('wfTxListenVol', String(txListenVol)); } catch (e) {}
+    renderAudioMicOverlay();
+}
+function toggleTxListenDigi() {
+    txListenDigi = !txListenDigi;
+    try { localStorage.setItem('wfTxListenDigi', txListenDigi ? '1' : '0'); } catch (e) {}
+    sendTxListen(true);
+    renderAudioMicOverlay();
+}
+// The rig's mode decides "data mode" for every browser; re-check it each
+// second (only a change is sent).
+setInterval(function () { if (ws && ws.readyState === WebSocket.OPEN) sendTxListen(false); }, 1000);
+
+// TX lock (server webServer::broadcastTxState): another browser has the
+// radio. Our PTT is held and the press says who is transmitting.
+var txOtherBy = '';
+function setTxOther(by) {
+    txOtherBy = by || '';
+    var el = document.getElementById('txByLabel');
+    if (el) {
+        el.hidden = !txOtherBy;
+        el.textContent = txOtherBy ? 'TX: ' + txOtherBy : '';
+        el.title = txOtherBy ? txOtherBy + ' is transmitting' : '';
+    }
+    document.body.classList.toggle('tx-other', !!txOtherBy);
+}
+function flashTxOther() {
+    var el = document.getElementById('txByLabel');
+    if (!el) return;
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    el.classList.add('flash');
+}
+// The server refused our key-up: drop whatever on this page was about to
+// transmit (latched PTT, FT8/JS8 TX), without unkeying the other operator.
+function txBusyRefused() {
+    flashTxOther();
+    if (pttLatched) {
+        pttLatched = false;
+        clearTimeout(pttLatchTimer);
+        pttLatchTimer = null;
+    }
+    try { if (typeof digiTxActive !== 'undefined' && digiTxActive && typeof haltDigiTx === 'function') haltDigiTx(); } catch (e) {}
+    console.warn('[PTT] refused: ' + txOtherBy + ' is transmitting');
+}
+
 function handlePTTPress() {
+    if (txOtherBy) { flashTxOther(); return false; }
     // Skip audio/mic checks for CW mode (uses radio's internal keyer)
     var isCW = (currentMode === 'CW' || currentMode === 'CW-R');
     if (isCW) return true;
@@ -8123,11 +8246,18 @@ function handleAudioData(buffer) {
     if (buffer.byteLength < 8) return;
     if (audioCtx && audioCtx.state !== 'running') resumeRxAudio(false);
     var pcmData = new Int16Array(buffer, 6);
+    // Intercom: byte 1 = 0x01 marks the transmitting operator's own audio
+    // (TX LISTEN = OPERATOR); while another browser transmits, it and the
+    // radio's monitor play at this browser's LISTEN volume.
+    var intercom = (new Uint8Array(buffer, 1, 1)[0] & 0x01) !== 0;
+    var gain = (intercom || txOtherBy) ? txListenVol / 100 : 1;
     var floatData = new Float32Array(pcmData.length);
-    for (var i = 0; i < pcmData.length; i++) floatData[i] = pcmData[i] / 32768.0;
-    if (digiRxEnabled && digiRxBuffer) processDigiAudioChunk(pcmData);
-    if (typeof window._js8ProcessAudioChunk === 'function') window._js8ProcessAudioChunk(pcmData);
-    if (toneScanDetector) feedToneScan(pcmData);
+    for (var i = 0; i < pcmData.length; i++) floatData[i] = Math.max(-1, Math.min(1, pcmData[i] / 32768.0 * gain));
+    if (!intercom) {
+        if (digiRxEnabled && digiRxBuffer) processDigiAudioChunk(pcmData);
+        if (typeof window._js8ProcessAudioChunk === 'function') window._js8ProcessAudioChunk(pcmData);
+        if (toneScanDetector) feedToneScan(pcmData);
+    }
     Recorder.feedRx(pcmData, audioSampleRate);
 
     if (audioUseWorklet && audioWorkletNode) audioWorkletNode.port.postMessage(floatData, [floatData.buffer]);

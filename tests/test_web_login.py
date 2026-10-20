@@ -72,6 +72,56 @@ def _ws(port: int, cookie: str | None):
     return status, sock, rest
 
 
+class _Reader:
+    """Server text frames (unmasked) from one socket, keeping partial
+    frames between calls."""
+
+    def __init__(self, sock, buf: bytes = b""):
+        self.sock, self.buf = sock, buf
+
+    def frames(self, timeout=8.0):
+        for op, payload in self.all(timeout):
+            if op == 1:
+                yield payload.decode(errors="replace")
+
+    def all(self, timeout=8.0):
+        """(opcode, payload) for every frame until timeout."""
+        self.sock.settimeout(0.2)
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            msg = self._one()
+            if msg is not None:
+                yield msg
+                continue
+            try:
+                chunk = self.sock.recv(65536)
+            except socket.timeout:
+                continue
+            if not chunk:
+                return
+            self.buf += chunk
+
+    def _one(self):
+        buf = self.buf
+        while len(buf) >= 2:
+            b0, b1 = buf[0], buf[1]
+            n, off = b1 & 0x7F, 2
+            if n == 126:
+                if len(buf) < 4:
+                    return None
+                n, off = struct.unpack(">H", buf[2:4])[0], 4
+            elif n == 127:
+                if len(buf) < 10:
+                    return None
+                n, off = struct.unpack(">Q", buf[2:10])[0], 10
+            if len(buf) < off + n:
+                return None
+            payload, buf = buf[off:off + n], buf[off + n:]
+            self.buf = buf
+            return b0 & 0x0F, payload
+        return None
+
+
 def _ws_text_frames(sock, buf: bytes, timeout=8.0):
     """Yield server text frames (unmasked) until timeout."""
     sock.settimeout(0.5)
@@ -120,8 +170,11 @@ def server():
     short = subprocess.run([str(WFWEB_BIN), "--add-user", "amy"], input=b"short\n",
                            capture_output=True, env=env, timeout=20)
     assert short.returncode != 0
+    amy = subprocess.run([str(WFWEB_BIN), "--add-user", "amy"], input=b"amy-password\n",
+                         capture_output=True, env=env, timeout=20)
+    assert amy.returncode == 0
     lst = subprocess.run([str(WFWEB_BIN), "--list-users"], capture_output=True, env=env, timeout=20)
-    assert lst.stdout.decode().split() == ["tom"]
+    assert lst.stdout.decode().split() == ["amy", "tom"]
     stored = (Path(home) / ".config" / "wfweb" / "webusers.conf").read_text()
     assert PASSWORD not in stored and "pbkdf2-sha256$" in stored
 
@@ -139,7 +192,7 @@ def server():
         if not _wait(lambda: requests.get(f"http://127.0.0.1:{port + 1}/api/v1/radio/info", timeout=2).ok):
             proc.terminate()
             pytest.fail("wfweb did not start:\n" + proc.communicate(timeout=5)[0].decode(errors="replace"))
-        yield base, port, env
+        yield base, port, env, radio
     finally:
         proc.terminate()
         try:
@@ -150,6 +203,26 @@ def server():
         thread.join(timeout=2)
 
 
+def _ws_send(sock, obj, opcode=1) -> None:
+    data = obj if isinstance(obj, bytes) else json.dumps(obj).encode()
+    mask = os.urandom(4)
+    head = bytes([0x80 | opcode])
+    n = len(data)
+    head += bytes([0x80 | n]) if n < 126 else bytes([0x80 | 126]) + struct.pack(">H", n)
+    sock.sendall(head + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+
+def _drain_until(reader, pred, timeout=6.0):
+    for text in reader.frames(timeout):
+        try:
+            msg = json.loads(text)
+        except ValueError:
+            continue
+        if pred(msg):
+            return msg
+    return None
+
+
 def _login(base, user, password, remember=True):
     data = {"user": user, "password": password}
     if remember:
@@ -158,7 +231,7 @@ def _login(base, user, password, remember=True):
 
 
 def test_page_needs_login(server):
-    base, port, _ = server
+    base, port, _, _ = server
     r = requests.get(base + "/", verify=False, allow_redirects=False, timeout=5)
     assert r.status_code == 303 and r.headers["Location"] == "/login"
     r = requests.get(base + "/login", verify=False, timeout=5)
@@ -170,7 +243,7 @@ def test_page_needs_login(server):
 
 
 def test_rest_port_is_local_only(server):
-    _, port, _ = server
+    _, port, _, _ = server
     # Reachable on 127.0.0.1 (scripts, the launcher) without a login...
     assert requests.get(f"http://127.0.0.1:{port + 1}/api/v1/radio/info", timeout=5).ok
     # ...and not on any other address of this machine.
@@ -184,7 +257,7 @@ def test_rest_port_is_local_only(server):
 
 
 def test_wrong_password(server):
-    base, _, _ = server
+    base, _, _, _ = server
     r = _login(base, "tom", "nope")
     assert r.status_code == 401 and "Wrong user name or password" in r.text
     assert "Set-Cookie" not in r.headers
@@ -192,7 +265,7 @@ def test_wrong_password(server):
 
 
 def test_sign_in_and_out(server):
-    base, port, _ = server
+    base, port, _, _ = server
     r = _login(base, "tom", PASSWORD)
     assert r.status_code == 303 and r.headers["Location"] == "/"
     sc = r.headers["Set-Cookie"]
@@ -224,7 +297,7 @@ def test_sign_in_and_out(server):
 
 
 def test_password_change_signs_out(server):
-    base, _, env = server
+    base, _, env, _ = server
     token = _login(base, "tom", PASSWORD).cookies["wfweb_session"]
     jar = {"wfweb_session": token}
     assert requests.get(base + "/api/v1/radio/info", cookies=jar, verify=False, timeout=5).ok
@@ -236,8 +309,110 @@ def test_password_change_signs_out(server):
                                       timeout=5).status_code == 401, timeout=5)
 
 
+def test_tx_lock(server):
+    """One browser transmits at a time; the others see who, cannot key over
+    it, and their release does not unkey it."""
+    base, port, _, radio = server
+    tok_tom = _login(base, "tom", PASSWORD).cookies["wfweb_session"]
+    tok_amy = _login(base, "amy", "amy-password").cookies["wfweb_session"]
+    st, a, abuf = _ws(port, tok_tom)
+    assert " 101" in st
+    st, b, bbuf = _ws(port, tok_amy)
+    assert " 101" in st
+    ra, rb = _Reader(a, abuf), _Reader(b, bbuf)
+    try:
+        assert _drain_until(ra, lambda m: m.get("type") == "rigInfo")
+        assert _drain_until(rb, lambda m: m.get("type") == "rigInfo")
+        before = len(radio.find("xmit"))
+
+        _ws_send(a, {"cmd": "setPTT", "value": True})
+        assert _wait(lambda: radio.find("xmit")[before:] == ["xmit 1"], timeout=5)
+        seen = _drain_until(rb, lambda m: m.get("type") == "txState" and m.get("on"))
+        assert seen and seen["by"] == "tom" and seen["mine"] is False
+
+        # amy presses PTT: refused, told who has the radio; her release
+        # must not unkey tom.
+        _ws_send(b, {"cmd": "setPTT", "value": True})
+        busy = _drain_until(rb, lambda m: m.get("type") == "txBusy")
+        assert busy and busy["by"] == "tom"
+        _ws_send(b, {"cmd": "setPTT", "value": False})
+        time.sleep(1.0)
+        assert radio.find("xmit")[before:] == ["xmit 1"]
+
+        _ws_send(a, {"cmd": "setPTT", "value": False})
+        assert _wait(lambda: radio.find("xmit")[before:] == ["xmit 1", "xmit 0"], timeout=5)
+        free = _drain_until(rb, lambda m: m.get("type") == "txState" and not m.get("on"))
+        assert free
+
+        # Now amy may key.
+        _ws_send(b, {"cmd": "setPTT", "value": True})
+        assert _wait(lambda: radio.find("xmit")[before:][-1:] == ["xmit 1"], timeout=5)
+        _ws_send(b, {"cmd": "setPTT", "value": False})
+        assert _wait(lambda: radio.find("xmit")[before:][-1:] == ["xmit 0"], timeout=5)
+    finally:
+        a.close()
+        b.close()
+
+
+def test_intercom(server):
+    """While tom transmits: amy on OPERATOR hears tom's microphone (flagged
+    as intercom) instead of the receiver; on ON-AIR she hears the radio,
+    whose MON is switched on for the transmission and off again after."""
+    base, port, _, radio = server
+    tok_tom = _login(base, "tom", PASSWORD).cookies["wfweb_session"]
+    tok_amy = _login(base, "amy", "amy-password").cookies["wfweb_session"]
+    st, a, abuf = _ws(port, tok_tom)
+    st2, b, bbuf = _ws(port, tok_amy)
+    assert " 101" in st and " 101" in st2
+    ra, rb = _Reader(a, abuf), _Reader(b, bbuf)
+    try:
+        assert _drain_until(ra, lambda m: m.get("type") == "rigInfo")
+        assert _drain_until(rb, lambda m: m.get("type") == "rigInfo")
+        for sock, r in ((a, ra), (b, rb)):
+            _ws_send(sock, {"cmd": "enableAudio", "value": True})
+            assert _drain_until(r, lambda m: m.get("type") == "audioStatus" and m.get("enabled"))
+        _ws_send(b, {"cmd": "setTxListen", "mode": "op"})
+        _ws_send(a, {"cmd": "enableMic", "value": True})
+        time.sleep(0.5)
+
+        # Before TX amy gets ordinary receiver audio.
+        kinds = [p[1] for op, p in rb.all(1.0) if op == 2 and len(p) > 6 and p[0] == 0x02]
+        assert 0 in kinds and 1 not in kinds
+
+        _ws_send(a, {"cmd": "setPTT", "value": True})
+        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 1"], timeout=5)
+        tone = struct.pack("<480h", *([1000, -1000] * 240))
+        intercom, rx_late = 0, 0
+        t0 = time.monotonic()
+        for i in range(40):
+            _ws_send(a, bytes([0x03, 0x00]) + struct.pack("<HH", i, 0) + tone, opcode=2)
+            time.sleep(0.01)
+        for op, p in rb.all(1.5):
+            if op == 2 and len(p) > 6 and p[0] == 0x02:
+                if p[1] == 1:
+                    intercom += 1
+                elif time.monotonic() - t0 > 0.5:
+                    rx_late += 1
+        assert intercom >= 20, intercom
+        assert rx_late == 0, rx_late
+        _ws_send(a, {"cmd": "setPTT", "value": False})
+        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 0"], timeout=5)
+
+        # ON-AIR: MON comes on for the transmission only.
+        _ws_send(b, {"cmd": "setTxListen", "mode": "air"})
+        time.sleep(0.3)
+        mons = len(radio.find("transmit set mon="))
+        _ws_send(a, {"cmd": "setPTT", "value": True})
+        assert _wait(lambda: "transmit set mon=1" in radio.find("transmit set mon=")[mons:], timeout=5)
+        _ws_send(a, {"cmd": "setPTT", "value": False})
+        assert _wait(lambda: radio.find("transmit set mon=")[mons:][-1:] == ["transmit set mon=0"], timeout=5)
+    finally:
+        a.close()
+        b.close()
+
+
 def test_lockout(server):
-    base, _, _ = server
+    base, _, _, _ = server
     # The earlier sign-ins reset the count: five wrong passwords lock.
     codes = [_login(base, "tom", f"bad{i}").status_code for i in range(5)]
     assert codes[:4] == [401] * 4 and codes[4] == 429, codes

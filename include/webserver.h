@@ -309,6 +309,17 @@ private:
     bool restLan = false;
     QHash<QByteArray, qint64> restBasicOk;   // sha256(user:pass) -> valid until (ms)
     QString requestUser(QTcpSocket *socket, const QByteArray &headers);
+    // TX lock: who holds PTT ("user" or the browser's address).
+    QString clientLabel(QWebSocket *c) const;
+    void broadcastTxState();
+    // Intercom during TX: what each browser hears while ANOTHER browser
+    // transmits: "off" (silence), "op" (the operator's mic, sent straight
+    // through) or "air" (the radio's monitor of the transmission; MON is
+    // switched on for the duration when nobody had it on).
+    QHash<QWebSocket *, QString> txListen;
+    bool autoMon = false;
+    void updateAutoMon();
+    void forwardOperatorAudio(const QByteArray &pcm, bool modemTagged);
     bool restAuthorized(QTcpSocket *socket, const QByteArray &headers);
     void serveLoginPage(QTcpSocket *socket, int status, const QString &error);
     void handleLogin(QTcpSocket *socket, const QByteArray &body);
