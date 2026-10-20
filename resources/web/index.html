@@ -2237,7 +2237,15 @@ body.digi-open #bottomBar { grid-row: 5; }
      resources/web-shared/js8-panel.css. -->
 <link rel="stylesheet" href="js8-panel.css">
 <!-- AetherSDR-style skin: restyles only, loaded last so it wins. -->
-<link rel="stylesheet" href="aether.css">
+<link rel="stylesheet" href="aether.css" id="aetherCss">
+<script>
+// FUNC > LOOK: CLASSIC turns the AetherSDR skin and layout off for this
+// browser (set before first paint, so there is no flash of the other look).
+try {
+    if (localStorage.getItem('wfLook') === 'classic')
+        document.getElementById('aetherCss').disabled = true;
+} catch (e) {}
+</script>
 </head>
 <body>
 <!-- Startup Overlay -->
@@ -5582,9 +5590,22 @@ var AE_DESKTOP_MQ = '(min-width: 1100px) and (min-height: 560px) and (orientatio
 var AE_PHONE_MQ = '(orientation: portrait) and (max-width: 600px)';
 var AE_MODES = ['LSB', 'USB', 'CW', 'AM', 'FM', 'DIGU', 'DIGL', 'RTTY', 'USB-D', 'LSB-D'];
 
+// FUNC > LOOK (item 16): AETHER (default) or CLASSIC, per browser.
+var aeClassic = false;
+try { aeClassic = localStorage.getItem('wfLook') === 'classic'; } catch (e) {}
+function setLook(classic) {
+    aeClassic = !!classic;
+    try { localStorage.setItem('wfLook', aeClassic ? 'classic' : 'aether'); } catch (e) {}
+    var css = document.getElementById('aetherCss');
+    if (css) css.disabled = aeClassic;
+    document.body.classList.toggle('ae-classic', aeClassic);
+    aeLayout();
+    if (typeof resizeCanvases === 'function') resizeCanvases();
+}
+
 function aeLayout() {
-    var desk = window.matchMedia(AE_DESKTOP_MQ).matches;
-    var phone = !desk && window.matchMedia(AE_PHONE_MQ).matches;
+    var desk = !aeClassic && window.matchMedia(AE_DESKTOP_MQ).matches;
+    var phone = !aeClassic && !desk && window.matchMedia(AE_PHONE_MQ).matches;
     var changed = desk !== aeDesktop || phone !== aePhone;
     aeDesktop = desk; aePhone = phone;
     document.body.classList.toggle('ae-desktop', desk);
@@ -6118,6 +6139,12 @@ function renderFuncOverlay() {
     grid.appendChild(makeFuncBtn('MON', monitorEnabled ? toPercent(monitorLevel, 255) : 'OFF', monitorEnabled, function() {
         monitorEnabled = !monitorEnabled;
         send({ cmd: 'setMonitor', value: monitorEnabled });
+        renderFuncOverlay();
+    }));
+
+    // Look: the AetherSDR skin and layout, or the classic wfweb page.
+    grid.appendChild(makeFuncBtn('LOOK', aeClassic ? 'CLASSIC' : 'AETHER', aeClassic, function() {
+        setLook(!aeClassic);
         renderFuncOverlay();
     }));
 
