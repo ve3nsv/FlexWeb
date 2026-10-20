@@ -278,9 +278,13 @@ class MockFlexRadio:
 
     def _send_meters(self) -> None:
         fwd_dbm = 10 * math.log10(50.0 * 1000) if self.transmitting else -50.0   # 50 W
-        vals = {1: self.s_dbm * 128, 2: fwd_dbm * 128, 3: 1.5 * 128, 4: 13.8 * 256}
-        payload = b"".join(struct.pack(">Hh", i, int(round(v))) for i, v in vals.items())
-        self._vita(vita_header(3, 0x700, PCC_METER, len(payload) // 4, self._count) + payload)
+        # A real radio spreads its meters over several packets. The TX/RAD
+        # ones go first and the slice LEVEL right behind them, so a client
+        # that drops whatever lands inside its rate limit never sees the S
+        # meter (flexCommander once did).
+        for vals in ({2: fwd_dbm * 128, 3: 1.5 * 128, 4: 13.8 * 256}, {1: self.s_dbm * 128}):
+            payload = b"".join(struct.pack(">Hh", i, int(round(v))) for i, v in vals.items())
+            self._vita(vita_header(3, 0x700, PCC_METER, len(payload) // 4, self._count) + payload)
 
     def _send_audio(self, frames: int) -> None:
         while frames > 0:

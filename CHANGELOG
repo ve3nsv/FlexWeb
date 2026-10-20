@@ -34,6 +34,10 @@ FlexRadio:
 - The scope's frequency scale is labelled on round frequencies (7.160,
   7.170, ...) at a step that suits the span and the screen width, with
   the grid lines on the same frequencies (all radios).
+- The S meter no longer stalls: meter readings were rate-limited by
+  dropping whatever arrived inside 100 ms, and the radio sends its meters
+  in several packets, so a packet of other meters often swallowed the S
+  reading. The latest reading is now held and sent when the window ends.
 - FUNC > AUDIO has MIC and SPEAKER pickers: which of the browser
   computer's inputs is the microphone and which output plays the
   receiver (output choice in Chrome / Edge; other browsers use the

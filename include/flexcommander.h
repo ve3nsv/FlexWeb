@@ -203,7 +203,14 @@ private:
     // Meters
     struct meterDef { QString src; int num = -1; QString name; QString unit; };
     QHash<quint16, meterDef> meters;
-    QElapsedTimer meterThrottle;
+    // Meter readings reach wfweb at most every 100 ms, always the latest:
+    // a reading that arrives inside the window is held (meterSDirty /
+    // meterTxDirty) and sent when meterFlushTimer ends it, so a packet of
+    // other meters can never swallow an S-meter update.
+    QTimer* meterFlushTimer = nullptr;
+    bool meterSDirty = false;
+    bool meterTxDirty = false;
+    void flushMeters();
     double lastSMeter = -54.0;
     double lastPower = 0.0;
     double lastSwr = 1.0;

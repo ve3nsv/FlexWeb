@@ -986,18 +986,43 @@ void flexCommander::handleMeters(const QByteArray& d, const vitaPacket& p)
         }
     }
 
-    // Meter packets come at up to ~20 Hz per meter; the page wants ~10 Hz.
-    if (meterThrottle.isValid() && meterThrottle.elapsed() < 100)
-        return;
-    meterThrottle.start();
-    if (sChanged && !transmitting)
+    // Meter packets come at up to ~20 Hz per meter, each carrying only some
+    // meters; the page wants ~10 Hz. The first reading after a quiet spell
+    // goes at once, later ones within 100 ms are held and the latest is sent
+    // when the window ends. (A plain "drop inside 100 ms" lost the S-meter
+    // whenever a packet of other meters had just opened the window, so the
+    // meter stalled for several updates at a time.)
+    meterSDirty = meterSDirty || sChanged;
+    meterTxDirty = meterTxDirty || txChanged;
+    if (meterFlushTimer == nullptr) {
+        meterFlushTimer = new QTimer(this);
+        meterFlushTimer->setSingleShot(true);
+        meterFlushTimer->setInterval(100);
+        connect(meterFlushTimer, &QTimer::timeout, this, [this]() {
+            if (meterSDirty || meterTxDirty) {
+                flushMeters();
+                meterFlushTimer->start();   // keep the 100 ms spacing
+            }
+        });
+    }
+    if (!meterFlushTimer->isActive()) {
+        flushMeters();
+        meterFlushTimer->start();
+    }
+}
+
+void flexCommander::flushMeters()
+{
+    if (meterSDirty && !transmitting)
         queue->receiveValue(funcSMeter, QVariant::fromValue<double>(lastSMeter), 0);
-    if (txChanged && transmitting) {
+    if (meterTxDirty && transmitting) {
         queue->receiveValue(funcPowerMeter, QVariant::fromValue<double>(lastPower), 0);
         queue->receiveValue(funcSWRMeter, QVariant::fromValue<double>(lastSwr), 0);
         queue->receiveValue(funcALCMeter, QVariant::fromValue<double>(lastAlc), 0);
         queue->receiveValue(funcCompMeter, QVariant::fromValue<double>(lastComp), 0);
     }
+    meterSDirty = false;
+    meterTxDirty = false;
 }
 
 void flexCommander::handleRxAudio(const QByteArray& d, const vitaPacket& p)
