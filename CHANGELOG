@@ -65,6 +65,12 @@ FlexRadio:
   recalled, saved from the current slice, renamed and deleted.
 - FM repeaters: DUP-/DUP+/simplex, offset and CTCSS TX tone set the
   slice's repeater offset and FM tone (the DUP and TONE tiles).
+- FM repeaters: the transmit offset now follows the repeater shift. A memory
+  recall, the radio's band memory or another program could set DUP+/DUP-
+  and the shift without the slice's tx_offset_freq, so the page showed the
+  shift while the radio still transmitted on the receive frequency (it
+  worked only after setting DUP again). FlexWeb now sets tx_offset_freq
+  whenever they disagree in FM, and a memory recall sets all of them.
 - NNR, the neural noise reduction from WDSP 2.10 (as in AetherSDR's
   AetherRX > NNR): NNR next to NB / NR / ANF, and FUNC > NNR (or DSP… >
   NNR…) for Strength, Standard / Premium model, defaults, the six advanced

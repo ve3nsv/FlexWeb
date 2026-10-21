@@ -355,7 +355,7 @@ class MockFlexRadio:
                                filter_lo=100, filter_hi=2800, audio_level=50, agc_mode="med",
                                agc_threshold=65, nb=0, nr=0, anf=0, rxant="ANT1", txant="ANT1",
                                ant_list="ANT1,ANT2,RX_A,XVTA", tx_ant_list="ANT1,ANT2,XVTA",
-                               rit_on=0, rit_freq=0)
+                               rit_on=0, rit_freq=0, tx_offset_freq="0.000000")
             return 0, "0"
         if cmd.startswith("slice tune"):
             mhz = float(words[3])

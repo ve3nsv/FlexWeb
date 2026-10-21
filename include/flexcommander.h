@@ -228,6 +228,12 @@ private:
     // in MHz, CTCSS encode "off"/"ctcss_tx" and its tone in Hz.
     QString rptDir = QStringLiteral("simplex");
     double rptOffsetMHz = 0.0;
+    // The slice's tx_offset_freq: what actually moves the transmitter. The
+    // radio keeps it apart from repeater_offset_dir / fm_repeater_offset_freq,
+    // and a memory recall or band change can set those without it.
+    double txOffsetMHz = 0.0;
+    bool txOffsetKnown = false;
+    void syncRepeaterTxOffset();
     QString fmToneMode = QStringLiteral("off");
     double fmToneHz = 0.0;
     // Time from "xmit 1" to the radio on the air, smoothed: the FT8/JS8 page

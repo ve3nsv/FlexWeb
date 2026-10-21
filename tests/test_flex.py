@@ -456,6 +456,16 @@ def test_fm_repeater(flex):
                 break
         assert seen and seen["rptOffsetHz"] == 5_000_000 and seen["toneMode"] == "off" \
             and seen["toneTenths"] == 885, seen
+
+        # A memory or the band memory sets the shift but not the transmit
+        # offset: in FM, FlexWeb puts tx_offset_freq where the shift says.
+        radio._slice_status(mode="FM")
+        radio._slice_status(repeater_offset_dir="up", fm_repeater_offset_freq="0.600000",
+                            tx_offset_freq="0.000000")
+        assert _wait(lambda: radio.slice.get("tx_offset_freq") == "0.600000", timeout=5), radio.slice
+        radio._slice_status(repeater_offset_dir="down", fm_repeater_offset_freq="0.600000")
+        assert _wait(lambda: radio.slice.get("tx_offset_freq") == "-0.600000", timeout=5), radio.slice
+        radio._slice_status(repeater_offset_dir="simplex", mode="USB")
     finally:
         sock.close()
 

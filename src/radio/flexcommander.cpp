@@ -1289,6 +1289,8 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
         if (kvs.contains("fm_repeater_offset_freq")) { rptOffsetMHz = kvs.value("fm_repeater_offset_freq").toDouble(); fm = true; }
         if (kvs.contains("fm_tone_mode")) { fmToneMode = kvs.value("fm_tone_mode").toLower(); fm = true; }
         if (kvs.contains("fm_tone_value")) { fmToneHz = kvs.value("fm_tone_value").toDouble(); fm = true; }
+        if (kvs.contains("tx_offset_freq")) { txOffsetMHz = kvs.value("tx_offset_freq").toDouble(); txOffsetKnown = true; fm = true; }
+        if (fm || kvs.contains("mode")) syncRepeaterTxOffset();
         if (fm) publishDsp();
     }
     if (kvs.contains("rit_on")) { ritOn = truthy(kvs.value("rit_on")); reportCurrent(funcRitStatus); }
@@ -2760,6 +2762,8 @@ void flexCommander::setFlexDsp(QString key, int index, int value)
         const double tx = rptDir == "down" ? -rptOffsetMHz : rptDir == "up" ? rptOffsetMHz : 0.0;
         sliceSet(QString("repeater_offset_dir=%1 fm_repeater_offset_freq=%2 tx_offset_freq=%3")
                  .arg(rptDir).arg(rptOffsetMHz, 0, 'f', 6).arg(tx, 0, 'f', 6));
+        txOffsetMHz = tx;
+        txOffsetKnown = true;
         publishDsp();
     } else if (key == "toneMode" || key == "toneValue") {
         // CTCSS encode: toneMode value 0 off / 1 on; toneValue in tenths of
@@ -2867,6 +2871,26 @@ void flexCommander::publishMemories()
     emit flexMemories(list);
 }
 
+// In FM the transmit offset must follow the repeater direction and shift the
+// page shows. A memory recall, the radio's band memory or another client can
+// set repeater_offset_dir / fm_repeater_offset_freq and leave tx_offset_freq
+// where it was, so the slice would show DUP+ 600k and still transmit on the
+// receive frequency (AetherSDR fixes memory recalls up the same way).
+void flexCommander::syncRepeaterTxOffset()
+{
+    if (sliceId < 0 || !txOffsetKnown)
+        return;
+    if (mode != "FM" && mode != "NFM" && mode != "DFM")
+        return;
+    const double want = rptDir == "down" ? -rptOffsetMHz : rptDir == "up" ? rptOffsetMHz : 0.0;
+    if (std::fabs(want - txOffsetMHz) < 1e-6)
+        return;
+    qInfo(logRig()).noquote() << QString("Flex: repeater %1 %2 MHz, tx offset was %3 - setting %4")
+        .arg(rptDir).arg(rptOffsetMHz, 0, 'f', 4).arg(txOffsetMHz, 0, 'f', 4).arg(want, 0, 'f', 4);
+    sliceSet(QString("tx_offset_freq=%1").arg(want, 0, 'f', 6));
+    txOffsetMHz = want;
+}
+
 void flexCommander::flexMemoryCommand(QString action, int id, QJsonObject fields)
 {
     if (!handshakeDone || tcp == nullptr)
@@ -2887,7 +2911,30 @@ void flexCommander::flexMemoryCommand(QString action, int id, QJsonObject fields
     if (action == "apply" && memories.contains(id)) {
         // The radio applies a memory to this client's active slice.
         if (sliceId >= 0) sliceSet("active=1");
-        sendCmd(QString("memory apply %1").arg(id));
+        const QMap<QString, QString> mem = memories.value(id);
+        sendCmd(QString("memory apply %1").arg(id), [this, mem](quint32 code, const QString&) {
+            if (code != 0 || sliceId < 0) return;
+            // memory apply sets the repeater direction and shift but not the
+            // transmit offset: set all three, and the tone, from the memory.
+            const QString dir = mem.value("offset_dir").toLower();
+            if (dir == "up" || dir == "down" || dir == "simplex") {
+                const double off = std::fabs(mem.value("repeater_offset").toDouble());
+                const double tx = dir == "down" ? -off : dir == "up" ? off : 0.0;
+                QString cmd = QString("repeater_offset_dir=%1 fm_repeater_offset_freq=%2 tx_offset_freq=%3")
+                                  .arg(dir).arg(off, 0, 'f', 6).arg(tx, 0, 'f', 6);
+                const QString tm = mem.value("tone_mode").toLower();
+                if (!tm.isEmpty()) cmd += " fm_tone_mode=" + tm;
+                if (mem.contains("tone_value")) cmd += " fm_tone_value=" + mem.value("tone_value");
+                sliceSet(cmd);
+                rptDir = dir;
+                rptOffsetMHz = off;
+                txOffsetMHz = tx;
+                txOffsetKnown = true;
+                if (!tm.isEmpty()) fmToneMode = tm;
+                if (mem.contains("tone_value")) fmToneHz = mem.value("tone_value").toDouble();
+                publishDsp();
+            }
+        });
         qInfo(logRig()).noquote() << "Flex: recalled memory" << id << memories.value(id).value("name");
     } else if (action == "create") {
         // "memory create" stores the active slice (frequency, mode, filter,
