@@ -1186,7 +1186,7 @@ function drawSidebar(r, sections, x, y, w, h) {
         g.textAlign = 'left';
         g.font = 'bold 13px ' + T.mono;
         g.fillStyle = T.dim;
-        g.fillText(sec.title || '', x + pad, cy + 9);
+        g.fillText(String(sec.title || '').trim(), x + pad, cy + 9);
         cy += 22;
         var rows = sec.rows || [];
         for (var j = 0; j < rows.length && cy < y + h - 12; j++) {
@@ -1269,7 +1269,7 @@ function slug(s) {
 // wfweb_<CALL>_<YYYYMMDD_HHMMSS>_<kHz>kHz_<MODE> — UTC, same stamp as the ADIF export.
 function fileStem() {
     var st = host.getState(), iso = new Date().toISOString();
-    var parts = ['wfweb'];
+    var parts = [CREDIT.filePrefix || 'wfweb'];
     if (slug(st.call)) parts.push(slug(st.call));
     parts.push(iso.substr(0, 10).replace(/-/g, '') + '_' + iso.substr(11, 8).replace(/:/g, ''));
     if (st.freq > 0) parts.push(Math.round(st.freq / 1000) + 'kHz');

@@ -37,3 +37,8 @@ and FM / NFM.
    panadapter is re-centred on every tune: recenterPan), a draggable passband
    with both edges, and touch versions of the same gestures for phones.
    Keep the current behaviour for CLASSIC / non-Flex rigs, and FUNC > DRAG.
+5. From the user's recording (FlexWeb_…3755kHz_LSB.mp4, 2026-10-21) - fixed in
+   the tree, ship with this batch:
+   - Recording files were still named wfweb_<call>_…; now FlexWeb_<call>_….
+   - The amplifier's name in the video sidebar kept leading spaces from the
+     amp's custom name (indented "RF-POWER"); trimmed.
