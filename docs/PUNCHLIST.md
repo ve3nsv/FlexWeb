@@ -79,6 +79,6 @@ and FM / NFM.
    separate from rxVolume (don't save 0 to wfRxVolume), show it on the
    rxVolIndicator ("MUTED"), and light the button red while muted. Recorder
    and the CW / FT8 / JS8 decoders keep running (they tap before
-   audioGainNode). Place it beside VOL in the GAIN panel and the AUDIO / TX
-   overlay, plus a quick button on the RX applet / bottom bar (ask the user
-   which spot they want if unclear).
+   audioGainNode). Place it beside VOL only (GAIN panel and AUDIO / TX
+   overlay, wherever the VOL slider is) - user confirmed, no extra button
+   elsewhere.
