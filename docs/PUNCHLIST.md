@@ -236,8 +236,7 @@ Status: items 1-8 implemented for build 57.
       refused by the server (not just hidden) unless the request comes from a
       signed-in named user (web login) and no other browser holds the TX lock
       (pttClient); the page shows why ("TX: <user>" / "sign in"). The
-      read-only status stays visible to everyone. Decide with the user what
-      happens with web login off (no users): see the open question below.
-   Open question for the user: with web login off (no named users), should the
-   amp controls work as now (anyone who can open the page), or be read-only
-   until a user is created?
+      read-only status stays visible to everyone. With web login off (no
+      named users) the amp panel is read-only (user, 2026-10-21): the
+      controls are disabled with "create a web user to control the amp"
+      and the server refuses the commands.
