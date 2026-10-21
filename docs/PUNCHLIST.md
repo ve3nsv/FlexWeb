@@ -110,3 +110,13 @@ and FM / NFM.
    the meter flipped between the live and the delayed value. Both now go
    through syncedSMeter() (scopeSyncDefer). Verify on the radio: meter,
    scope and audio move together; SYNC SCOPE OFF makes all three live.
+7. Scope labelled off-frequency (user, 2026-10-21, screenshots): VFO on
+   14.225 with an empty passband, the audio heard came from a signal drawn
+   at ~14.1885 (36.5 kHz off on a 100 kHz span); a drag of the scope fixed
+   it. The server labels the FFT from its own panCenterMHz, set when it
+   sends a move; the radio does not echo every move, so after a burst of
+   moves the radio can sit elsewhere with nothing to say so. Fix in the
+   tree: sendPanCenter() re-sends the settled centre 400 ms after the last
+   move, and a reported centre that differs from ours is logged
+   ("Flex: pan centre ... reported, scope had ..."). Verify on the radio;
+   if it recurs, the log line tells which side was wrong.

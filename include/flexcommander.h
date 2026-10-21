@@ -335,6 +335,8 @@ private:
     int scopeFps = 20;
     bool panConfigured = false;
     bool recenterPending = false;
+    QTimer* panAssertTimer = nullptr;
+    void sendPanCenter();
     QHash<QString, QMap<QString, QString>> panStates;   // every pan's last status, by id
     flexProtocol::fftAssembler fft;
     static constexpr int kPanYPixels = 1201;      // 0.1 dB per pixel over the range below

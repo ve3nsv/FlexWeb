@@ -872,7 +872,7 @@ void flexCommander::recenterPan()
         else return;
         if (std::fabs(f - panCenterMHz) > panBandwidthMHz) c = f;   // a jump: centre it
         panCenterMHz = c;
-        sendCmd(QString("display pan set %1 center=%2").arg(panId).arg(panCenterMHz, 0, 'f', 6));
+        sendPanCenter();
         return;
     }
     if (std::fabs(panCenterMHz - freqHz / 1e6) < 1e-6)
@@ -885,8 +885,31 @@ void flexCommander::recenterPan()
         if (panId.isEmpty() || !freqHz || std::fabs(panCenterMHz - freqHz / 1e6) < 1e-6)
             return;
         panCenterMHz = freqHz / 1e6;   // the radio does not always echo it
-        sendCmd(QString("display pan set %1 center=%2").arg(panId).arg(panCenterMHz, 0, 'f', 6));
+        sendPanCenter();
     });
+}
+
+// Move the panadapter to panCenterMHz. The scope's frequency axis is drawn
+// from panCenterMHz, so it must be where the radio really is. The radio does
+// not echo every move, and a burst of moves (wheel, drag, auto-scroll) can
+// leave it somewhere else with no status to say so: the waterfall was then
+// labelled tens of kHz off until the next drag. So once the moves settle,
+// the final centre is sent again; the radio then is where the axis says.
+void flexCommander::sendPanCenter()
+{
+    if (panId.isEmpty() || panCenterMHz <= 0.0)
+        return;
+    sendCmd(QString("display pan set %1 center=%2").arg(panId).arg(panCenterMHz, 0, 'f', 6));
+    if (panAssertTimer == nullptr) {
+        panAssertTimer = new QTimer(this);
+        panAssertTimer->setSingleShot(true);
+        panAssertTimer->setInterval(400);
+        connect(panAssertTimer, &QTimer::timeout, this, [this]() {
+            if (!panId.isEmpty() && panCenterMHz > 0.0)
+                sendCmd(QString("display pan set %1 center=%2").arg(panId).arg(panCenterMHz, 0, 'f', 6));
+        });
+    }
+    panAssertTimer->start();
 }
 
 void flexCommander::configurePan()
@@ -1335,7 +1358,13 @@ void flexCommander::handlePanStatus(const QString& id, const QMap<QString, QStri
                                   << (kvs.contains("bandwidth") ? "bandwidth=" + kvs.value("bandwidth") : QString())
                                   << (kvs.contains("x_pixels") ? "x_pixels=" + kvs.value("x_pixels") : QString())
                                   << (kvs.contains("y_pixels") ? "y_pixels=" + kvs.value("y_pixels") : QString());
-    if (kvs.contains("center")) panCenterMHz = kvs.value("center").toDouble();
+    if (kvs.contains("center")) {
+        const double c = kvs.value("center").toDouble();
+        if (panConfigured && std::fabs(c - panCenterMHz) > 0.0005)
+            qInfo(logRig()).noquote() << QString("Flex: pan centre %1 MHz reported, scope had %2")
+                                         .arg(c, 0, 'f', 6).arg(panCenterMHz, 0, 'f', 6);
+        panCenterMHz = c;
+    }
     if (kvs.contains("bandwidth")) panBandwidthMHz = kvs.value("bandwidth").toDouble();
     if (kvs.contains("x_pixels")) panXPixels = kvs.value("x_pixels").toInt();
     // The vertical scale is ours: configurePan() set it, and the radio does
@@ -2814,7 +2843,7 @@ void flexCommander::setFlexDsp(QString key, int index, int value)
         // value: centre in Hz (the page's drag of an empty part of the scope)
         if (panId.isEmpty() || value <= 0) return;
         panCenterMHz = value / 1e6;
-        sendCmd(QString("display pan set %1 center=%2").arg(panId).arg(panCenterMHz, 0, 'f', 6));
+        sendPanCenter();
         return;
     } else if (key == "panBandwidth") {
         // value: span in Hz (the page's drag of the frequency scale)
