@@ -180,6 +180,7 @@ input[type=range] { accent-color: var(--ae-accent); }
     padding: 4px 9px; border-radius: 3px; white-space: nowrap;
     background: var(--ae-panel); color: var(--ae-text); font-size: 13px;
 }
+.ae-pill-step { cursor: pointer; }
 .ae-pill-mode { background: var(--ae-panel-hi); color: var(--ae-text-hi); font-weight: 600; }
 
 /* ---- Desktop ------------------------------------------------------------ */

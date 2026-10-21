@@ -124,8 +124,12 @@ and FM / NFM.
    both builds (resources/web-shared/sstv*.mjs), no server component.
    - Panel: SSTV button in the bottom bar next to FT8; replaces the scope
      like the FT8 / JS8 panels (closeOtherModes peer, saveVfoSnapshot /
-     restoreVfoSnapshot), clean receive path profile 'digi' (USB, noise
-     tools off, 3 kHz filter).
+     restoreVfoSnapshot), clean receive path (noise tools off, 3 kHz
+     filter). Sideband follows the band, NOT always USB (user, 2026-10-21):
+     LSB below 10 MHz, USB from 10 MHz (same rule as FreeDV).
+   - Band picker with the calling frequencies (user's list): 3.845 LSB,
+     7.171 LSB (7.170 - 7.171), 14.230 USB (main calling frequency),
+     21.340 USB, 28.680 USB.
    - RX: FM demod of the 1200-2300 Hz tone (Hilbert / quadrature
      frequency estimate at 12 kHz), VIS detection (AUTO) or a fixed mode,
      sync tracking per line, slant correction (fit of the sync pulses,

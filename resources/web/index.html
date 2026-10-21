@@ -1646,6 +1646,9 @@ body.digi-open #bottomBar { grid-row: 5; }
 .amp-tuner-ind.on { background: #1f7a3a !important; border-color: #2ecc55 !important; color: #fff !important; }
 .amp-tuner-ind.off { background: #6e1a1a !important; border-color: #e53935 !important; color: #fff !important; }
 .amp-tuner-ind.tuning { background: #8a5c00 !important; border-color: #f5b400 !important; }
+.amp-op-ind.on { background: #1f7a3a !important; border-color: #2ecc55 !important; color: #fff !important; }
+.amp-op-ind.off { background: #6e1a1a !important; border-color: #e53935 !important; color: #fff !important; }
+.amp-op-ind.tuning { background: #8a5c00 !important; border-color: #f5b400 !important; color: #fff !important; }
 /* NEURAL NR panel */
 .nnr-adv-title { margin: 10px 0 4px; font-size: 11px; letter-spacing: 1px; color: var(--text-dim, #889); }
 .nnr-status { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 10px; border-radius: 4px;
@@ -1680,6 +1683,10 @@ body.digi-open #bottomBar { grid-row: 5; }
     text-align: right; color: #0cc;
     flex-shrink: 0;
 }
+.rx-mute-btn { flex-shrink: 0; height: 18px; padding: 0 6px; border-radius: 3px; cursor: pointer;
+    font: 700 10px var(--font-ui, sans-serif); letter-spacing: 0.6px;
+    background: rgba(255,255,255,0.06); color: var(--ae-text-dim, #889); border: 1px solid rgba(255,255,255,0.12); }
+.rx-mute-btn.on { background: #8c1f1f; color: #ffe8e8; border-color: #e53935; }
 .gain-back-row {
     display: flex;
     justify-content: flex-end;
@@ -2858,6 +2865,7 @@ try {
                 <div class="gain-bar-bg"><div class="gain-bar-fill rx-vol-fill" style="width:100%"></div>
                     <input type="range" class="rx-vol-slider" id="rxVolumeSlider" min="0" max="100" value="100"></div>
                 <span class="gain-val rx-vol-val">100%</span>
+                <button type="button" class="rx-mute-btn" title="Mute the receive audio in this browser (decoders and the recorder keep listening)">MUTE</button>
             </div>
             <div class="gain-row">
                 <span class="gain-label" id="rfGainLabel">RF</span>
@@ -3031,6 +3039,7 @@ try {
                 <div class="gain-bar-bg"><div class="gain-bar-fill rx-vol-fill" style="width:100%"></div>
                     <input type="range" class="rx-vol-slider" id="audioVolSlider" min="0" max="100" value="100"></div>
                 <span class="gain-val rx-vol-val">100%</span>
+                <button type="button" class="rx-mute-btn" title="Mute the receive audio in this browser (decoders and the recorder keep listening)">MUTE</button>
             </div>
         </div>
 
@@ -3149,8 +3158,20 @@ var currentFreq = 0;
 var vfoAFreq = 0;
 var vfoBFreq = 0;
 var currentMode = '';
+// Tuning step for the wheel, + / - and Up / Down (FUNC > STEP, or the STEP
+// pill by the frequency). Tuning snaps to a multiple of it. Shift / Ctrl +
+// Up / Down jumps ten steps, never less than 10 kHz (#120).
+var TUNE_STEPS = [10, 50, 100, 500, 1000, 5000, 10000];
 var tuneStep = 1000;
-var FAST_TUNE_STEP = 10000;  // Shift/Ctrl + Up/Down (#120)
+try { var _ts = parseInt(localStorage.getItem('wfTuneStep'), 10); if (TUNE_STEPS.indexOf(_ts) >= 0) tuneStep = _ts; } catch (e) {}
+function fastTuneStep() { return Math.max(10000, tuneStep * 10); }
+function tuneStepLabel(st) { st = st || tuneStep; return st >= 1000 ? (st / 1000) + 'k' : st + ''; }
+function cycleTuneStep() {
+    tuneStep = TUNE_STEPS[(TUNE_STEPS.indexOf(tuneStep) + 1) % TUNE_STEPS.length];
+    try { localStorage.setItem('wfTuneStep', String(tuneStep)); } catch (e) {}
+    if (typeof aeTick === 'function') aeTick();
+    if (currentPanel === 'func') renderFuncOverlay();
+}
 var isTransmitting = false;
 var isSplit = false;
 var rigPoweredOn = true;
@@ -5729,6 +5750,13 @@ function setDigiDriveCaps(manufacturer) {
     if (rl) { rl.textContent = flex ? 'AGC-T' : 'RF'; rl.title = flex ? 'AGC threshold (SmartSDR AGC-T)' : ''; }
     if (ml) { ml.textContent = flex ? 'MIC' : 'USB MIC'; ml.title = flex ? 'Level of the browser microphone sent to the radio (75 % = unchanged)' : ''; }
     if (flex) updateRfGainIndicator(0);
+    // A Flex with the AetherSDR look: MOX latches by default, as in
+    // AetherSDR / SmartSDR. A choice made in FUNC > PTT still wins.
+    if (flex && !aeClassic) {
+        var savedPtt = null;
+        try { savedPtt = localStorage.getItem('wfPttMode'); } catch (e) {}
+        if (!savedPtt) pttLatchMode = true;
+    }
     var max = flex ? 1.0 : 0.5;
     if (max === ALC_MAX_GAIN) return;
     ALC_MAX_GAIN = max;
@@ -6418,7 +6446,7 @@ function aeTick() {
     var sig = JSON.stringify([currentMode, currentFilter, currentFilterWidth, band, nbOn, nrOn, anfOn,
         isTransmitting, flexDsp, ampConfigured, ampState, tunerState, hasTuner, currentPanel,
         flexMemList === null ? -1 : flexMemList.length,
-        digiBarVisible, availableModes.length, rigBands.length]);
+        digiBarVisible, availableModes.length, rigBands.length, tuneStep]);
     if (sig === aeLastSig) return;
     aeLastSig = sig;
     var pills = document.getElementById('slicePills');
@@ -6430,6 +6458,12 @@ function aeTick() {
             s.textContent = t;
             pills.appendChild(s);
         });
+        var stp = document.createElement('span');
+        stp.className = 'ae-pill ae-pill-step';
+        stp.title = 'Tuning step for the wheel and arrow keys (tap to change)';
+        stp.textContent = 'STEP ' + tuneStepLabel();
+        stp.onclick = cycleTuneStep;
+        pills.appendChild(stp);
     }
     if (aeDesktop) renderApplets();
     renderBottomBar();
@@ -6591,8 +6625,9 @@ function renderApplets() {
             chip.title = ts.title;
             right.appendChild(chip);
         }
+        // OPERATE / STANDBY / OFFLINE as a chip matching the tuner chip.
         var st = document.createElement('span');
-        st.className = up ? (a.operate ? 'ae-ok' : 'ae-dim') : 'ae-bad';
+        st.className = 'ae-tuner-chip ' + (up ? (a.operate ? 'on' : 'tuning') : 'off');
         st.textContent = up ? (a.operate ? 'OPERATE' : 'STANDBY') : 'OFFLINE';
         right.appendChild(st);
         ah.appendChild(right);
@@ -6676,7 +6711,7 @@ function aeDesktopButtons(isCW) {
         out.push({ label: 'TUNE', cls: 'ae-wide' + (flexDsp.tune ? ' ae-tuning' : ''), active: !!flexDsp.tune, action: toggleTuneCarrier });
     else if (hasTuner) out.push({ label: 'TUNE', cls: 'ae-wide', active: tunerState === 2, action: handleTunerPress });
     out.push({ label: 'FUNC', cls: 'ae-wide', active: currentPanel === 'func', action: function() { setPanel(currentPanel === 'func' ? 'default' : 'func'); } });
-    out.push({ label: isCW ? 'KEY' : 'MOX', txActive: isTransmitting, cls: (isCW ? 'key-btn' : 'ptt-btn') + ' ae-mox',
+    out.push({ label: isCW ? 'KEY' : (pttLatchMode && isTransmitting ? 'MOX \u25cf TX' : 'MOX'), txActive: isTransmitting, cls: (isCW ? 'key-btn' : 'ptt-btn') + ' ae-mox',
                disabled: currentPanel !== 'default', action: currentPanel !== 'default' ? null : (isCW ? toggleCWBar : function() { handlePTTPress(); }) });
     return out;
 }
@@ -6948,6 +6983,9 @@ function renderFuncOverlay() {
         renderFuncOverlay();
     }));
 
+    // STEP: tuning step for the wheel and the arrow keys.
+    grid.appendChild(makeFuncBtn('STEP', tuneStepLabel() + (tuneStep < 1000 ? ' Hz' : 'Hz'), false, cycleTuneStep));
+
     // EQ and PROC: the Flex's own equalisers and TX audio processing, once
     // the server has reported them (flexDsp).
     if (flexDsp) {
@@ -7133,6 +7171,7 @@ function renderAmpOverlay() {
         send({ cmd: 'ampOperate', value: !(ampState && ampState.operate) });
     });
     opBtn.disabled = !up;
+    opBtn.classList.add('amp-op-ind', up ? (a.operate ? 'on' : 'tuning') : 'off');
     grid.appendChild(opBtn);
     var tsO = ampTunerState(a);
     var tunerInd = makeFuncBtn('TUNER', up ? tsO.text.replace(/^TUNER /, '') : '\u2014', false, function () {});
@@ -9156,24 +9195,16 @@ function toggleFullscreen() {
     }
 }
 
-// step defaults to tuneStep (1 kHz); Shift/Ctrl + arrow keys pass FAST_TUNE_STEP.
+// step defaults to tuneStep; Shift/Ctrl + arrow keys pass fastTuneStep().
+// The new frequency lands on a multiple of the step (3.7543 MHz + 1 kHz up
+// = 3.755, not 3.7553).
 function tuneUp(step) {
     step = step || tuneStep;
-    if (currentFreq > 0) {
-        var newFreq = currentFreq + step;
-        // Round down to nearest kHz (reset Hz to 000)
-        newFreq = Math.floor(newFreq / 1000) * 1000;
-        send({ cmd: 'setFrequency', value: newFreq });
-    }
+    if (currentFreq > 0) send({ cmd: 'setFrequency', value: (Math.floor(currentFreq / step) + 1) * step });
 }
 function tuneDown(step) {
     step = step || tuneStep;
-    if (currentFreq > step) {
-        var newFreq = currentFreq - step;
-        // Round down to nearest kHz (reset Hz to 000)
-        newFreq = Math.floor(newFreq / 1000) * 1000;
-        send({ cmd: 'setFrequency', value: newFreq });
-    }
+    if (currentFreq > step) send({ cmd: 'setFrequency', value: (Math.ceil(currentFreq / step) - 1) * step });
 }
 const HZ_STEP = 50;  // 50 Hz steps for arrow buttons
 function tuneUpHz() { if (currentFreq > 0) send({ cmd: 'setFrequency', value: currentFreq + HZ_STEP }); }
@@ -9208,21 +9239,32 @@ var rxVolume = (function() {
     try { var v = parseInt(localStorage.getItem('wfRxVolume'), 10); if (v >= 0 && v <= 100) return v; } catch (e) {}
     return 100;
 })();
-function rxVolumeGain() { var f = rxVolume / 100; return f * f; }
+// MUTE beside VOL: silences this browser without touching rxVolume, so the
+// next tap brings back the same level. Not saved: a reload is never silent.
+var rxMuted = false;
+function rxVolumeGain() { if (rxMuted) return 0; var f = rxVolume / 100; return f * f; }
+function setRxMuted(on) {
+    rxMuted = !!on;
+    setRxVolume(rxVolume, false);
+}
 function setRxVolume(pct, save) {
     rxVolume = Math.max(0, Math.min(100, Math.round(pct) || 0));
     if (audioGainNode && audioCtx) audioGainNode.gain.setTargetAtTime(rxVolumeGain(), audioCtx.currentTime, 0.01);
     if (window.cwSidetone) cwSidetone.gainChanged();
     var text = rxVolume ? rxVolume + '%' : 'MUTE';
+    document.querySelectorAll('.rx-mute-btn').forEach(function(b) { b.classList.toggle('on', rxMuted); b.textContent = rxMuted ? 'MUTED' : 'MUTE'; });
     document.querySelectorAll('.rx-vol-slider').forEach(function(s) { if (parseInt(s.value, 10) !== rxVolume) s.value = rxVolume; });
     document.querySelectorAll('.rx-vol-fill').forEach(function(f) { f.style.width = rxVolume + '%'; });
     document.querySelectorAll('.rx-vol-val').forEach(function(el) { el.textContent = text; });
     var ind = document.getElementById('rxVolIndicator');
-    if (ind) { ind.textContent = 'VOL ' + text; ind.style.display = rxVolume < 100 ? '' : 'none'; }
+    if (ind) { ind.textContent = rxMuted ? 'MUTED' : 'VOL ' + text; ind.style.display = (rxMuted || rxVolume < 100) ? '' : 'none'; }
     if (save !== false) { try { localStorage.setItem('wfRxVolume', String(rxVolume)); } catch (e) {} }
 }
 document.querySelectorAll('.rx-vol-slider').forEach(function(s) {
     s.addEventListener('input', function() { setRxVolume(parseInt(s.value, 10)); });
+});
+document.querySelectorAll('.rx-mute-btn').forEach(function(b) {
+    b.addEventListener('click', function() { setRxMuted(!rxMuted); });
 });
 setRxVolume(rxVolume, false);
 
@@ -10791,8 +10833,9 @@ function scopeFreqFromClientX(target, clientX) {
     if (rect.width <= 0) return 0;
     var frac = (clientX - rect.left) / rect.width;
     frac = Math.max(0, Math.min(1, frac));
-    // Scope tuning lands on 100 Hz steps, like a drag (scopeFreqFromDragDeltaX).
-    return Math.round((spectStartFreq + (spectEndFreq - spectStartFreq) * frac) * 1e6 / 100) * 100;
+    // A click lands on the nearest 1 kHz, so a click beside a signal finds
+    // its channel (drags keep 100 Hz steps: scopeFreqFromDragDeltaX).
+    return Math.round((spectStartFreq + (spectEndFreq - spectStartFreq) * frac) * 1e3) * 1000;
 }
 
 function scopeSetVisualPan(px) {
@@ -10985,7 +11028,7 @@ function aeScopeUp(e) {
     else if (a.zone === 'pan') {
         // A click on the band tunes there.
         var g = aeScopeGeom(a.canvas, e.clientX, e.clientY);
-        var f = Math.round(g.freqAt(g.x) / 100) * 100;
+        var f = Math.round(g.freqAt(g.x) / 1000) * 1000;   // nearest 1 kHz
         if (f > 0) send({ cmd: 'setFrequency', value: f });
     }
     try { a.canvas.releasePointerCapture(e.pointerId); } catch (err) {}
@@ -11167,7 +11210,7 @@ document.addEventListener('keydown', function(e) {
         e.preventDefault();
         // Shift (or Ctrl) + arrow tunes in 10 kHz jumps (#120). Only the arrows
         // honour the modifier: '+' is itself typed with Shift on most layouts.
-        var step = (e.shiftKey || e.ctrlKey) ? FAST_TUNE_STEP : tuneStep;
+        var step = (e.shiftKey || e.ctrlKey) ? fastTuneStep() : tuneStep;
         if (e.key === 'ArrowUp') tuneUp(step); else tuneDown(step);
     }
     else if (e.key === '+') { e.preventDefault(); tuneUp(); }
