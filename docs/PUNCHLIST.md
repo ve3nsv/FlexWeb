@@ -73,3 +73,12 @@ and FM / NFM.
    shape - green OPERATE, amber STANDBY, red OFFLINE - so the two sit as a
    matching pair. Check the amp panel's OPERATE button / state uses the same
    colours.
+2. MUTE button (user, 2026-10-21): one tap mutes the receive audio in the
+   browser, a second tap brings back the previous VOL level. Today the only
+   way is dragging VOL to 0 (setRxVolume, index.html ~9207). Keep the mute
+   separate from rxVolume (don't save 0 to wfRxVolume), show it on the
+   rxVolIndicator ("MUTED"), and light the button red while muted. Recorder
+   and the CW / FT8 / JS8 decoders keep running (they tap before
+   audioGainNode). Place it beside VOL in the GAIN panel and the AUDIO / TX
+   overlay, plus a quick button on the RX applet / bottom bar (ask the user
+   which spot they want if unclear).
