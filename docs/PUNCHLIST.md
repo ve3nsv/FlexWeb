@@ -67,6 +67,8 @@ and FM / NFM.
 
 # Following batch
 
+Status: items 1-8 implemented for build 57.
+
 1. RF2K-S OPERATE indicator styled like the tuner chip (user, 2026-10-21):
    in the applet header (`ae-amp-head`, index.html ~6590) the OPERATE /
    STANDBY / OFFLINE text becomes a filled chip in the `.ae-tuner-chip`

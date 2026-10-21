@@ -172,6 +172,8 @@ export class SstvDecoder {
         this.ph = 0; this.dph = 2 * Math.PI * FREQ_LEADER / this.R;
         this.pRe = 1; this.pIm = 0;
         this.F = new Float32Array(this.R * 30);      // frequency track
+        this.X = new Float32Array(this.R * 30);      // the audio itself (VIS tone detection)
+        this.gd = (this.h.length - 1) / 2;           // F lags X by the filter's delay
         this.base = 0;                               // absolute index of F[0]
         this.len = 0;                                // valid values in F
         this.off = 0;                                // tuning offset, Hz
@@ -181,7 +183,7 @@ export class SstvDecoder {
         this.lastPicEnd = -1e12;
     }
     setMode(id) { this.modeSel = id || 'auto'; }
-    reset() { this.pic = null; this.len = 0; this.base = 0; }
+    reset() { this.pic = null; this.base += this.len; this.len = 0; }
     stop() { if (this.pic) this._finish('stopped'); }
 
     push(samples) {
@@ -203,24 +205,36 @@ export class SstvDecoder {
             this.pRe = re; this.pIm = im;
             let f = FREQ_LEADER + Math.atan2(dIm, dRe) * this.R / (2 * Math.PI);
             if (!(f > 0)) f = FREQ_LEADER;
-            this._append(f);
+            this._append(f, x);
         }
         this._work();
     }
 
-    _append(f) {
+    _append(f, x) {
         if (this.len >= this.F.length) {
             if (!this.pic) {
                 // idle: keep the last 12 s
                 const keep = Math.round(this.R * 12), drop = this.len - keep;
                 this.F.copyWithin(0, drop, this.len);
+                this.X.copyWithin(0, drop, this.len);
                 this.base += drop; this.len = keep;
             } else {
-                const n = new Float32Array(this.F.length * 2);
-                n.set(this.F); this.F = n;
+                const n = new Float32Array(this.F.length * 2), nx = new Float32Array(this.F.length * 2);
+                n.set(this.F); nx.set(this.X); this.F = n; this.X = nx;
             }
         }
+        this.X[this.len] = x;
         this.F[this.len++] = f;
+    }
+    // Goertzel power of tone f over F-time [a, b) (the audio is read
+    // gd samples earlier, where F's filter took it from)
+    _tone(a, b, f) {
+        const i0 = Math.max(0, Math.round(a - this.gd - this.base)), i1 = Math.min(this.len, Math.round(b - this.gd - this.base));
+        if (i1 - i0 < 8) return 0;
+        const w = 2 * Math.PI * f / this.R, c = 2 * Math.cos(w);
+        let s1 = 0, s2 = 0;
+        for (let i = i0; i < i1; i++) { const s0 = this.X[i] + c * s1 - s2; s2 = s1; s1 = s0; }
+        return s1 * s1 + s2 * s2 - c * s1 * s2;
     }
     _at(abs) { const i = abs - this.base; return i >= 0 && i < this.len ? this.F[i] : NaN; }
     get end() { return this.base + this.len; }
@@ -241,6 +255,15 @@ export class SstvDecoder {
         return w > 0 ? s / w : NaN;
     }
 
+    // median of F over [a, b): FM clicks on a weak signal pull a mean
+    // towards the band centre, the median holds
+    _median(a, b) {
+        const i0 = Math.max(0, Math.round(a - this.base)), i1 = Math.min(this.len, Math.round(b - this.base));
+        if (i1 <= i0) return NaN;
+        const v = Array.from(this.F.subarray(i0, i1)).sort((x, y) => x - y);
+        return v[v.length >> 1];
+    }
+
     _work() {
         if (this.pic) this._decodePic();
         // look for a VIS every 10 ms of audio, however large the pushes are
@@ -259,31 +282,46 @@ export class SstvDecoder {
         const R = this.R, ms = R / 1000;
         const s = at - Math.round(310 * ms);           // candidate start-bit edge region
         if (s - this.base < 220 * ms) return;
-        // leader: 200 ms before s
-        const lead = this._mean(s - 200 * ms, s - 20 * ms);
+        // leader: 230 ms before s, judged in 10 ms blocks (single samples of
+        // the discriminator are too noisy on a weak signal)
+        const blocks = [];
+        for (let t = s - 250 * ms; t < s - 20 * ms; t += 10 * ms) blocks.push(this._median(t, t + 10 * ms));
+        const sorted = blocks.filter(v => v === v).sort((x, y) => x - y);
+        if (sorted.length < 20) return;
+        const lead = sorted[sorted.length >> 1];
         if (!(lead > 1750 && lead < 2050)) return;
-        let ok = 0, n = 0;
-        for (let t = s - 200 * ms; t < s - 20 * ms; t += ms) { n++; if (Math.abs(this._mean(t, t + ms) - lead) < 120) ok++; }
-        if (ok < 0.8 * n) return;
+        if (blocks.filter(v => Math.abs(v - lead) < 150).length < 0.7 * blocks.length) return;
         const off = lead - FREQ_LEADER;
-        // find the leader -> start-bit edge within s - 20 ms .. s + 10 ms
-        let edge = -1;
+        // a real leader is a tone: its energy stands well above the
+        // neighbouring frequencies (noise alone also has a median near 1900)
+        const la = s - 250 * ms, lb = s - 20 * ms;
+        const pl = this._tone(la, lb, lead);
+        const pn = (this._tone(la, lb, lead - 300) + this._tone(la, lb, lead + 300)
+                  + this._tone(la, lb, lead - 550) + this._tone(la, lb, lead + 450)) / 4;
+        if (!(pl > 6 * pn)) return;
+        // the leader -> start-bit edge: the largest downward step within
+        // s - 20 ms .. s + 10 ms (10 ms either side)
+        let edge = -1, bestStep = 350;
         for (let t = Math.round(s - 20 * ms); t < s + 10 * ms; t++) {
-            if (this._mean(t, t + 2 * ms) < 1550 + off && this._mean(t - 3 * ms, t) > 1650 + off) { edge = t; break; }
+            const step = this._mean(t - 10 * ms, t) - this._mean(t, t + 10 * ms);
+            if (step > bestStep) { bestStep = step; edge = t; }
         }
         if (edge < 0) return;
-        if (!(this._mean(edge + 5 * ms, edge + 25 * ms) < 1350 + off)) return;    // start bit 1200
+        // start bit, 7 data bits + parity, stop bit: tone energies (the
+        // optimal detector; the frequency track is biased towards the band
+        // centre when the signal is weak)
+        const T = (k, f) => this._tone(edge + (30 * k + 3) * ms, edge + (30 * k + 27) * ms, f + off);
+        if (!(T(0, 1200) > 3 * T(0, 1900))) return;
         let code = 0, ones = 0;
         for (let k = 0; k < 8; k++) {
-            const a = edge + (30 * (k + 1) + 6) * ms, b = edge + (30 * (k + 2) - 6) * ms;
-            const f = this._mean(a, b) - off;
-            if (!(f > 1000 && f < 1400)) return;
-            const bit = f < 1200 ? 1 : 0;
+            const p1 = T(k + 1, FREQ_BIT1), p0 = T(k + 1, FREQ_BIT0);
+            if (!(Math.max(p1, p0) > 2 * T(k + 1, 1900))) return;
+            const bit = p1 > p0 ? 1 : 0;
             ones += bit;
             if (k < 7) code |= bit << k;
         }
         if (ones % 2) return;
-        if (!(this._mean(edge + 276 * ms, edge + 294 * ms) - off < 1350)) return;  // stop bit
+        if (!(T(9, 1200) > 2 * T(9, 1900))) return;
         const m = sstvMode(code);
         if (!m || (this.modeSel !== 'auto' && this.modeSel !== m.id)) return;
         if (this.pic && edge < this.pic.lastSync) return;
@@ -503,7 +541,12 @@ export class SstvDecoder {
         // drop the picture's audio, keep a little for the next VIS
         const keep = Math.min(this.len, Math.round(this.R * 2));
         this.F.copyWithin(0, this.len - keep, this.len);
+        this.X.copyWithin(0, this.len - keep, this.len);
         this.base += this.len - keep; this.len = keep;
-        if (this.F.length > this.R * 60) { const n = new Float32Array(this.R * 30); n.set(this.F.subarray(0, this.len)); this.F = n; }
+        if (this.F.length > this.R * 60) {
+            const n = new Float32Array(this.R * 30), nx = new Float32Array(this.R * 30);
+            n.set(this.F.subarray(0, this.len)); nx.set(this.X.subarray(0, this.len));
+            this.F = n; this.X = nx;
+        }
     }
 }

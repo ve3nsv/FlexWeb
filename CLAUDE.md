@@ -289,6 +289,8 @@ queue->add(priorityImmediate, queueItem(funcMemoryContents, QVariant::fromValue<
 | `resources/web-shared/rx-jitter.js` | Adaptive RX jitter buffer (worklet + ScriptProcessor fallback, both builds); simulated by `tests/rx_jitter_sim.mjs` |
 | `resources/web-shared/cw-keyer.js` | CW keyer model: timing, pacing of the text to the rig's keyer, browser sidetone (both builds); `tests/cw_keyer_sim.mjs` under node, `tests/cw_bench.mjs` on the two-rig bench, both via `tests/test_cw_keyer.py` |
 | `resources/web-shared/js8-panel.mjs` | JS8 messenger panel — markup + state machine, QSO tabs, RX/TX, CMD palette (both builds) |
+| `resources/web-shared/sstv.mjs` | SSTV encoder / decoder (Robot, Martin, Scottie, PD); one line layout per mode drives both; VIS by tone energy, sync-fit slant; `tests/sstv_sim.mjs` via `tests/test_sstv.py` |
+| `resources/web-shared/sstv-panel.mjs` | SSTV panel (both builds): RX via `window._sstvProcessAudioChunk`, gallery in IndexedDB, TX through `streamDigiAudio`; `body.sstv-open` = clean receive path profile 'sstv' (sideband by band) |
 | `resources/web-shared/js8.mjs` | JS8 WASM codec bridge — 8-FSK synth + encode/decode wrapper (both builds) |
 | `resources/web-shared/` | Files shared by both builds (CW decoder, ggmorse, sprites, models) |
 | `resources/web.qrc` | Qt resource file for the server build |
@@ -436,6 +438,8 @@ queue->add(priorityImmediate, queueItem(funcMemoryContents, QVariant::fromValue<
   - Packet: `Packet.state` — `visible`, `mode`, `activeTab`, `txBusy`,
     `txActiveUntilMs`, `frames`, `terminal.{activeSid,sessions,compose}`,
     `aprs.stations` — plus `#packetScopeCanvas`.
+  - SSTV: `body.sstv-open`, `#sstvImg`, `#sstvWf`, `#sstvState`, `#sstvInfo`,
+    `#sstvSignal`, `#sstvFreq`, `#sstvTxPrev`, `#sstvTxInfo` (sstvView).
   - FreeDV/RADE: `freedvEnabled`, `freedvModeName`, `freedvSync`, `freedvSNR`,
     `freedvFreqOffset`, `radeRxCallsign`. The page keeps only the latest
     callsign, so the heard list and the one-minute timeline are built per

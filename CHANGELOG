@@ -65,6 +65,31 @@ FlexRadio:
   recalled, saved from the current slice, renamed and deleted.
 - FM repeaters: DUP-/DUP+/simplex, offset and CTCSS TX tone set the
   slice's repeater offset and FM tone (the DUP and TONE tiles).
+- SSTV (MODE > SSTV, or the SSTV button by FT8): receive and send
+  pictures in Robot 36 / 72, Martin M1 / M2, Scottie S1 / S2 / DX and
+  PD 90 / 120. The mode comes from the VIS header (or a fixed mode), a
+  picture already under way is picked up from its line rate, slant
+  (sound-card clock error) and tuning offset are corrected as the picture
+  comes in. A tuning strip shows the sync / black / white tones, received
+  pictures are kept in a gallery in the browser (save as PNG, delete), and
+  a picture to send gets the callsign / grid or a message written on it.
+  Calling frequencies 3.845 / 7.171 (LSB), 14.230 / 21.340 / 28.680 (USB);
+  the sideband follows the band, the noise tools are off while it is open.
+  Recordings show the picture building up.
+- The RF2K-S OPERATE / STANDBY / OFFLINE indicator is a coloured chip like
+  the tuner's (green / amber / red), and so is the amp panel's OPERATE key.
+- MUTE beside VOL: silences this browser and brings the same level back.
+- Tuning step (STEP by the frequency, or FUNC > STEP): 10 Hz to 10 kHz for
+  the wheel, + / - and Up / Down, which land on a multiple of it; Shift /
+  Ctrl moves ten steps (at least 10 kHz).
+- A click on the scope tunes to the nearest 1 kHz (drags keep 100 Hz).
+- On a Flex with the AetherSDR look MOX latches by default (tap on, tap
+  off); FUNC > PTT HOLD still wins once chosen.
+- S-meter in step with the synced scope: some readings skipped the audio
+  delay, so the meter jumped between live and delayed values.
+- Flex scope frequency labels could end up tens of kHz off after a quick
+  run of moves until the next drag: the settled position is now sent to the
+  radio again, and a disagreement is logged.
 - Clean receive path for data modes and FM: JS8 and FT8/FT4 stay on USB
   (also after a page reload), FreeDV follows the band (LSB below 10 MHz, USB
   from 10 MHz, freedv.org) and puts the mode back when turned off. While
