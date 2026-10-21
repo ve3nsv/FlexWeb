@@ -350,6 +350,69 @@ def test_time_ping_and_key_delay(flex):
         sock.close()
 
 
+def test_opus_to_browser(flex):
+    """AUDIO > QUALITY OPUS: the browser gets 0x05 Opus frames instead of 0x02
+    PCM, and they decode to the radio's tone."""
+    import ctypes
+    import ctypes.util
+    radio, rest = flex
+    name = ctypes.util.find_library("opus")
+    if not name:
+        pytest.skip("libopus not available")
+    lib = ctypes.CDLL(name)
+    lib.opus_decoder_create.restype = ctypes.c_void_p
+    lib.opus_decode.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int32,
+                                ctypes.POINTER(ctypes.c_int16), ctypes.c_int, ctypes.c_int]
+    from test_web_login import _Reader, _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    reader = _Reader(sock, buf)
+    try:
+        _ws_send(sock, {"cmd": "enableAudio", "value": True})
+        _ws_send(sock, {"cmd": "setAudioCodec", "value": "opus"})
+        codec, frames, pcm_after = None, [], 0
+        end = time.monotonic() + 8
+        for op, p in reader.all(8.0):
+            if op == 1:
+                m = json.loads(p.decode(errors="replace"))
+                if m.get("type") == "audioCodec":
+                    codec = m
+            elif op == 2 and len(p) > 6:
+                if p[0] == 0x05:
+                    frames.append(p)
+                elif p[0] == 0x02 and p[1] == 0 and len(frames) > 5:
+                    pcm_after += 1
+            if len(frames) >= 100 or time.monotonic() > end:
+                break
+        assert codec and codec["value"] == "opus", codec
+        assert len(frames) >= 50, len(frames)
+        assert pcm_after == 0, "PCM still sent to an Opus browser"
+        rate = struct.unpack("<H", frames[0][4:6])[0] * 1000
+        err = ctypes.c_int(0)
+        dec = lib.opus_decoder_create(rate, 1, ctypes.byref(err))
+        out = (ctypes.c_int16 * 5760)()
+        samples = []
+        for f in frames:
+            data = bytes(f[6:])
+            n = lib.opus_decode(dec, data, len(data), out, 5760, 0)
+            assert n > 0
+            samples += out[:n]
+        tail = samples[-rate // 2:]
+        rms = (sum(x * x for x in tail) / len(tail)) ** 0.5
+        assert rms > 2000, rms           # the mock's 1 kHz tone at -12 dBFS
+        # Back to PCM.
+        _ws_send(sock, {"cmd": "setAudioCodec", "value": "pcm"})
+        got_pcm = False
+        for op, p in reader.all(4.0):
+            if op == 2 and len(p) > 6 and p[0] == 0x02:
+                got_pcm = True
+                break
+        assert got_pcm
+    finally:
+        sock.close()
+
+
 # ── --on-demand ─────────────────────────────────────────────────────────────
 
 def _open_browser_ws(port: int):

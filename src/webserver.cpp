@@ -150,6 +150,7 @@ webServer::webServer(QObject *parent) :
 
 webServer::~webServer()
 {
+    if (rxOpusEnc) { opus_encoder_destroy(rxOpusEnc); rxOpusEnc = nullptr; }
     wsjtxSendClose();
     // Restore DATA MOD OFF setting if mic was active.  ~servermain() waits
     // for the queue to dispatch this before it closes the rig port.
@@ -1898,6 +1899,7 @@ void webServer::onWsDisconnected()
         audioClients.remove(pClient);
         wsUser.remove(pClient);
         txListen.remove(pClient);
+        opusClients.remove(pClient);
         wsClients.removeAll(pClient);
         browserCount_ = wsClients.size();
         pClient->deleteLater();
@@ -2421,6 +2423,18 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     else if (type == "setCompressor") {
         bool on = cmd["value"].toBool();
         queue->add(priorityImmediate, queueItem(funcCompressor, QVariant::fromValue<uchar>(on ? 1 : 0), false, 0));
+    }
+    else if (type == "setAudioCodec") {
+        // AUDIO > QUALITY: "opus" or "pcm" for this browser's receive audio.
+        const int rate = rigSampleRate ? int(rigSampleRate) : 48000;
+        const bool rateOk = rate == 8000 || rate == 12000 || rate == 16000 || rate == 24000 || rate == 48000;
+        const bool opus = cmd["value"].toString() == "opus" && rateOk;
+        if (opus) opusClients.insert(client); else opusClients.remove(client);
+        QJsonObject r;
+        r["type"] = "audioCodec";
+        r["value"] = opus ? "opus" : "pcm";
+        r["sampleRate"] = rate;
+        sendJsonTo(client, r);
     }
     else if (type == "setTxListen") {
         const QString mode = cmd["mode"].toString();
@@ -4790,11 +4804,55 @@ void webServer::sendBinaryToAudioClients(const QByteArray &data)
     // operator hears it unless MON was switched on just for the listeners.
     const bool rxAudio = !data.isEmpty() && quint8(data[0]) == 0x02;
     for (QWebSocket *client : audioClients) {
-        if (rxAudio && pttClient && wsClients.contains(pttClient)) {
-            if (client == pttClient ? autoMon : txListen.value(client) != "air")
-                continue;
-        }
+        if (rxAudio && !rxAudioWanted(client)) continue;
+        // Opus browsers get this receive audio from sendRxOpus below.
+        if (rxAudio && quint8(data[1]) == 0x00 && opusClients.contains(client)) continue;
         client->sendBinaryMessage(data);
+    }
+    if (rxAudio && data.size() > 6 && quint8(data[1]) == 0x00 && !opusClients.isEmpty())
+        sendRxOpus(data.mid(6));
+}
+
+bool webServer::rxAudioWanted(QWebSocket *client) const
+{
+    if (pttClient && wsClients.contains(pttClient))
+        return client == pttClient ? !autoMon : txListen.value(client) == "air";
+    return true;
+}
+
+void webServer::sendRxOpus(const QByteArray &pcm)
+{
+    const int rate = rigSampleRate ? int(rigSampleRate) : 48000;
+    if (rate != 8000 && rate != 12000 && rate != 16000 && rate != 24000 && rate != 48000)
+        return;   // not an Opus rate: those browsers stay on PCM (setAudioCodec refuses)
+    if (!rxOpusEnc || rxOpusRate != rate) {
+        if (rxOpusEnc) opus_encoder_destroy(rxOpusEnc);
+        int err = 0;
+        rxOpusEnc = opus_encoder_create(rate, 1, OPUS_APPLICATION_AUDIO, &err);
+        if (err != OPUS_OK) { rxOpusEnc = nullptr; return; }
+        opus_encoder_ctl(rxOpusEnc, OPUS_SET_BITRATE(32000));
+        opus_encoder_ctl(rxOpusEnc, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
+        rxOpusRate = rate;
+        rxOpusPending.clear();
+    }
+    rxOpusPending.append(pcm);
+    const int frameBytes = rate / 50 * 2;     // 20 ms mono int16
+    while (rxOpusPending.size() >= frameBytes) {
+        unsigned char out[1500];
+        const int n = opus_encode(rxOpusEnc, reinterpret_cast<const opus_int16 *>(rxOpusPending.constData()),
+                                  rate / 50, out, sizeof(out));
+        rxOpusPending.remove(0, frameBytes);
+        if (n <= 0) continue;
+        QByteArray msg(6, 0);
+        msg[0] = 0x05;
+        const quint16 seq = rxOpusSeq++;
+        const quint16 rateDiv = quint16(rate / 1000);
+        memcpy(msg.data() + 2, &seq, 2);
+        memcpy(msg.data() + 4, &rateDiv, 2);
+        msg.append(reinterpret_cast<const char *>(out), n);
+        for (QWebSocket *c : opusClients)
+            if (audioClients.contains(c) && rxAudioWanted(c))
+                c->sendBinaryMessage(msg);
     }
 }
 

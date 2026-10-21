@@ -324,6 +324,16 @@ private:
     bool autoMon = false;
     void updateAutoMon();
     void forwardOperatorAudio(const QByteArray &pcm, bool modemTagged);
+    // Opus to the browser (AUDIO > QUALITY): one shared encoder for every
+    // browser that asked for it; RX audio goes out as 20 ms Opus frames,
+    // [0x05][0x00][seq_u16LE][rateDiv_u16LE][opus], instead of 0x02 PCM.
+    QSet<QWebSocket *> opusClients;
+    OpusEncoder *rxOpusEnc = nullptr;
+    int rxOpusRate = 0;
+    QByteArray rxOpusPending;          // PCM waiting for a whole frame
+    quint16 rxOpusSeq = 0;
+    void sendRxOpus(const QByteArray &pcm);
+    bool rxAudioWanted(QWebSocket *client) const;
     // Time (FT8/JS8 timing): the server checks this computer's clock against
     // an NTP server; browsers measure theirs against the server ("timePing").
     QUdpSocket *ntpSocket = nullptr;

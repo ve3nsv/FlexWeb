@@ -3507,6 +3507,7 @@ function onTransportOpen() {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     send({ cmd: 'getStatus' });
     sendTxListen(true);
+    sendRxCodec(true);
     timePingBurst();
     // The station callsign is server state: rigInfo brings it and we adopt
     // it (see the rigInfo handler).  Pushing our saved copy here is exactly
@@ -3599,6 +3600,10 @@ function handleMessage(msg) {
     // Forward to read-only consumer modules before main state-machine switch.
     if (window.Packet && window.Packet.onMessage) window.Packet.onMessage(msg);
     switch (msg.type) {
+        case 'audioCodec':
+            rxCodecActive = msg.value;
+            if (currentPanel === 'audiomiс' || document.getElementById('audioMicOverlay').classList.contains('visible')) renderAudioMicOverlay();
+            break;
         case 'timePong':
             onTimePong(msg);
             break;
@@ -6573,6 +6578,17 @@ function renderAudioMicOverlay() {
         grid.appendChild(buf);
     }
 
+    // Receive audio quality: PCM, or Opus (much less bandwidth).
+    if (audioAvailable) {
+        var q = makeFuncBtn('QUALITY', rxCodecWanted === 'opus'
+                ? (rxCodecActive === 'opus' ? 'OPUS' : 'OPUS→PCM') : 'PCM',
+            rxCodecWanted === 'opus', cycleRxCodec);
+        q.title = rxOpusSupported()
+            ? 'Receive audio: PCM (~770 kbit/s) or OPUS (~32 kbit/s, for phones and slow links). FT8 / JS8 always use PCM.'
+            : 'Opus needs a browser with WebCodecs (Chrome, Edge, Safari 17+, Firefox 130+).';
+        grid.appendChild(q);
+    }
+
     // Scope sync: spectrum, waterfall and S meter follow the audio delay.
     if (audioAvailable) {
         var ss = makeFuncBtn('SYNC SCOPE', scopeSyncOn ? 'AUTO' + (scopeSyncCur > 0 ? ' ' + Math.round(scopeSyncCur) + ' ms' : '') : 'OFF',
@@ -8882,6 +8898,80 @@ function stopMic() {
     micRepaint();
 }
 
+// ---- Opus receive audio (item 2) -----------------------------------------
+// AUDIO > QUALITY: PCM (default, ~770 kbit/s) or OPUS (~32 kbit/s, decoded by
+// the browser's WebCodecs AudioDecoder). FT8 / JS8 open = PCM, so their
+// decoders get clean audio; browsers without AudioDecoder stay on PCM.
+var rxCodecWanted = 'pcm', rxCodecActive = 'pcm', rxCodecSent = null;
+try { rxCodecWanted = localStorage.getItem('wfAudioCodec') === 'opus' ? 'opus' : 'pcm'; } catch (e) {}
+var rxOpusDecoder = null, rxOpusRate = 0, rxOpusTs = 0;
+function rxOpusSupported() { return typeof window.AudioDecoder === 'function' && typeof window.EncodedAudioChunk === 'function'; }
+function rxCodecEffective() {
+    var digiOpen = (typeof digiBarVisible !== 'undefined' && digiBarVisible) || document.body.classList.contains('js8-open');
+    return (rxCodecWanted === 'opus' && rxOpusSupported() && !digiOpen) ? 'opus' : 'pcm';
+}
+function sendRxCodec(force) {
+    var c = rxCodecEffective();
+    if (!force && c === rxCodecSent) return;
+    rxCodecSent = c;
+    send({ cmd: 'setAudioCodec', value: c });
+}
+function cycleRxCodec() {
+    if (!rxOpusSupported()) { alertAudioCodecUnsupported(); return; }
+    rxCodecWanted = rxCodecWanted === 'opus' ? 'pcm' : 'opus';
+    try { localStorage.setItem('wfAudioCodec', rxCodecWanted); } catch (e) {}
+    sendRxCodec(true);
+    renderAudioMicOverlay();
+}
+function alertAudioCodecUnsupported() {
+    console.warn('[Audio] this browser has no WebCodecs AudioDecoder: Opus unavailable, staying on PCM');
+}
+setInterval(function () { if (ws && ws.readyState === WebSocket.OPEN) sendRxCodec(false); }, 1000);
+
+function rxOpusDecoderFor(rate) {
+    if (rxOpusDecoder && rxOpusRate === rate && rxOpusDecoder.state === 'configured') return rxOpusDecoder;
+    try { if (rxOpusDecoder) rxOpusDecoder.close(); } catch (e) {}
+    rxOpusRate = rate;
+    rxOpusDecoder = new AudioDecoder({
+        output: function (ad) {
+            try {
+                var n = ad.numberOfFrames;
+                var f = new Float32Array(n);
+                ad.copyTo(f, { planeIndex: 0, format: 'f32-planar' });
+                playRxFloat(f);
+            } finally { ad.close(); }
+        },
+        error: function (e) { console.warn('[Audio] Opus decoder error: ' + e.message); rxOpusDecoder = null; }
+    });
+    rxOpusDecoder.configure({ codec: 'opus', sampleRate: rate, numberOfChannels: 1 });
+    return rxOpusDecoder;
+}
+function handleOpusData(buffer) {
+    if (!audioEnabled || buffer.byteLength < 8 || !rxOpusSupported()) return;
+    if (audioCtx && audioCtx.state !== 'running') resumeRxAudio(false);
+    var view = new DataView(buffer);
+    var rate = view.getUint16(4, true) * 1000;
+    try {
+        var dec = rxOpusDecoderFor(rate);
+        dec.decode(new EncodedAudioChunk({ type: 'key', timestamp: rxOpusTs, data: new Uint8Array(buffer, 6) }));
+        rxOpusTs += 20000;
+    } catch (e) { console.warn('[Audio] Opus frame dropped: ' + e.message); }
+}
+// Decoded Opus into the same playback path as PCM (jitter buffer, recorder).
+function playRxFloat(floatData) {
+    if (!audioEnabled) return;
+    var gain = txOtherBy ? txListenVol / 100 : 1;
+    var pcm = new Int16Array(floatData.length);
+    for (var i = 0; i < floatData.length; i++) {
+        var v = Math.max(-1, Math.min(1, floatData[i] * gain));
+        floatData[i] = v;
+        pcm[i] = Math.round(v * 32767);
+    }
+    Recorder.feedRx(pcm, audioSampleRate);
+    if (audioUseWorklet && audioWorkletNode) audioWorkletNode.port.postMessage(floatData, [floatData.buffer]);
+    else if (audioJb) audioJb.push(floatData);
+}
+
 function handleAudioData(buffer) {
     if (!audioEnabled) return;
     if (buffer.byteLength < 8) return;
@@ -9399,6 +9489,7 @@ function handleBinaryMessage(buffer) {
     var msgType = view.getUint8(0);
     if (msgType === 0x01 && !scopeSyncReleasing && scopeSyncDefer(function () { handleBinaryMessage(buffer); })) return;
     if (msgType === 0x02) { handleAudioData(buffer); return; }
+    if (msgType === 0x05) { handleOpusData(buffer); return; }
     if (msgType === 0x04) {
         // TX audio echo — visualisation-only PCM teed from the server so the
         // packet waterfall can show the outgoing signal while the radio is keyed.
