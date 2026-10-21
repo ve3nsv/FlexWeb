@@ -64,3 +64,12 @@ and FM / NFM.
 7. RF2K-S tuner indicator (done in the tree, ships with this batch): green
    TUNER AUTO / MANUAL, amber TUNING, red TUNER BYPASS / OFF - applet header
    chip and amp panel tile (ampTunerState in index.html).
+
+# Following batch
+
+1. RF2K-S OPERATE indicator styled like the tuner chip (user, 2026-10-21):
+   in the applet header (`ae-amp-head`, index.html ~6590) the OPERATE /
+   STANDBY / OFFLINE text becomes a filled chip in the `.ae-tuner-chip`
+   shape - green OPERATE, amber STANDBY, red OFFLINE - so the two sit as a
+   matching pair. Check the amp panel's OPERATE button / state uses the same
+   colours.
