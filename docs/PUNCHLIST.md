@@ -201,3 +201,43 @@ Status: items 1-8 implemented for build 57.
    PCM (data modes must not go through a speech codec). Browsers without
    AudioEncoder fall back to PCM. Check the start-of-TX latency and the
    USB pre-TX buffer, and that the ON-AIR / OPERATOR listeners still hear it.
+6. RF-KIT (RF2K-S) amp panel: bring FlexWeb up to the AetherSDR rfkit-tune
+   branch (user, 2026-10-21; reference ve3nsv/AetherSDR@rfkit-tune 6392afe:
+   src/core/RfkitProtocol.*, src/core/RfkitConnection.*, src/gui/RfkitApplet.*,
+   docs/architecture/rfkit-amplifier-design.md). FlexWeb already has the
+   port from before that branch (src/rfkitprotocol.cpp, src/rfkitconnection.cpp,
+   webServer::configureRfkit, FUNC > AMP panel + RF-POWER applet, tuner and
+   OPERATE chips). Already as asked: the server is the only client (the browser
+   never talks to the amp), 250 ms poll, one request in flight, 4 s timeout,
+   64 KiB body cap, OPERATE / STANDBY, antennas 1-4, status text, error +
+   reset, FWD 0-1600 W, SWR, TUNER indicator. Amp: 10.0.0.25:8080 (--rfkit).
+   To do:
+   a. Tune (modified restServer.py only). Port TuneApi / classifyTuneProbe /
+      startTune: after connecting, probe PUT /tuner {} (2xx or 400 =
+      supported; 404 / 405 / 501 = not; anything else unknown, asked again up
+      to 3 times per connection). startTune sends PUT /tuner
+      {"tuner_mode":"START"} only when supported and the last tuner readback
+      is AUTO or MANUAL (refused while OFF, BYPASS, already tuning, unread).
+      The reply is not state: re-read /tuner and /data. Publish tuneApi to the
+      page; the TUNE button is hidden unless supported, enabled only in AUTO /
+      MANUAL, disables itself on click until the next status (one start per
+      click), reads TUNING only from the amp's readback
+      (AUTO_TUNING_FROM_AUTO = tuning). The panel never keys the radio: the
+      amp tunes only while a tune carrier is on the air, so show "key TUNE
+      first" while the radio is not transmitting. Port the protocol tests
+      (tests/rfkitprotocol_test.cpp) and a probe test against a mock amp
+      answering 400 / 405.
+   b. Reflected power 0-200 W bar (the server already sends `ref`), SWR on the
+      amp's 1 / 1.5 / 2 / 3 / 5 / inf scale, orange from 1.5:1 and red from
+      2:1 (reflected uses the same ratios converted to watts from forward);
+      REF and SWR held at baseline below 1 W forward; unset fields "-", never
+      0. Error as a banner across the panel, not only a tile.
+   c. Web gating: operate / standby, tune, antenna select and error reset are
+      refused by the server (not just hidden) unless the request comes from a
+      signed-in named user (web login) and no other browser holds the TX lock
+      (pttClient); the page shows why ("TX: <user>" / "sign in"). The
+      read-only status stays visible to everyone. Decide with the user what
+      happens with web login off (no users): see the open question below.
+   Open question for the user: with web login off (no named users), should the
+   amp controls work as now (anyone who can open the page), or be read-only
+   until a user is created?
