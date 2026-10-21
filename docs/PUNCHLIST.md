@@ -178,3 +178,18 @@ Status: items 1-8 implemented for build 57.
    the filter's state so RX resumes cleanly: reset() on unkey), and report
    NR GAIN as inactive during TX. Test: test_nnr with xmit 1 -> samples pass
    unchanged.
+4. Mic streams all the time (user, 2026-10-21, Task Manager: 1.1 Mbit/s up
+   with the mic on, not transmitting). The capture worklet sends every mic
+   frame as raw 48 kHz 16-bit PCM (768 kbit/s + WebSocket/TLS overhead)
+   whenever the mic is enabled (index.html micWorkletNode.port.onmessage ->
+   sendTxAudio), and the server passes it on toward the radio
+   (onWsBinaryMessage -> TX converter / DAX, or the RADE / FreeDV encoder
+   when FreeDV is on). Send mic frames only while this browser is keying or
+   about to: from the PTT press (before setPTT true, so nothing is clipped)
+   until the release drain ends (pttReleaseTimer), while latched, and while
+   intercom TALK is on. The mic VU / LVL row stays local (micVuFeed), so it
+   keeps working with nothing sent. Check: FreeDV / RADE TX start, packet,
+   FT8 / JS8 (their own tagged stream, unaffected), TX LISTEN OPERATOR,
+   the USB pre-TX buffer (100 ms) still fills before the device starts.
+   Optional later: Opus for TX audio too (~32 kbit/s, like AUDIO > QUALITY
+   OPUS for receive).
