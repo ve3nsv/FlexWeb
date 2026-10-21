@@ -1899,6 +1899,8 @@ void webServer::onWsDisconnected()
         audioClients.remove(pClient);
         wsUser.remove(pClient);
         txListen.remove(pClient);
+        if (talkLastMs.remove(pClient)) QTimer::singleShot(0, this, [this]() { broadcastTalkers(); });
+        talkerId.remove(pClient);
         opusClients.remove(pClient);
         wsClients.removeAll(pClient);
         browserCount_ = wsClients.size();
@@ -1913,6 +1915,12 @@ void webServer::onWsBinaryMessage(QByteArray message)
 
     quint8 msgType = static_cast<quint8>(message[0]);
 
+    if (msgType == 0x06) {
+        // Intercom talk: to the other browsers only, never to the radio.
+        QWebSocket *talker = qobject_cast<QWebSocket *>(sender());
+        if (talker) onTalkFrame(talker, message.mid(6));
+        return;
+    }
     if (msgType != 0x03) return; // Only handle TX audio (0x03)
 
     // TX lock: while a browser holds PTT, only its audio goes to the radio;
@@ -4811,6 +4819,62 @@ void webServer::sendBinaryToAudioClients(const QByteArray &data)
     }
     if (rxAudio && data.size() > 6 && quint8(data[1]) == 0x00 && !opusClients.isEmpty())
         sendRxOpus(data.mid(6));
+}
+
+void webServer::onTalkFrame(QWebSocket *from, const QByteArray &pcm)
+{
+    if (pcm.size() < 2 || pcm.size() > 48000) return;
+    if (!talkerId.contains(from)) {
+        if (nextTalkerId == 0) nextTalkerId = 1;
+        talkerId.insert(from, nextTalkerId++);
+    }
+    const bool started = !talkLastMs.contains(from);
+    talkLastMs.insert(from, QDateTime::currentMSecsSinceEpoch());
+    if (started) {
+        qInfo().noquote() << "Web: intercom -" << clientLabel(from) << "is talking";
+        broadcastTalkers();
+    }
+    if (!talkTimer) {
+        // A talker who stops sending (TALK off, tab closed) drops off after 0.5 s.
+        talkTimer = new QTimer(this);
+        talkTimer->setInterval(250);
+        connect(talkTimer, &QTimer::timeout, this, [this]() {
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            bool changed = false;
+            for (auto it = talkLastMs.begin(); it != talkLastMs.end();) {
+                if (now - it.value() > 500) { it = talkLastMs.erase(it); changed = true; }
+                else ++it;
+            }
+            if (changed) broadcastTalkers();
+            if (talkLastMs.isEmpty()) talkTimer->stop();
+        });
+    }
+    if (!talkTimer->isActive()) talkTimer->start();
+
+    QByteArray msg(6, 0);
+    msg[0] = 0x07;
+    msg[1] = char(talkerId.value(from));
+    const quint16 seq = audioSeq++;
+    const quint16 rateDiv = 48;              // browser mic frames are 48 kHz
+    memcpy(msg.data() + 2, &seq, 2);
+    memcpy(msg.data() + 4, &rateDiv, 2);
+    msg.append(pcm);
+    for (QWebSocket *c : audioClients)
+        if (c != from) c->sendBinaryMessage(msg);
+}
+
+void webServer::broadcastTalkers()
+{
+    QJsonArray who;
+    for (auto it = talkLastMs.constBegin(); it != talkLastMs.constEnd(); ++it)
+        who.append(clientLabel(it.key()));
+    for (QWebSocket *c : wsClients) {
+        QJsonObject o;
+        o["type"] = "talkers";
+        o["who"] = who;
+        o["me"] = talkLastMs.contains(c);
+        sendJsonTo(c, o);
+    }
 }
 
 bool webServer::rxAudioWanted(QWebSocket *client) const

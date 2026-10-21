@@ -29,6 +29,19 @@ Web access:
   through), ON-AIR (the radio's monitor; MON is switched on for the
   transmission when nobody had it on) or OFF, with its own LISTEN VOL.
   Data modes stay silent unless DIGI LISTEN is on.
+- Two-way intercom: FUNC > AUDIO > TALK sends this browser's microphone
+  to the other browsers (never to the radio) while it is not keyed; each
+  talker plays on its own line over the receiver at LISTEN VOL, and the
+  top bar shows "TALK: <users>". TALK turns itself off after 2 minutes.
+- Opus to the browser: FUNC > AUDIO > QUALITY OPUS sends this browser's
+  receive audio as 32 kbit/s Opus (decoded with WebCodecs) instead of PCM,
+  for slow or metered links. Other browsers keep their own choice.
+- FT8 / JS8 timing: the server checks its clock against pool.ntp.org every
+  15 minutes (WFWEB_NTP_SERVER picks another server, "off" disables it)
+  and each page measures its offset from the server, so slots follow
+  NTP time even when the phone's clock is off. AUTO timing also starts
+  TX early by the measured key-up delay and shifts RX by the audio delay;
+  the DIGI panel shows the offsets.
 
 - FlexWeb has its own version, 1.0.<build>: the GitHub Actions run
   number (FLEXWEB_BUILD at qmake time; local builds say 1.0.dev). The
@@ -44,6 +57,16 @@ FlexRadio:
 - Opus receive audio: over SmartLink the radio now sends Opus (about
   50 kbit/s instead of ~1.5 Mbit/s); --flex-audio opus|none|auto chooses.
 - --smartlink-radios lists the account's radios with the stored sign-in.
+- VFO B and split: VFO B is a second slice on wfweb's panadapter (muted,
+  no TX), created when first used. A/B, A=B, A<>B and SPLIT work as on
+  other rigs; with split on, TX goes to slice B.
+- Radio memories: the memories stored in the radio (SmartSDR's list) are
+  shown in a collapsible MEMORIES applet and under FUNC > MEM, and can be
+  recalled, saved from the current slice, renamed and deleted.
+- FM repeaters: DUP-/DUP+/simplex, offset and CTCSS TX tone set the
+  slice's repeater offset and FM tone (the DUP and TONE tiles).
+- The RF2K-S amplifier's tuner (L, C, frequency and segment) shows under
+  RF POWER.
 
 Windows launcher:
 - FlexRadio (LAN address or auto) and SmartLink (Sign in, radio list,
@@ -70,6 +93,11 @@ AetherSDR look (aether-look branch):
   waterfall defaults to AetherSDR's colour map. Restyle only (a new
   resources/web/aether.css plus the canvas colours): no element or
   behaviour changes.
+- FUNC > LOOK: AETHER or CLASSIC switches back to the original
+  wfweb colours and layout, per browser.
+- FUNC > AUDIO > SYNC SCOPE holds the spectrum, waterfall and S meter back by the audio
+  delay so what you see matches what you hear; SYNC TRIM adjusts it.
+- The dB level labels keep clear of the span zoom keys.
 
 FlexRadio:
 - FlexRadio FLEX-6000 / FLEX-8000 / Aurora SDRs are supported over the

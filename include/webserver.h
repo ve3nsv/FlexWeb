@@ -334,6 +334,16 @@ private:
     quint16 rxOpusSeq = 0;
     void sendRxOpus(const QByteArray &pcm);
     bool rxAudioWanted(QWebSocket *client) const;
+    // Two-way intercom (AUDIO > TALK): a browser's mic sent as 0x06 is
+    // forwarded to the other browsers as 0x07 [0x07][talker][seq][rateDiv]
+    // [PCM 48 kHz], each talker on its own playback line in the page, so
+    // several can talk at once over the receiver audio. Never transmitted.
+    QHash<QWebSocket *, quint8> talkerId;
+    QHash<QWebSocket *, qint64> talkLastMs;
+    quint8 nextTalkerId = 1;
+    QTimer *talkTimer = nullptr;
+    void onTalkFrame(QWebSocket *from, const QByteArray &pcm);
+    void broadcastTalkers();
     // Time (FT8/JS8 timing): the server checks this computer's clock against
     // an NTP server; browsers measure theirs against the server ("timePing").
     QUdpSocket *ntpSocket = nullptr;

@@ -422,6 +422,55 @@ def test_intercom(server):
         b.close()
 
 
+def test_intercom_talk(server):
+    """TALK: amy's microphone (0x06) reaches tom as 0x07 with a talker id,
+    never comes back to amy, never keys the radio, and both browsers are
+    told who is talking (and when she stops)."""
+    base, port, _, radio = server
+    tok_tom = _login(base, "tom", PASSWORD).cookies["wfweb_session"]
+    tok_amy = _login(base, "amy", "amy-password").cookies["wfweb_session"]
+    st, a, abuf = _ws(port, tok_tom)
+    st2, b, bbuf = _ws(port, tok_amy)
+    assert " 101" in st and " 101" in st2
+    ra, rb = _Reader(a, abuf), _Reader(b, bbuf)
+    try:
+        assert _drain_until(ra, lambda m: m.get("type") == "rigInfo")
+        assert _drain_until(rb, lambda m: m.get("type") == "rigInfo")
+        for sock, r in ((a, ra), (b, rb)):
+            _ws_send(sock, {"cmd": "enableAudio", "value": True})
+            st_msg = _drain_until(r, lambda m: m.get("type") == "audioStatus")
+            assert st_msg, "no audioStatus"
+            if not st_msg.get("enabled"):
+                pytest.skip(f"browser audio unavailable here: {st_msg.get('reason')}")
+        xmits = len(radio.find("xmit 1"))
+        tone = struct.pack("<480h", *([1000, -1000] * 240))
+        for i in range(20):
+            _ws_send(b, bytes([0x06, 0x00]) + struct.pack("<HH", i, 0) + tone, opcode=2)
+            time.sleep(0.01)
+
+        talk, talkers = [], []
+        for op, p in ra.all(2.0):
+            if op == 2 and p[:1] == b"\x07":
+                talk.append(p)
+            elif op == 1:
+                m = json.loads(p)
+                if m.get("type") == "talkers":
+                    talkers.append(m)
+        assert talk, "amy's talk audio never reached tom"
+        assert talk[0][1] != 0 and struct.unpack("<H", talk[0][4:6])[0] == 48
+        assert talk[0][6:] == tone
+        assert any(m["who"] == ["amy"] and not m["me"] for m in talkers), talkers
+        # She stopped sending: the talker list empties again.
+        assert any(m["who"] == [] for m in talkers), talkers
+
+        back = [p for op, p in rb.all(0.5) if op == 2 and p[:1] == b"\x07"]
+        assert not back, "the talker heard herself"
+        assert len(radio.find("xmit 1")) == xmits, "talk keyed the radio"
+    finally:
+        a.close()
+        b.close()
+
+
 def test_lockout(server):
     base, _, _, _ = server
     # The earlier sign-ins reset the count: five wrong passwords lock.

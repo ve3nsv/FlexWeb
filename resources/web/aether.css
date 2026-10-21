@@ -293,7 +293,7 @@ body.ae-phone .softBtn.ae-tile { height: 46px; font-size: 11px; }
 body.ae-phone .ae-gap.ae-break { flex: 1 0 100%; height: 0; }
 body.ae-desktop .softBtn.ae-band { text-transform: none; }
 
-/* RF-POWER applet: the amplifier's tuner status line (item 18). */
+/* RF-POWER applet: the amplifier's tuner status line. */
 .ae-amp-tuner { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; font-size: 11px;
     color: var(--ae-text-dim); font-family: var(--font-mono); }
 .ae-amp-tuner b { color: var(--ae-text); font-weight: 600; }

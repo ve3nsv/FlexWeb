@@ -142,7 +142,9 @@ A Flex is controlled entirely over the network, so there is nothing to plug in: 
 
 wfweb joins the radio as a SmartSDR GUI client (alongside SmartSDR, Maestro or AetherSDR if they are connected) and opens its own panadapter and slice. VFO A is that slice; the scope is its panadapter; receive audio is the slice's `remote_audio_rx` stream; the browser microphone goes to the radio as DAX TX audio (wfweb sets `transmit dax=1` while the browser mic is in use, as it switches DATA MOD to LAN on an Icom). Tuning, mode and filter (FIL1-3 map to SmartSDR's preset widths), AF gain, AGC threshold (RF gain), squelch, NB/NR/ANF, preamp/attenuator (panadapter RF gain), RX antenna, RIT, RF power, monitor, speech processor, ATU tune, CW speed and CWX keying, PTT and the S, Po and SWR meters all work; modes are LSB, USB, CW, AM, SAM, FM, NFM, DIGU, DIGL, RTTY and DFM.
 
-Not supported yet: a second slice as VFO B / split, memories (wfweb's own memory list is used), and FreeDV waveforms built into the radio. Power on/off is not offered from the page. The FlexRadio support uses the SmartSDR protocol work of [AetherSDR](https://github.com/aethersdr/AetherSDR).
+VFO B is a second slice on wfweb's panadapter (muted, created when first used), so A/B, A=B, A<>B and SPLIT work. The memories stored in the radio appear in the MEMORIES applet and under FUNC > MEM (recall, save, rename, delete). In FM, DUP-/DUP+, the offset and a CTCSS TX tone set the slice's repeater settings.
+
+Not supported yet: FreeDV waveforms built into the radio. Power on/off is not offered from the page. The FlexRadio support uses the SmartSDR protocol work of [AetherSDR](https://github.com/aethersdr/AetherSDR).
 
 **SmartLink (radio somewhere else).** When wfweb cannot reach the radio on its LAN, it can go through FlexRadio's SmartLink service like SmartSDR does. Sign in once with your FlexRadio account; wfweb keeps a sign-in token, never the password, and lists the radios on the account:
 
@@ -154,7 +156,7 @@ Not supported yet: a second slice as VFO B / split, memories (wfweb's own memory
 
 The radio needs SmartLink set up in SmartSDR with UPnP or forwarded ports (radios that need NAT hole punching are not supported yet). The session is TLS; the radio's certificate is remembered on first use and a changed one is refused until you sign in again. Over SmartLink the radio sends its audio as Opus (about 50 kbit/s); `--flex-audio none` asks for uncompressed audio (about 1.5 Mbit/s), `--flex-audio opus` uses Opus on the LAN too. `--smartlink-radios` lists the account's radios.
 
-**Several operators.** Any number of browsers can use the page at once; one transmits at a time. Another browser's PTT is refused while someone transmits, and every page shows `TX: <user>`. Under FUNC > AUDIO each browser chooses what it hears while someone else transmits (**TX LISTEN**): OPERATOR (their microphone, straight through), ON-AIR (the radio's monitor of the signal) or OFF, at its own **LISTEN VOL**; FT8, JS8 and other data modes stay quiet unless DIGI LISTEN is on.
+**Several operators.** Any number of browsers can use the page at once; one transmits at a time. Another browser's PTT is refused while someone transmits, and every page shows `TX: <user>`. Under FUNC > AUDIO each browser chooses what it hears while someone else transmits (**TX LISTEN**): OPERATOR (their microphone, straight through), ON-AIR (the radio's monitor of the signal) or OFF, at its own **LISTEN VOL**; FT8, JS8 and other data modes stay quiet unless DIGI LISTEN is on. **TALK** in the same menu is a two-way intercom: your microphone goes to the other browsers, never to the radio, while you are not transmitting.
 
 **Password protection.** Before forwarding the web port on your router, add web users. With at least one user, the page asks to sign in:
 

@@ -158,6 +158,12 @@ html, body {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+#talkLabel {
+    padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: bold;
+    background: #1d4f7a; color: #fff; white-space: nowrap; cursor: pointer;
+    max-width: 30vw; overflow: hidden; text-overflow: ellipsis;
+}
+#talkLabel.mine { background: #2e7d32; }
 #txByLabel.flash { animation: txByFlash 0.4s ease-in-out 3; }
 @keyframes txByFlash { 50% { background: #c33; color: #fff; } }
 body.tx-other .ptt-btn { opacity: 0.45; }
@@ -2358,6 +2364,7 @@ try {
         <span id="txIndicator">RX</span>
         <span id="tuneLabel">TUNE</span>
         <span id="txByLabel" hidden role="status"></span>
+        <span id="talkLabel" hidden role="status" onclick="toggleTalk()"></span>
         <button id="modeBtn" onclick="setPanel('mode')">---</button>
         <span id="pbBars"><i></i><i></i></span>
         <span id="filterText" onclick="openFilterModal()">FIL1</span>
@@ -3630,6 +3637,9 @@ function handleMessage(msg) {
             break;
         case 'txState':
             setTxOther(msg.on && !msg.mine ? (msg.by || 'another browser') : '');
+            break;
+        case 'talkers':
+            onTalkers(msg);
             break;
         case 'txBusy':
             setTxOther(msg.by || 'another browser');
@@ -5668,7 +5678,7 @@ var AE_DESKTOP_MQ = '(min-width: 1100px) and (min-height: 560px) and (orientatio
 var AE_PHONE_MQ = '(orientation: portrait) and (max-width: 600px)';
 var AE_MODES = ['LSB', 'USB', 'CW', 'AM', 'FM', 'DIGU', 'DIGL', 'RTTY', 'USB-D', 'LSB-D'];
 
-// FUNC > LOOK (item 16): AETHER (default) or CLASSIC, per browser.
+// FUNC > LOOK: AETHER (default) or CLASSIC, per browser.
 var aeClassic = false;
 try { aeClassic = localStorage.getItem('wfLook') === 'classic'; } catch (e) {}
 function setLook(classic) {
@@ -5737,7 +5747,7 @@ function aeSliceTexts() {
     return out;
 }
 
-// ---- Radio memories (FlexRadio): MEMORIES applet / MEM tile (item 17) ----
+// ---- Radio memories (FlexRadio): MEMORIES applet / MEM tile ----
 // The radio's own memory list (flexCommander, {type:'flexMemories'}): tap to
 // recall, + stores the current frequency/mode/filter, long-press or
 // right-click to rename, regroup or delete. The applet header collapses it.
@@ -6611,6 +6621,9 @@ function renderAudioMicOverlay() {
         var td = makeFuncBtn('DIGI LISTEN', txListenDigi ? 'ON' : 'OFF', txListenDigi, toggleTxListenDigi);
         td.title = 'Also listen while another browser transmits FT8, JS8 or other data modes.';
         grid.appendChild(td);
+        var tk = makeFuncBtn('TALK', talkOn ? 'ON' : 'OFF', talkOn, toggleTalk);
+        tk.title = 'Intercom: talk to the other browsers with your microphone (not transmitted). Turns itself off after 2 minutes.';
+        grid.appendChild(tk);
     }
 
     // Fill remaining slots + back
@@ -7901,6 +7914,67 @@ function toggleTxListenDigi() {
 // second (only a change is sent).
 setInterval(function () { if (ws && ws.readyState === WebSocket.OPEN) sendTxListen(false); }, 1000);
 
+// Two-way intercom (server webServer::onTalkFrame). TALK sends the mic to
+// the other browsers as 0x06 while this browser is not transmitting; their
+// mics arrive as 0x07 [talker id] and each talker plays on its own line,
+// mixed over the receiver audio at LISTEN VOL.
+var talkOn = false;
+var talkOffTimer = null;
+var talkPlay = {};          // talker id -> next start time
+var talkCtx = null;
+function toggleTalk() {
+    // Needs the microphone: start it (TALK sends once it is open).
+    if (!talkOn && !micEnabled && typeof startMic === 'function') startMic();
+    setTalk(!talkOn);
+}
+function setTalk(on) {
+    talkOn = !!on;
+    clearTimeout(talkOffTimer);
+    if (talkOn) talkOffTimer = setTimeout(function () { setTalk(false); }, 120000);
+    renderTalkLabel();
+    if (currentPanel === 'audio') renderAudioMicOverlay();
+}
+var talkersNow = [];
+var talkMine = false;
+function onTalkers(msg) {
+    talkersNow = msg.who || [];
+    talkMine = !!msg.me;
+    renderTalkLabel();
+}
+function renderTalkLabel() {
+    var el = document.getElementById('talkLabel');
+    if (!el) return;
+    var others = talkMine ? talkersNow.length - 1 : talkersNow.length;
+    var show = talkOn || talkersNow.length > 0;
+    el.hidden = !show;
+    if (!show) return;
+    var names = talkersNow.slice();
+    el.textContent = 'TALK' + (names.length ? ': ' + names.join(', ') : '');
+    el.classList.toggle('mine', talkOn);
+    el.title = talkOn ? 'You are talking on the intercom (tap to stop)' : (others > 0 ? 'Intercom' : '');
+}
+function handleTalkData(buffer) {
+    if (!audioEnabled || buffer.byteLength < 8) return;
+    var ctx = audioCtx;
+    if (!ctx) return;
+    var id = new Uint8Array(buffer, 1, 1)[0];
+    var rate = (new DataView(buffer).getUint16(4, true) || 48) * 1000;
+    var pcm = new Int16Array(buffer.slice(6, 6 + ((buffer.byteLength - 6) & ~1)));
+    var gain = txListenVol / 100;
+    var b = ctx.createBuffer(1, pcm.length, rate);
+    var d = b.getChannelData(0);
+    for (var i = 0; i < pcm.length; i++) d[i] = Math.max(-1, Math.min(1, pcm[i] / 32768 * gain));
+    var src = ctx.createBufferSource();
+    src.buffer = b;
+    src.connect(ctx.destination);
+    var now = ctx.currentTime;
+    var t = talkPlay[id] || 0;
+    // Fresh talk spurt or fallen behind: restart 60 ms ahead; far ahead: catch up.
+    if (t < now + 0.01 || t > now + 0.5) t = now + 0.06;
+    src.start(t);
+    talkPlay[id] = t + b.duration;
+}
+
 // TX lock (server webServer::broadcastTxState): another browser has the
 // radio. Our PTT is held and the press says who is transmitting.
 var txOtherBy = '';
@@ -8871,7 +8945,9 @@ function startMic() {
                 var pcmBuffer = e.data;
                 var frame = new ArrayBuffer(6 + pcmBuffer.byteLength);
                 var view = new DataView(frame);
-                view.setUint8(0, 0x03); view.setUint8(1, 0x00);
+                // Intercom TALK (not keyed): to the other browsers, never the radio.
+                var talking = talkOn && !isTransmitting;
+                view.setUint8(0, talking ? 0x06 : 0x03); view.setUint8(1, 0x00);
                 view.setUint16(2, micSeq++ & 0xFFFF, true); view.setUint16(4, 0, true);
                 new Uint8Array(frame, 6).set(new Uint8Array(pcmBuffer));
                 sendTxAudio(frame);
@@ -8898,7 +8974,7 @@ function stopMic() {
     micRepaint();
 }
 
-// ---- Opus receive audio (item 2) -----------------------------------------
+// ---- Opus receive audio -----------------------------------------
 // AUDIO > QUALITY: PCM (default, ~770 kbit/s) or OPUS (~32 kbit/s, decoded by
 // the browser's WebCodecs AudioDecoder). FT8 / JS8 open = PCM, so their
 // decoders get clean audio; browsers without AudioDecoder stay on PCM.
@@ -9418,7 +9494,7 @@ function initWaterfallBuffer(dataLen) {
     wfBufDirty = true;
 }
 
-// Scope sync (item 13): hold the spectrum, waterfall and S meter back by the
+// Scope sync: hold the spectrum, waterfall and S meter back by the
 // audio delay (jitter buffer depth + the sound card's output latency), so a
 // signal is seen as it is heard. Off while transmitting (TX meters stay
 // live), with audio off, or with SYNC SCOPE OFF; FUNC > AUDIO has a +/- trim.
@@ -9490,6 +9566,7 @@ function handleBinaryMessage(buffer) {
     if (msgType === 0x01 && !scopeSyncReleasing && scopeSyncDefer(function () { handleBinaryMessage(buffer); })) return;
     if (msgType === 0x02) { handleAudioData(buffer); return; }
     if (msgType === 0x05) { handleOpusData(buffer); return; }
+    if (msgType === 0x07) { handleTalkData(buffer); return; }
     if (msgType === 0x04) {
         // TX audio echo — visualisation-only PCM teed from the server so the
         // packet waterfall can show the outgoing signal while the radio is keyed.
@@ -11140,7 +11217,7 @@ function processDigiAudioChunk(int16Chunk) {
     }
 }
 
-// ---- FT8 / JS8 timing (item 14) ------------------------------------------
+// ---- FT8 / JS8 timing ------------------------------------------
 // Clock: the server checks its own clock against NTP and answers "timePing"
 // with NTP time; this page keeps the offset of the best (lowest round trip)
 // of its recent pings, so slots follow true UTC whatever the device clock.
