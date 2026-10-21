@@ -1754,6 +1754,12 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
     if (!handshakeDone)
         return;   // nothing to talk to yet; the queue will ask again
 
+    // Actions the page queues as a bare command (an Icom runs them on a
+    // read with no data): swap and A=B are sets here.
+    if (!value.isValid() && (func == funcVFOSwapAB || func == funcVFOEqualAB
+                             || func == funcVFOASelect || func == funcVFOBSelect))
+        value = QVariant::fromValue<uchar>(0);
+
     // GET: everything is pushed by the radio, so answer from state.
     if (!value.isValid()) {
         reportCurrent(func);
