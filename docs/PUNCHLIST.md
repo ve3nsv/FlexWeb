@@ -25,3 +25,15 @@ and FM / NFM.
    is in FM, put back when it leaves FM. NNR currently counts FM as a voice
    mode (flexCommander::nnrModeOk) - take FM, NFM and DFM out of it. Only the
    filter settings change here, not the mode or the receive filter width.
+4. Scope that behaves like AetherSDR's panadapter (SpectrumWidget mouse handlers):
+   - Drag an empty part of the spectrum or waterfall: pan the view (the
+     panadapter's centre moves, the VFO stays); click / double-click tunes.
+   - Drag inside the passband: drag the VFO (the marker follows the pointer).
+   - Drag a filter edge (about 8 px grab zone): move that edge alone -> filter
+     low / high cut (`filt <slice> lo hi`), any width, either side.
+   - Drag the frequency scale: zoom the span (bandwidth) around the pointer.
+   - Wheel: tune by the step. A VFO pushed off-screen scrolls the view.
+   Needs a free-pan scope on the Flex (today the scope is CENTER mode and the
+   panadapter is re-centred on every tune: recenterPan), a draggable passband
+   with both edges, and touch versions of the same gestures for phones.
+   Keep the current behaviour for CLASSIC / non-Flex rigs, and FUNC > DRAG.
