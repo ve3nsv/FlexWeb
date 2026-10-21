@@ -2,13 +2,19 @@
 
 The previous 15-item batch shipped in 1.0.55.
 
-1. JS8 always on USB. The panel only switches to USB when the mode is already
-   known at open (`currentMode !== 'USB'` in js8-panel.mjs open()); after a page
-   reload that restores the open panel, the mode is not known yet and the switch
-   is skipped. Enforce USB once the mode arrives, and whenever it changes while
-   the panel is open.
-2. Receive DSP off while JS8 is open: NB, NR, ANF, NNR, APF, WNB (and, on a Flex,
-   any TNF that sits in the passband), plus a filter wide enough for the JS8
-   passband. Remember each setting at open and put it back at close, like the
-   VFO snapshot (saveVfoSnapshot / restoreVfoSnapshot).
-   - Ask the user: same for the FT8/FT4 panel?
+Digital modes get a clean receive path: JS8, FT8 / FT4 and FreeDV RADE.
+
+1. USB always. The JS8 and FT8 panels switch to USB only when the mode is
+   already known at open (`currentMode !== 'USB'`); after a page reload that
+   restores an open panel the mode is not known yet and the switch is skipped.
+   Enforce USB once the mode arrives and whenever it changes while the panel /
+   mode is on. RADE: FreeDV is USB on every band (40 m too); switch to USB when
+   RADE is turned on (the user's 7.181 screenshot was LSB | RADE). Restore the
+   previous mode when RADE is turned off, like the panels' VFO snapshot.
+2. Receive DSP off while JS8, FT8 / FT4 or RADE is on: NB, NR, ANF, NNR, APF,
+   WNB, and on a Flex any TNF inside the passband; plus a receive filter wide
+   enough for the mode (about 3 kHz). Remember each setting when the mode starts
+   and put it back when it ends (saveVfoSnapshot / restoreVfoSnapshot pattern;
+   the handoff between panels must not restore in between).
+   - Classic FreeDV (700D / 700E / 1600): same treatment unless the user says
+     otherwise (mention it).
