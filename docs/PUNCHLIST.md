@@ -33,7 +33,7 @@ Suggested order: 5, 6, 7 first (daily use), NNR (3) last.
     - Launcher: window/tray/message-box titles and texts, product/description/company in the .exe
       resources (QMAKE_TARGET_PRODUCT etc.).
     - Download names: zip/deb/AppImage names wfweb-* -> FlexWeb-* in build.yml (update the user's
-      .bat files' WFWEB_DIR accordingly) — ask before changing, it moves the download URL.
+      .bat files' WFWEB_DIR accordingly) — approved by the user; give the new link and .bat edits.
     - README / docs text where it describes this fork.
     - Keep unchanged: wfweb.exe / wfweb-launcher.exe file names (the .bat files and launcher call
       them), QSettings("wfweb", …) organisation/app names and %APPDATA%\wfweb (user's settings,
