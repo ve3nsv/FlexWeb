@@ -169,5 +169,5 @@ Status: items 1-8 implemented for build 57.
    (about 35 % of the scope area, the scope's normal clicks / drags / passband
    still work, so you can see and click SSTV signals near 14.230), the SSTV
    panel sits under it. Phone: a short spectrum strip over the panel. The
-   recorder's SSTV view gets the scope strip as well. FT8 / JS8 unchanged
-   unless the user asks.
+   recorder's SSTV view gets the scope strip as well. FT8 / JS8 keep their
+   full-panel layout (user confirmed).
