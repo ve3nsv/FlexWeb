@@ -2,7 +2,8 @@
 
 The previous 15-item batch shipped in 1.0.55.
 
-Digital modes get a clean receive path: JS8, FT8 / FT4 and FreeDV RADE.
+Digital modes and FM get a clean receive path: JS8, FT8 / FT4, FreeDV RADE,
+and FM / NFM.
 
 1. USB always. The JS8 and FT8 panels switch to USB only when the mode is
    already known at open (`currentMode !== 'USB'`); after a page reload that
@@ -20,3 +21,7 @@ Digital modes get a clean receive path: JS8, FT8 / FT4 and FreeDV RADE.
    the handoff between panels must not restore in between).
    - Classic FreeDV (700D / 700E / 1600): same treatment unless the user says
      otherwise (mention it).
+3. FM and NFM (and DFM on a Flex): the same noise filters off while the slice
+   is in FM, put back when it leaves FM. NNR currently counts FM as a voice
+   mode (flexCommander::nnrModeOk) - take FM, NFM and DFM out of it. Only the
+   filter settings change here, not the mode or the receive filter width.
