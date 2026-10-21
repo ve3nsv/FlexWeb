@@ -65,6 +65,10 @@ FlexRadio:
   recalled, saved from the current slice, renamed and deleted.
 - FM repeaters: DUP-/DUP+/simplex, offset and CTCSS TX tone set the
   slice's repeater offset and FM tone (the DUP and TONE tiles).
+- Scope drag direction (FUNC > DRAG): VFO = drag right to tune up, as when
+  dragging a slice in SmartSDR / AetherSDR (default with the AetherSDR
+  look); BAND = pull the band like a map, drag left to tune up (default
+  with CLASSIC, wfweb's original behaviour).
 - Mic level meter (LVL, under MIC): the microphone level going to the
   radio in dBFS with a peak hold, live whenever the mic is on, not only
   on transmit.

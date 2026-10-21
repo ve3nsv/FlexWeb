@@ -6466,6 +6466,12 @@ function renderFuncOverlay() {
         setLook(!aeClassic);
         renderFuncOverlay();
     }));
+    var dg = makeFuncBtn('DRAG', scopeDragVfo() ? 'VFO' : 'BAND', false, function() {
+        toggleScopeDrag();
+        renderFuncOverlay();
+    });
+    dg.title = 'Scope drag: VFO = drag right to tune up (like SmartSDR); BAND = pull the band like a map (drag left to tune up).';
+    grid.appendChild(dg);
 
     // Meter face: follow the radio, or force the tile bar / the needle
     grid.appendChild(makeFuncBtn('METER', meterStyle.toUpperCase(), meterStyle !== 'auto', function() {
@@ -10249,13 +10255,28 @@ function scopeSetVisualPan(px) {
     if (wf) wf.style.transform = t;
 }
 
+// Which way a drag on the scope tunes (FUNC > DRAG). VFO: drag right = up,
+// as when you drag a slice in SmartSDR / AetherSDR (the band moves the other
+// way under the centred marker). BAND: grab the band and pull it like a map
+// (drag left = up), wfweb's original behaviour. Default VFO with the
+// AetherSDR look, BAND with CLASSIC.
+function scopeDragVfo() {
+    var v = null;
+    try { v = localStorage.getItem('wfScopeDrag'); } catch (e) {}
+    return v ? v === 'vfo' : !aeClassic;
+}
+function toggleScopeDrag() {
+    try { localStorage.setItem('wfScopeDrag', scopeDragVfo() ? 'band' : 'vfo'); } catch (e) {}
+}
+
 function scopeFreqFromDragDeltaX(deltaX) {
     if (scopeDragRectWidth <= 0 || spectStartFreq <= 0 || spectEndFreq <= spectStartFreq) return 0;
     if (scopeDragStartFreq <= 0) return 0;
     var spanHz = (spectEndFreq - spectStartFreq) * 1e6;
     var hzPerPx = spanHz / scopeDragRectWidth;
-    // Left pan (negative deltaX) should increase frequency.
-    return Math.max(100, Math.round((scopeDragStartFreq - deltaX * hzPerPx) / 100) * 100);
+    // BAND: a left pull (negative deltaX) raises the frequency; VFO: a right one.
+    var sign = scopeDragVfo() ? -1 : 1;
+    return Math.max(100, Math.round((scopeDragStartFreq - sign * deltaX * hzPerPx) / 100) * 100);
 }
 
 // X of the VFO on the glass. CENTER pins it mid-screen (compensating the
@@ -10364,7 +10385,7 @@ function scopePointerMove(e) {
         scopeDragMoved = true;
     }
 
-    if (scopeMode === 0 && wfHistory === 'pan') scopeSetVisualPan(deltaX);
+    if (scopeMode === 0 && wfHistory === 'pan') scopeSetVisualPan(scopeDragVfo() ? -deltaX : deltaX);
 
     if (scopeDragMoved) {
         if (now - scopeDragLastTuneTime >= 35) {
