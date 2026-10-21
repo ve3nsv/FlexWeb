@@ -2250,6 +2250,7 @@ body.digi-open #bottomBar { grid-row: 5; }
 <!-- JS8 messenger panel styles — shared with the server build via
      resources/web-shared/js8-panel.css. -->
 <link rel="stylesheet" href="js8-panel.css">
+<link rel="stylesheet" href="sstv-panel.css">
 </head>
 <body>
 <!-- Startup Overlay -->
@@ -5374,6 +5375,13 @@ function renderModeOverlay() {
         if (typeof window.toggleJs8Bar === 'function') window.toggleJs8Bar();
     };
     grid.appendChild(js8Btn);
+    if (typeof window.toggleSstvPanel === 'function') {
+        var sstvBtn = document.createElement('button');
+        sstvBtn.className = 'ov-btn' + (window.sstvPanelVisible() ? ' active' : '');
+        sstvBtn.textContent = 'SSTV';
+        sstvBtn.onclick = function() { setPanel('default'); window.toggleSstvPanel(); };
+        grid.appendChild(sstvBtn);
+    }
     // Packet (Dire Wolf AX.25 / APRS) panel toggle
     if (window.Packet) {
         var pktBtn = document.createElement('button');
@@ -7071,6 +7079,9 @@ function closeOtherModesInner(except) {
     if (except !== 'js8' && typeof window.js8MessengerVisible === 'function' && window.js8MessengerVisible()) {
         window.toggleJs8Bar();
     }
+    if (except !== 'sstv' && typeof window.sstvPanelVisible === 'function' && window.sstvPanelVisible()) {
+        window.toggleSstvPanel();
+    }
 }
 window.closeOtherModes = closeOtherModes;
 
@@ -7672,6 +7683,7 @@ function handleAudioData(buffer) {
     // the server build uses. The hook is installed by js8-panel.mjs
     // once the module finishes booting.
     if (typeof window._js8ProcessAudioChunk === 'function') window._js8ProcessAudioChunk(pcmData);
+    if (typeof window._sstvProcessAudioChunk === 'function') window._sstvProcessAudioChunk(pcmData);
     if (toneScanDetector) feedToneScan(pcmData);
     Recorder.feedRx(pcmData, audioSampleRate);
 
@@ -12529,6 +12541,7 @@ window.dispatchEvent(new Event('ft8tsReady'));
 <!-- JS8 messenger panel — markup + state machine live in
      resources/web-shared/js8-panel.mjs so both builds share them. -->
 <script type="module" src="js8-panel.mjs"></script>
+<script type="module" src="sstv-panel.mjs"></script>
 <script src="cw-decoder-stft.js"></script>
 <script src="cw-decoder-utils.js"></script>
 <script src="cw-decoder.js"></script>

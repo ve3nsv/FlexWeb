@@ -462,6 +462,9 @@ export class SstvDecoder {
                 const f = this._mean(t + d * 0.1, t + d * 0.9) - this.off;
                 v[x] = f === f ? clamp8((f - FREQ_BLACK) / (FREQ_WHITE - FREQ_BLACK) * 255) : 0;
             }
+            // the outermost pixels sit against a sync or separator tone,
+            // which the discriminator's filter smears into them
+            v[W - 1] = v[W - 2] = v[W - 3];
             ch[s.ch] = v;
         }
         P.chans[k] = ch;

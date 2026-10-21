@@ -1,0 +1,64 @@
+/* SSTV panel (sstv-panel.mjs). Like the JS8 panel it fills #scopeArea,
+   whose grid row is widened while body.sstv-open is set. */
+body.sstv-open #scopeInfoBar { display: none !important; }
+body.sstv-open #spectrumCanvas,
+body.sstv-open #waterfallCanvas { display: none !important; }
+body.sstv-open #scopeArea { grid-row: 3 / 5; }
+body.sstv-open #bottomBar { grid-row: 5; }
+
+.sstv-bar { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column; gap: 8px;
+    padding: 8px 10px; overflow: auto; background: var(--ae-bg, #0b1118);
+    color: var(--ae-text, #c9d6e2); font: 12px var(--font-mono, monospace); }
+.sstv-bar.hidden { display: none; }
+.sstv-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sstv-chip { padding: 2px 8px; border-radius: 3px; background: #16222e; color: #8fb3cc;
+    font: 700 11px var(--font-ui, sans-serif); letter-spacing: 0.5px; border: 0; }
+.sstv-chip-on { background: #0e5c8a; color: #e6f3ff; }
+.sstv-chip-ok { background: #1f7a3a; color: #e8fff0; }
+.sstv-chip-tx { background: #8c1f1f; color: #ffe8e8; }
+.sstv-chip-btn { cursor: pointer; }
+.sstv-info { color: var(--ae-text-dim, #6f8aa0); }
+.sstv-head .sstv-sel { margin-left: auto; }
+.sstv-btn { padding: 5px 10px; border-radius: 4px; background: #16222e; color: #c9d6e2; cursor: pointer;
+    border: 1px solid #24384a; font: 700 11px var(--font-ui, sans-serif); letter-spacing: 0.5px; }
+.sstv-btn:hover { border-color: #3a5a74; }
+.sstv-send { background: #5a1d1d; color: #ffe8e8; border-color: #7a2a2a; }
+.sstv-sel, .sstv-text { background: #111b25; color: #c9d6e2; border: 1px solid #24384a; border-radius: 4px;
+    padding: 4px 6px; font: 12px var(--font-mono, monospace); min-width: 0; }
+.sstv-body { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); gap: 10px; flex: 1; min-height: 0; }
+.sstv-left { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.sstv-pic-wrap { flex: 1; min-height: 120px; display: flex; align-items: center; justify-content: center;
+    background: #000; border-radius: 6px; overflow: hidden; }
+#sstvImg { width: 100%; height: 100%; object-fit: contain; }
+#sstvWf { width: 100%; height: 48px; border-radius: 4px; background: #000; }
+.sstv-wf-scale { position: relative; height: 14px; color: var(--ae-text-dim, #6f8aa0); font-size: 11px; }
+.sstv-wf-scale span { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.sstv-right { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.sstv-tile { background: #111b25; border-radius: 6px; padding: 7px 9px; }
+.sstv-lbl { color: var(--ae-text-dim, #6f8aa0); letter-spacing: 0.6px; font-size: 11px; margin-bottom: 5px; }
+.sstv-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.sstv-sig { margin-bottom: 6px; }
+.sstv-meter { height: 5px; background: #16222e; border-radius: 3px; overflow: hidden; }
+.sstv-meter div { height: 5px; width: 0; background: #1d9e75; transition: width 0.3s; }
+.sstv-gal-tile { flex: 1; min-height: 90px; display: flex; flex-direction: column; }
+.sstv-gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 5px; overflow: auto; min-height: 0; }
+.sstv-gal img { width: 100%; aspect-ratio: 5 / 4; object-fit: cover; border-radius: 3px; cursor: pointer; }
+.sstv-empty { color: var(--ae-text-dim, #6f8aa0); grid-column: 1 / -1; }
+.sstv-send-row { display: flex; gap: 8px; }
+#sstvTxPrev { width: 110px; height: 88px; border-radius: 4px; background: #16222e; cursor: pointer; flex-shrink: 0; object-fit: contain; }
+.sstv-send-ctl { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 0; }
+.sstv-send-row2 { display: flex; align-items: center; gap: 8px; margin-top: 7px; flex-wrap: wrap; }
+.sstv-view { position: absolute; inset: 0; z-index: 5; background: rgba(0, 0, 0, 0.88); display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 8px; padding: 12px; }
+.sstv-view.hidden { display: none; }
+#sstvViewImg { width: 100%; height: calc(100% - 70px); object-fit: contain; }
+.sstv-view-btns { display: flex; gap: 8px; }
+
+/* Phone: controls stack under the picture */
+@media (max-width: 760px) {
+    .sstv-body { display: flex; flex-direction: column; flex: none; }
+    .sstv-left { flex: none; }
+    .sstv-pic-wrap { flex: none; height: 56vw; min-height: 180px; }
+    .sstv-gal-tile { flex: none; }
+    .sstv-gal { max-height: 180px; }
+}

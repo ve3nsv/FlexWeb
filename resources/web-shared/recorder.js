@@ -402,7 +402,7 @@ function wrap(text, n, first) {
 // with its host helpers — these readers take what they need straight from
 // page globals and from what the page has already rendered. All page access
 // for the mode views is in cwView(), ft8View(), js8View(), packetView() and
-// freedvView(); each returns null when its mode is not in use.
+// freedvView() and sstvView(); each returns null when its mode is not in use.
 // ---------------------------------------------------------------------------
 var CW_PANEL_H = 250;
 var CW_SEED_CHARS = 100;         // decoded text carried in when recording starts mid-QSO
@@ -477,6 +477,16 @@ function ft8Rows(panel) {
         });
     }
     return out;
+}
+
+// SSTV: the picture being received (or the one about to be sent), the tuning
+// strip and the panel's status line - all read from the panel's DOM.
+function sstvView() {
+    if (!document.body.classList.contains('sstv-open')) return null;
+    function text(id) { var el = byId(id); return el ? el.textContent.trim() : ''; }
+    return { img: byId('sstvImg'), wf: byId('sstvWf'), state: text('sstvState'), info: text('sstvInfo'),
+             signal: text('sstvSignal'), freq: text('sstvFreq'), tx: /^TX/.test(text('sstvState')),
+             txPrev: byId('sstvTxPrev'), txInfo: text('sstvTxInfo') };
 }
 
 // JS8 keeps its state private to its module, but everything a frame needs is
@@ -817,6 +827,30 @@ function drawFt8Body(r, v) {
 
 // --- JS8 --------------------------------------------------------------------
 
+function drawSstvBody(r, v) {
+    var g = r.g, W = VIDEO.w, H = VIDEO.h, T = r.theme, y = HEADER_H;
+    g.fillStyle = T.bar; g.fillRect(0, y, W, 32);
+    g.font = 'bold 15px ' + T.mono;
+    tile(g, 12, y + 5, 56, 22, '#0e5c8a', '#e6f3ff', 'SSTV');
+    g.fillStyle = v.tx ? '#ff8a8a' : T.text; g.fillText(v.state, 80, y + 17);
+    g.fillStyle = T.dim; g.fillText(v.info, 340, y + 17);
+    g.textAlign = 'right'; g.fillStyle = T.text; g.fillText(v.freq, W - 12, y + 17); g.textAlign = 'left';
+    y += 38;
+    var wfH = 48, picH = H - y - wfH - 30;
+    var src = v.tx && v.txPrev ? v.txPrev : v.img;
+    if (src && src.width && src.height) {
+        var k = Math.min((W - 24) / src.width, picH / src.height), pw = src.width * k, ph = src.height * k;
+        g.fillStyle = '#000'; g.fillRect(12, y, W - 24, picH);
+        g.imageSmoothingEnabled = true;
+        g.drawImage(src, 12 + (W - 24 - pw) / 2, y + (picH - ph) / 2, pw, ph);
+    }
+    y += picH + 4;
+    if (v.wf && v.wf.width) g.drawImage(v.wf, 12, y, W - 24, wfH);
+    y += wfH + 18;
+    g.font = '14px ' + T.mono; g.fillStyle = T.dim;
+    g.fillText(v.tx ? v.txInfo : v.signal, 12, y);
+}
+
 function drawJs8Body(r, v) {
     var g = r.g, W = VIDEO.w, H = VIDEO.h, T = r.theme, y = HEADER_H, i;
 
@@ -1150,6 +1184,7 @@ function drawFrame(r) {
     var view;
     if ((view = ft8View())) return drawFt8Body(r, view);
     if ((view = js8View())) return drawJs8Body(r, view);
+    if ((view = sstvView())) return drawSstvBody(r, view);
     if ((view = packetView())) return drawPacketBody(r, view);
     var cw = cwView(), fdv = cw ? null : freedvView();
     var panelH = cw ? CW_PANEL_H : fdv ? FDV_PANEL_H : 0;

@@ -2332,6 +2332,7 @@ body.digi-open #bottomBar { grid-row: 5; }
 <!-- JS8 messenger panel styles — shared with the standalone build via
      resources/web-shared/js8-panel.css. -->
 <link rel="stylesheet" href="js8-panel.css">
+<link rel="stylesheet" href="sstv-panel.css">
 <!-- AetherSDR-style skin: restyles only, loaded last so it wins. -->
 <link rel="stylesheet" href="aether.css" id="aetherCss">
 <script>
@@ -4691,6 +4692,7 @@ function modeCleanSave() {
 function modeCleanProfile() {
     var js8 = typeof window.js8MessengerVisible === 'function' && window.js8MessengerVisible();
     if (digiBarVisible || js8) return 'digi';
+    if (document.body.classList.contains('sstv-open')) return 'sstv';   // sideband by band
     if (freedvEnabled) return 'fdv';
     if (/^(FM|NFM|DFM|WFM)$/.test(currentMode || '')) return 'fm';
     return null;
@@ -4765,7 +4767,8 @@ function modeCleanCheck() {
     }
     if (!p) return;
     // Sideband: data modes stay on USB; FreeDV follows the band.
-    var want = p === 'digi' ? 'USB' : p === 'fdv' ? freedvSideband() : null;
+    // SSTV, like FreeDV, is LSB below 10 MHz (3.845, 7.171) and USB above.
+    var want = p === 'digi' ? 'USB' : (p === 'fdv' || p === 'sstv') ? freedvSideband() : null;
     if (want && currentMode !== want && /^(USB|LSB|DIGU|DIGL|USB-D|LSB-D|AM|FM|NFM|CW|CW-R|RTTY|RTTY-R|SAM|DFM)$/.test(currentMode)) {
         if (modeCleanLastSide === want + currentMode) return;   // one request per change; the reply settles it
         modeCleanLastSide = want + currentMode;
@@ -6706,6 +6709,9 @@ function aeDesktopButtons(isCW) {
     });
     out.push({ spacer: true, grow: true });
     out.push({ label: 'FT8', cls: 'ae-wide', active: digiBarVisible, action: function() { toggleDigiBar(); } });
+    var sstvOn = typeof window.sstvPanelVisible === 'function' && window.sstvPanelVisible();
+    if (typeof window.toggleSstvPanel === 'function')
+        out.push({ label: 'SSTV', cls: 'ae-wide', active: sstvOn, action: function() { window.toggleSstvPanel(); } });
     // A Flex: TUNE is the tune carrier (as in SmartSDR); the ATU is in the TX applet.
     if (flexDsp && flexDsp.tune !== undefined)
         out.push({ label: 'TUNE', cls: 'ae-wide' + (flexDsp.tune ? ' ae-tuning' : ''), active: !!flexDsp.tune, action: toggleTuneCarrier });
@@ -6779,6 +6785,14 @@ function renderModeOverlay() {
         if (typeof window.toggleJs8Bar === 'function') window.toggleJs8Bar();
     };
     grid.appendChild(js8Btn);
+    // SSTV picture panel
+    if (typeof window.toggleSstvPanel === 'function') {
+        var sstvBtn = document.createElement('button');
+        sstvBtn.className = 'ov-btn' + (window.sstvPanelVisible() ? ' active' : '');
+        sstvBtn.textContent = 'SSTV';
+        sstvBtn.onclick = function() { setPanel('default'); window.toggleSstvPanel(); };
+        grid.appendChild(sstvBtn);
+    }
     // Packet (Dire Wolf AX.25 / APRS) panel toggle
     if (window.Packet) {
         var pktBtn = document.createElement('button');
@@ -9036,7 +9050,7 @@ function toggleLanConnection() {
 function closeOtherModes(except) {
     // FT8 <-> JS8: the panel being closed must not restore the VFO, the one
     // opening inherits its snapshot instead (see saveVfoSnapshot).
-    vfoSnapshotHandoff = (except === 'digi' || except === 'js8');
+    vfoSnapshotHandoff = (except === 'digi' || except === 'js8' || except === 'sstv');
     try { closeOtherModesInner(except); } finally { vfoSnapshotHandoff = false; }
 }
 function closeOtherModesInner(except) {
@@ -9057,6 +9071,9 @@ function closeOtherModesInner(except) {
     }
     if (except !== 'js8' && typeof window.js8MessengerVisible === 'function' && window.js8MessengerVisible()) {
         window.toggleJs8Bar();
+    }
+    if (except !== 'sstv' && typeof window.sstvPanelVisible === 'function' && window.sstvPanelVisible()) {
+        window.toggleSstvPanel();
     }
 }
 window.closeOtherModes = closeOtherModes;
@@ -9717,7 +9734,8 @@ try { rxCodecWanted = localStorage.getItem('wfAudioCodec') === 'opus' ? 'opus' :
 var rxOpusDecoder = null, rxOpusRate = 0, rxOpusTs = 0;
 function rxOpusSupported() { return typeof window.AudioDecoder === 'function' && typeof window.EncodedAudioChunk === 'function'; }
 function rxCodecEffective() {
-    var digiOpen = (typeof digiBarVisible !== 'undefined' && digiBarVisible) || document.body.classList.contains('js8-open');
+    var digiOpen = (typeof digiBarVisible !== 'undefined' && digiBarVisible) || document.body.classList.contains('js8-open')
+        || document.body.classList.contains('sstv-open');
     return (rxCodecWanted === 'opus' && rxOpusSupported() && !digiOpen) ? 'opus' : 'pcm';
 }
 function sendRxCodec(force) {
@@ -9797,6 +9815,7 @@ function handleAudioData(buffer) {
     if (!intercom) {
         if (digiRxEnabled && digiRxBuffer) processDigiAudioChunk(pcmData);
         if (typeof window._js8ProcessAudioChunk === 'function') window._js8ProcessAudioChunk(pcmData);
+        if (typeof window._sstvProcessAudioChunk === 'function') window._sstvProcessAudioChunk(pcmData);
         if (toneScanDetector) feedToneScan(pcmData);
     }
     Recorder.feedRx(pcmData, audioSampleRate);
@@ -15331,6 +15350,7 @@ window.dispatchEvent(new Event('ft8tsReady'));
 <!-- JS8 messenger panel — markup + state machine live in
      resources/web-shared/js8-panel.mjs so both builds share them. -->
 <script type="module" src="js8-panel.mjs"></script>
+<script type="module" src="sstv-panel.mjs"></script>
 <script src="cw-decoder-stft.js"></script>
 <script src="cw-decoder-utils.js"></script>
 <script src="cw-decoder.js"></script>
