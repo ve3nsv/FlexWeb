@@ -8,9 +8,11 @@ Digital modes get a clean receive path: JS8, FT8 / FT4 and FreeDV RADE.
    already known at open (`currentMode !== 'USB'`); after a page reload that
    restores an open panel the mode is not known yet and the switch is skipped.
    Enforce USB once the mode arrives and whenever it changes while the panel /
-   mode is on. RADE: FreeDV is USB on every band (40 m too); switch to USB when
-   RADE is turned on (the user's 7.181 screenshot was LSB | RADE). Restore the
-   previous mode when RADE is turned off, like the panels' VFO snapshot.
+   mode is on (JS8 and FT8 are USB on every band).
+   RADE / FreeDV follow the SSB convention instead (freedv.org/getting-started:
+   "On bands below 10 MHz, LSB is used for FreeDV. On 10MHz and above, USB is
+   used."): LSB below 10 MHz, USB from 10 MHz up, re-checked on band changes.
+   Restore the previous mode when RADE is turned off.
 2. Receive DSP off while JS8, FT8 / FT4 or RADE is on: NB, NR, ANF, NNR, APF,
    WNB, and on a Flex any TNF inside the passband; plus a receive filter wide
    enough for the mode (about 3 kHz). Remember each setting when the mode starts
