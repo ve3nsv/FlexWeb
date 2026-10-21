@@ -2117,6 +2117,18 @@ body.digi-open #bottomBar { grid-row: 5; }
 #ampOverlay .amp-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #2f7fd0; transition: width 0.2s; }
 #ampOverlay .amp-fill.warn { background: #e09020; }
 #ampOverlay .amp-fill.bad { background: #e03030; }
+.amp-error-banner { margin: 6px 12px 0; padding: 5px 8px; border-radius: 4px; background: #6e1a1a;
+    border: 1px solid #e53935; color: #ffe8e8; font: 700 11px var(--font-ui, sans-serif); letter-spacing: 0.4px; }
+#ampOverlay .amp-error-banner { margin: 6px auto; max-width: 720px; box-sizing: border-box; }
+.amp-lock-note { color: var(--ae-text-dim, #889); font-size: 11px; }
+#ampOverlay .amp-lock-note { margin: 4px auto 6px; max-width: 720px; }
+.ae-amp-ctl { display: flex; align-items: center; gap: 8px; padding: 6px 12px 0; flex-wrap: wrap; }
+.amp-tune-btn { padding: 3px 12px; border-radius: 3px; cursor: pointer; font: 700 11px var(--font-ui, sans-serif);
+    letter-spacing: 0.6px; background: #16222e; color: #c9d6e2; border: 1px solid #2e4a62; }
+.amp-tune-btn:disabled { opacity: 0.5; cursor: default; }
+.amp-tune-btn.tuning { background: #8a5c00; border-color: #f5b400; color: #fff; opacity: 1; }
+.ae-meter-fill.warn { background: #e09020 !important; }
+.ae-meter-fill.bad { background: #e03030 !important; }
 #ampOverlay .amp-val { text-align: right; color: #ddd; font-variant-numeric: tabular-nums; }
 #ampOverlay .amp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
     gap: 6px; width: 100%; max-width: 720px; margin: 10px auto; }
@@ -3625,6 +3637,7 @@ function onTransportClose() {
 
 // Web login: the signed-in user in the top bar; tap twice to sign out.
 var webUser = '';
+var webLoginOn = false;      // the server has named users (web login on)
 var userBtnTimer = null;
 function setWebUser(name) {
     webUser = name || '';
@@ -3727,9 +3740,16 @@ function handleMessage(msg) {
             break;
         case 'amp':
             ampState = msg;
+            ampTunePending = false;
             renderAmpIndicator();
             if (document.getElementById('ampOverlay').classList.contains('visible')) renderAmpOverlay();
             if (currentPanel === 'func') renderFuncOverlay();
+            break;
+        case 'ampRefused':
+            ampRefusedReason = msg.reason || '';
+            ampTunePending = false;
+            renderAmpIndicator();
+            if (document.getElementById('ampOverlay').classList.contains('visible')) renderAmpOverlay();
             break;
         case 'txState':
             setTxOther(msg.on && !msg.mine ? (msg.by || 'another browser') : '');
@@ -3749,6 +3769,7 @@ function handleMessage(msg) {
             break;
         case 'rigInfo':
             if (msg.webUser !== undefined) setWebUser(msg.webUser);
+            if (msg.webLogin !== undefined) webLoginOn = !!msg.webLogin;
             if (msg.reporterMessage !== undefined) setReporterMessageField(msg.reporterMessage);
             if (msg.ampConfigured !== undefined) { ampConfigured = !!msg.ampConfigured; renderAmpIndicator(); }
             if (msg.version) {
@@ -6459,7 +6480,7 @@ function aeTick() {
     var sig = JSON.stringify([currentMode, currentFilter, currentFilterWidth, band, nbOn, nrOn, anfOn,
         isTransmitting, flexDsp, ampConfigured, ampState, tunerState, hasTuner, currentPanel,
         flexMemList === null ? -1 : flexMemList.length,
-        digiBarVisible, availableModes.length, rigBands.length, tuneStep]);
+        digiBarVisible, availableModes.length, rigBands.length, tuneStep, webUser, webLoginOn, txOtherBy, ampTunePending]);
     if (sig === aeLastSig) return;
     aeLastSig = sig;
     var pills = document.getElementById('slicePills');
@@ -6645,6 +6666,11 @@ function renderApplets() {
         right.appendChild(st);
         ah.appendChild(right);
         amp.appendChild(ah);
+        if (up && a.ampError) {
+            var eb = document.createElement('div'); eb.className = 'amp-error-banner';
+            eb.textContent = 'ERROR: ' + a.ampError;
+            amp.appendChild(eb);
+        }
         var body = document.createElement('button');
         body.type = 'button';
         body.className = 'ae-amp';
@@ -6662,8 +6688,16 @@ function renderApplets() {
             return row;
         }
         body.appendChild(meter('FWD', a.fwd, 1600, (a.fwd || 0) + ' W'));
+        // REF and SWR rest at baseline below 1 W forward (no carrier).
         var keyed = up && a.fwd >= 1;
-        body.appendChild(meter('SWR', keyed ? Math.min(a.swr, 5) - 1 : undefined, 4, keyed ? a.swr.toFixed(2) : ''));
+        var refRow = meter('REF', keyed ? a.ref : undefined, 200, keyed ? (a.ref || 0) + ' W' : '');
+        var rl = keyed ? ampRefLevel(a) : '';
+        if (rl) refRow.querySelector('.ae-meter-fill').classList.add(rl);
+        body.appendChild(refRow);
+        var swrRow = meter('SWR', keyed ? ampSwrFrac(a.swr) * 4 : undefined, 4, keyed ? a.swr.toFixed(2) : '');
+        var sl = keyed ? ampSwrLevel(a.swr) : '';
+        if (sl) swrRow.querySelector('.ae-meter-fill').classList.add(sl);
+        body.appendChild(swrRow);
         var tiles = document.createElement('span'); tiles.className = 'ae-amp-tiles';
         [['TEMP', up && a.temp !== undefined ? a.temp.toFixed(0) + ' °C' : '—'],
          ['BAND', up && a.band ? a.band : '—'],
@@ -6695,6 +6729,17 @@ function renderApplets() {
             body.appendChild(tn);
         }
         amp.appendChild(body);
+        var lockA = up ? ampLockReason() : '';
+        var tb = ampTuneButton(a, lockA);
+        if (tb || lockA) {
+            var row = document.createElement('div'); row.className = 'ae-amp-ctl';
+            if (tb) row.appendChild(tb);
+            if (lockA) { var ln = document.createElement('span'); ln.className = 'amp-lock-note'; ln.textContent = lockA; row.appendChild(ln); }
+            else if (tb && !isTransmitting && !(String(a.tuner).toUpperCase() === 'TUNING')) {
+                var hn = document.createElement('span'); hn.className = 'amp-lock-note'; hn.textContent = 'key TUNE first'; row.appendChild(hn);
+            }
+            amp.appendChild(row);
+        }
     } else {
         amp.hidden = true;
     }
@@ -7133,6 +7178,57 @@ function ampTile(label, value, bad) {
         (value === undefined || value === '' ? '\u2014' : ampEsc(value)) + '</span></div>';
 }
 
+// Who may change the amp (the server enforces the same rule, ampControlAllowed):
+// a signed-in named user while no other browser holds the TX lock. Without web
+// users the amp is read-only. Returns '' when allowed, else the reason.
+var ampTunePending = false, ampRefusedReason = '';
+function ampLockReason() {
+    if (!webLoginOn) return 'Read-only: create a web user to control the amp';
+    if (!webUser) return 'Sign in to control the amp';
+    if (txOtherBy) return 'TX: ' + txOtherBy + ' has the radio';
+    return '';
+}
+// SWR on the amplifier's own scale: 1 / 1.5 / 2 / 3 / 5 / inf evenly spaced.
+function ampSwrFrac(swr) {
+    var pts = [1, 1.5, 2, 3, 5];
+    if (!(swr >= 1)) return 0;
+    for (var i = 1; i < pts.length; i++) if (swr <= pts[i]) return (i - 1 + (swr - pts[i - 1]) / (pts[i] - pts[i - 1])) / 5;
+    return Math.min(1, 0.8 + 0.2 * (1 - 5 / swr));
+}
+function ampSwrLevel(swr) { return swr >= 2 ? 'bad' : (swr >= 1.5 ? 'warn' : ''); }
+// Reflected power coloured by the SWR it means at the present forward power.
+function ampRefLevel(a) {
+    if (!(a.fwd >= 1) || a.ref === undefined) return '';
+    var rho = Math.sqrt(a.ref / a.fwd), sw = rho < 1 ? (1 + rho) / (1 - rho) : 99;
+    return ampSwrLevel(sw);
+}
+// TUNE: shown only when the amp's REST server has the (modified) tune
+// command; enabled only with the tuner idle in AUTO or MANUAL; TUNING only
+// from the amp's own readback. It never keys the radio.
+function ampTuneButton(a, lock) {
+    if (!a || !a.connected || a.tuneApi !== 'supported') return null;
+    var m = String(a.tuner || '').toUpperCase();
+    var tuning = m === 'TUNING';
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'amp-tune-btn' + (tuning ? ' tuning' : '');
+    b.textContent = tuning ? 'TUNING' : 'TUNE';
+    var idle = m === 'AUTO' || m === 'MANUAL';
+    b.disabled = !!lock || !idle || ampTunePending || tuning;
+    b.title = lock ? lock
+            : tuning ? 'The amplifier is tuning'
+            : !idle ? 'Tune needs the tuner in AUTO or MANUAL'
+            : !isTransmitting ? 'Key TUNE first: the amplifier tunes on a carrier'
+            : 'Start the amplifier\'s autotune';
+    b.onclick = function (e) {
+        e.stopPropagation();
+        if (b.disabled) return;
+        ampTunePending = true; b.disabled = true;
+        send({ cmd: 'ampTune' });
+    };
+    return b;
+}
+
 // The RF2K-S tuner as an indicator, as in the AetherSDR RF-KIT applet: ON
 // (green) while the tuner is in the signal path - AUTO, MANUAL or tuning -
 // OFF (red) when the amplifier reports it bypassed or off. Read-only: the
@@ -7153,8 +7249,11 @@ function renderAmpOverlay() {
     if (!body) return;
     var a = ampState || {};
     var up = !!a.connected;
+    var lock = up ? ampLockReason() : '';
     var html = '<div class="amp-head"><b>' + ampEsc(a.device || 'RF-KIT') + '</b><span>' +
         (up ? 'connected ' : 'offline ') + ampEsc(a.target || '') + '</span></div>';
+    if (up && a.ampError) html += '<div class="amp-error-banner">ERROR: ' + ampEsc(a.ampError) + '</div>';
+    if (lock) html += '<div class="amp-lock-note">' + ampEsc(lock) + '</div>';
     if (!up && a.error) html += '<div class="amp-head"><span style="color:#e33">' + ampEsc(a.error) + '</span></div>';
 
     // Fixed scales matching the amplifier's own display (see AetherSDR's
@@ -7172,7 +7271,7 @@ function renderAmpOverlay() {
     html += '<div class="amp-bars">' +
         ampBar('FWD', up ? a.fwd : undefined, 1600, (a.fwd || 0) + ' W') +
         ampBar('REF', ref, 200, (ref || 0) + ' W', refLevel) +
-        ampBar('SWR', swr === undefined ? undefined : Math.min(swr, 5) - 1, 4,
+        ampBar('SWR', swr === undefined ? undefined : ampSwrFrac(swr) * 4, 4,
                swr === undefined ? '' : swr.toFixed(2) + ':1', swrLevel) +
         '</div>';
 
@@ -7194,7 +7293,8 @@ function renderAmpOverlay() {
     var opBtn = makeFuncBtn('OPERATE', up ? (a.operate ? 'ON' : 'STANDBY') : '\u2014', up && !!a.operate, function () {
         send({ cmd: 'ampOperate', value: !(ampState && ampState.operate) });
     });
-    opBtn.disabled = !up;
+    opBtn.disabled = !up || !!lock;
+    if (lock) opBtn.title = lock;
     opBtn.classList.add('amp-op-ind', up ? (a.operate ? 'on' : 'tuning') : 'off');
     grid.appendChild(opBtn);
     var tsO = ampTunerState(a);
@@ -7204,6 +7304,15 @@ function renderAmpOverlay() {
     tunerInd.title = tsO.title + ' (read-only)';
     tunerInd.setAttribute('aria-disabled', 'true');
     grid.appendChild(tunerInd);
+    var tuneB = ampTuneButton(a, lock);
+    if (tuneB) {
+        var tb2 = makeFuncBtn(tuneB.textContent, tuneB.disabled ? (lock ? 'LOCKED' : (tuneB.textContent === 'TUNING' ? '...' : '\u2014'))
+                                                  : (isTransmitting ? 'START' : 'KEY TUNE FIRST'),
+                              tuneB.textContent === 'TUNING', tuneB.onclick);
+        tb2.disabled = tuneB.disabled; tb2.title = tuneB.title;
+        if (tuneB.textContent === 'TUNING') tb2.classList.add('amp-op-ind', 'tuning');
+        grid.appendChild(tb2);
+    }
     var ants = (up && a.antennas) || [];
     for (var n = 1; n <= 4; n++) {
         var ant = null;
@@ -7213,7 +7322,7 @@ function renderAmpOverlay() {
             var b = makeFuncBtn('ANT ' + num, info ? info.state.toUpperCase() : '\u2014', active, function () {
                 send({ cmd: 'ampAntenna', value: num });
             });
-            b.disabled = !up || !info || info.state === 'disabled' || active;
+            b.disabled = !up || !info || info.state === 'disabled' || active || !!lock;
             grid.appendChild(b);
         })(n, ant);
     }
@@ -7229,7 +7338,7 @@ function renderAmpOverlay() {
         if (confirm('Reset the amplifier error state?\n\nThe error latch protects the amplifier; reset only once the cause is fixed.'))
             send({ cmd: 'ampErrorReset' });
     });
-    reset.disabled = !up;
+    reset.disabled = !up || !!lock;
     grid.appendChild(reset);
     var back = document.createElement('button');
     back.className = 'ov-btn back-btn';

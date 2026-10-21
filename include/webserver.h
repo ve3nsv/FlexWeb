@@ -689,6 +689,7 @@ private:
     AetherSDR::RfkitConnection *rfkit_ = nullptr;
     QString rfkitTarget_;
     QJsonObject ampJson_;
+    bool ampControlAllowed(QWebSocket *client);
     QJsonObject flexDspJson_;
     QJsonArray flexMemoriesJson_;
     bool haveFlexMemories_ = false;   // last flexDsp snapshot, replayed to new browsers

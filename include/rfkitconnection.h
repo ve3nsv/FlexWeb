@@ -1,8 +1,10 @@
 #pragma once
 
 // Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
-// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit), GPLv3.
-// "Constitution principle" references are AetherSDR's project rules.
+// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
+// 6392afe), GPLv3. "Constitution principle" references are AetherSDR's
+// project rules.
+
 
 #include <QHash>
 #include <QNetworkAccessManager>
@@ -67,6 +69,12 @@ public:
     // POST /error/reset. Clears the amplifier's error state; the device answers
     // 409 while the function is disabled, which is logged.
     void resetError();
+    // PUT /tuner {"tuner_mode":"START"}: asks the amplifier to run its automatic
+    // tune. Ignored while a previous start is still outstanding. Sent only when the amplifier's server was found to accept it
+    // (status().tuneApi) and its tuner is in automatic or manual mode; refused,
+    // logged, and never sent otherwise. The amplifier tunes only while a tune
+    // carrier is already being transmitted. Nothing here keys the radio.
+    void startTune();
 
 signals:
     void connected();
@@ -82,8 +90,10 @@ private:
         QString path;
         QByteArray body;
         bool probe{false};  // the connect handshake (GET /info)
+        bool tuneProbe{false};  // PUT /tuner {} : does this server have the route?
     };
 
+    static bool isTuneStart(const Request& request);
     void enqueue(const Request& request, bool front = false);
     void pump();
     void onReplyFinished(QNetworkReply* reply, const Request& request, int epoch);
@@ -94,6 +104,10 @@ private:
     void onTransportDown(const QString& errorString);
     void poll();
     void enqueueFullRefresh();
+    // Asks whether PUT /tuner exists. Retried only while the answer stays
+    // Unknown, at most kMaxTuneProbes times per session, and never with one
+    // already outstanding.
+    void maybeProbeTuneApi();
     void armReconnect();
     void resetSession();
 
@@ -139,6 +153,14 @@ private:
     QTimer m_pollTimer;
     static constexpr int kPollIntervalMs = 250;
     int m_slowPollIndex{0};
+
+    bool m_tuneProbePending{false};
+    // A START is outstanding (queued or in flight). The tuner readback that
+    // would disable the button can be a second old, so this keeps a double
+    // click from sending START twice. It is a send guard, not displayed state.
+    bool m_tuneStartPending{false};
+    int m_tuneProbeAttempts{0};
+    static constexpr int kMaxTuneProbes = 3;
 };
 
 }  // namespace AetherSDR

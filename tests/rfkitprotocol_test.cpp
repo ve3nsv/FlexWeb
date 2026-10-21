@@ -1,5 +1,5 @@
-// Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
-// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit), GPLv3.
+// Ported unchanged (apart from includes) from VE3NSV's RF-KIT support for
+// AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune, 6392afe), GPLv3.
 // "Constitution principle" references are AetherSDR's project rules.
 
 // Pure-codec tests for the RF-KIT REST/JSON protocol layer.
@@ -143,6 +143,33 @@ int main()
     report("an unknown tuner mode is Unknown rather than a rejection",
            parseTuner(R"({"mode":"WARP"})")->mode == TunerMode::Unknown);
     report("parseTuner rejects a document with no mode", !parseTuner(R"({"setup":"CL"})").has_value());
+    report("a tune in progress (AUTO_TUNING_FROM_AUTO) decodes as AutoTuning",
+           parseTuner(R"({"mode":"AUTO_TUNING_FROM_AUTO","setup":"CL"})")->mode == TunerMode::AutoTuning);
+    report("plain AUTO_TUNING still decodes as AutoTuning",
+           parseTuner(R"({"mode":"AUTO_TUNING"})")->mode == TunerMode::AutoTuning);
+
+    // ── PUT /tuner (modified servers only) ────────────────────────────────
+    report("the tune start body is exact",
+           buildTunerStartBody() == QByteArray(R"({"tuner_mode":"START"})"));
+    report("the probe body is an empty object and never asks for a tune",
+           buildTunerProbeBody() == QByteArray("{}"));
+    report("a 405 (stock server, no such route) is Unsupported",
+           classifyTuneProbe(405) == TuneApi::Unsupported);
+    report("404 and 501 are Unsupported",
+           classifyTuneProbe(404) == TuneApi::Unsupported && classifyTuneProbe(501) == TuneApi::Unsupported);
+    report("a 400 (the modified server rejecting the empty body) is Supported",
+           classifyTuneProbe(400) == TuneApi::Supported);
+    report("a 200 (tuner off or bypassed on a modified server) is Supported",
+           classifyTuneProbe(200) == TuneApi::Supported);
+    report("409 and 500 say nothing either way",
+           classifyTuneProbe(409) == TuneApi::Unknown && classifyTuneProbe(500) == TuneApi::Unknown);
+    {
+        const auto mk = [](TunerMode m) { Tuner t; t.mode = m; return t; };
+        report("a tune is allowed only from automatic or manual mode",
+               tuneAllowed(mk(TunerMode::Auto)) && tuneAllowed(mk(TunerMode::Manual))
+                   && !tuneAllowed(mk(TunerMode::Off)) && !tuneAllowed(mk(TunerMode::Bypass))
+                   && !tuneAllowed(mk(TunerMode::AutoTuning)) && !tuneAllowed(mk(TunerMode::Unknown)));
+    }
 
     // ── /operate-mode ─────────────────────────────────────────────────────
     report("OPERATE decodes", parseOperateMode(R"({"operate_mode":"OPERATE"})") == OperateMode::Operate);

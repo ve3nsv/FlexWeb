@@ -2796,10 +2796,21 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         queue->add(priorityImmediate, queueItem(funcKeySpeed, QVariant::fromValue<ushort>(wpm), false, 0));
         qCDebug(logWebServer) << "setCWSpeed:" << wpm << "WPM";
     }
+    else if (type.startsWith("amp") && type != "ampState" && !ampControlAllowed(client)) {
+        // Amp controls are refused, not just hidden on the page: anyone who
+        // can open the page could otherwise switch a kilowatt amplifier.
+        return;
+    }
     else if (type == "ampOperate") {
         // RF-KIT: OPERATE / STANDBY. The panel repaints from the amplifier's
         // reply, never from this request.
         if (rfkit_) rfkit_->setOperate(cmd["value"].toBool());
+    }
+    else if (type == "ampTune") {
+        // Asks the amplifier's own autotune to start (modified servers only;
+        // the connection refuses otherwise). It tunes only while a tune
+        // carrier is on the air; nothing here keys the radio.
+        if (rfkit_) rfkit_->startTune();
     }
     else if (type == "ampAntenna") {
         // Internal antennas 1-4 only; the connection refuses anything else.
@@ -7390,6 +7401,10 @@ void webServer::configureRfkit(const QString &target)
         o["type"] = "amp";
         o["connected"] = true;
         o["target"] = rfkitTarget_;
+        // PUT /tuner exists only on a modified restServer.py; learned per
+        // connection by the probe (RfkitConnection::maybeProbeTuneApi).
+        o["tuneApi"] = st.tuneApi == Rfkit::TuneApi::Supported ? "supported"
+                     : st.tuneApi == Rfkit::TuneApi::Unsupported ? "unsupported" : "unknown";
         if (st.info) {
             o["device"] = st.info->customName.isEmpty() ? st.info->device : st.info->customName;
             o["model"] = st.info->device;
@@ -7446,6 +7461,31 @@ void webServer::configureRfkit(const QString &target)
     });
     qCInfo(logWebServer) << "RF-KIT amplifier: connecting to" << host << port;
     rfkit_->connectNetwork(host, port);
+}
+
+// Who may change the amplifier (OPERATE / STANDBY, tune, antenna, error
+// reset): a signed-in named user, while no other browser holds the TX lock.
+// With web login off (no users) the amp is read-only for everyone. A refusal
+// is told to that browser (ampRefused) so the page can say why.
+bool webServer::ampControlAllowed(QWebSocket *client)
+{
+    QString reason;
+    if (!webAuth::hasUsers())
+        reason = "nousers";
+    else if (!client || wsUser.value(client).isEmpty())
+        reason = "signin";
+    else if (pttClient && pttClient != client && wsClients.contains(pttClient))
+        reason = "tx:" + wsUser.value(pttClient);
+    if (reason.isEmpty())
+        return true;
+    qCInfo(logWebServer) << "RF-KIT command refused:" << reason;
+    if (client) {
+        QJsonObject o;
+        o["type"] = "ampRefused";
+        o["reason"] = reason;
+        sendJsonTo(client, o);
+    }
+    return false;
 }
 
 void webServer::publishAmp()

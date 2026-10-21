@@ -1,8 +1,10 @@
 #pragma once
 
 // Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
-// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit), GPLv3.
-// "Constitution principle" references are AetherSDR's project rules.
+// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
+// 6392afe), GPLv3. "Constitution principle" references are AetherSDR's
+// project rules.
+
 
 #include <optional>
 
@@ -29,7 +31,10 @@ namespace AetherSDR {
 //   GET  /info                   device identity + firmware versions
 //   GET  /power                  forward / reflected / SWR / temp / volts / amps
 //   GET  /data                   band, frequency, free-text status
-//   GET  /tuner                  tuner mode + L/C network (read-only)
+//   GET  /tuner                  tuner mode + L/C network
+//   PUT  /tuner                  start an automatic tune; NOT in the vendor
+//                                document, only on an amplifier whose REST
+//                                server has been modified to add it
 //   GET  /antennas               every antenna with ACTIVE/AVAILABLE/DISABLED
 //   GET  /antennas/active        the active antenna
 //   PUT  /antennas/active        select an antenna
@@ -134,6 +139,11 @@ struct Data {
 };
 
 enum class TunerMode { Unknown, Bypass, Manual, AutoTuning, Auto, Off };
+
+// Whether the amplifier's REST server accepts PUT /tuner. The vendor document
+// has the tuner read-only, so this is learned per connection by asking
+// (classifyTuneProbe), never assumed.
+enum class TuneApi { Unknown, Supported, Unsupported };
 enum class TunerSetup { Unknown, NotTuned, Bypass, CL, LC };
 
 struct Tuner {
@@ -191,6 +201,7 @@ struct Status {
     std::optional<Power> power;
     std::optional<Data> data;
     std::optional<Tuner> tuner;
+    TuneApi tuneApi{TuneApi::Unknown};
     std::optional<OperateMode> operate;
     std::optional<InterfaceState> interfaceState;
     std::optional<QVector<AntennaWithState>> antennas;
@@ -222,6 +233,21 @@ std::optional<ApiError> parseApiError(const QByteArray& body);
 
 QByteArray buildOperateModeBody(OperateMode mode);
 QByteArray buildAntennaBody(const Antenna& antenna);
+// {"tuner_mode":"START"}: the one body that starts a tune.
+QByteArray buildTunerStartBody();
+// {}: asks PUT /tuner whether it exists without asking it to do anything. A
+// modified server answers it with 400 (or, with the tuner off or bypassed, a
+// 200 naming that state); a stock one has no such route and answers 405.
+QByteArray buildTunerProbeBody();
+
+// Reads the HTTP status of a tuner-probe reply. 2xx and 400 mean the route
+// exists; 404, 405 and 501 mean it does not; anything else (409, 5xx...) says
+// nothing either way and stays Unknown.
+TuneApi classifyTuneProbe(int httpStatus);
+// A tune is worth asking for only with the tuner in the signal path and idle:
+// automatic or manual mode. Off, bypassed, already tuning, or not yet read are
+// refused.
+bool tuneAllowed(const Tuner& tuner);
 
 // ── Presentation helpers ─────────────────────────────────────────────────
 

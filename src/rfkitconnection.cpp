@@ -1,6 +1,7 @@
 // Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
-// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit), GPLv3.
-// "Constitution principle" references are AetherSDR's project rules.
+// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
+// 6392afe), GPLv3. "Constitution principle" references are AetherSDR's
+// project rules.
 
 #include "rfkitconnection.h"
 #include "logcategories.h"
@@ -35,6 +36,13 @@ const QStringList& slowPollPaths()
 }
 
 }  // namespace
+
+// The tune start itself: PUT /tuner that is not the discovery probe.
+bool RfkitConnection::isTuneStart(const Request& request)
+{
+    return request.method == Request::Method::Put
+        && request.path == QLatin1String(Rfkit::kPathTuner) && !request.tuneProbe;
+}
 
 RfkitConnection::RfkitConnection(QObject* parent)
     : QObject(parent)
@@ -144,6 +152,9 @@ void RfkitConnection::resetSession()
     m_warnedPaths.clear();
     m_consecutiveFailures = 0;
     m_slowPollIndex = 0;
+    m_tuneProbePending = false;
+    m_tuneStartPending = false;
+    m_tuneProbeAttempts = 0;
 }
 
 void RfkitConnection::enqueue(const Request& request, bool front)
@@ -214,6 +225,9 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
     }
     m_inFlight = false;
     m_reply = nullptr;
+    if (isTuneStart(request)) {
+        m_tuneStartPending = false;
+    }
 
     const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const bool oversize = reply->property("rfkitOversize").toBool();
@@ -227,6 +241,22 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
     }
 
     m_consecutiveFailures = 0;
+
+    if (request.tuneProbe) {
+        // Not an error path: a stock server's 405 is the expected answer.
+        m_tuneProbePending = false;
+        const Rfkit::TuneApi api = Rfkit::classifyTuneProbe(http);
+        if (api != m_status.tuneApi) {
+            m_status.tuneApi = api;
+            qCInfo(logRig) << "RfkitConnection: tune via REST"
+                            << (api == Rfkit::TuneApi::Supported ? "supported"
+                                : api == Rfkit::TuneApi::Unsupported ? "not supported"
+                                : "unknown") << "(HTTP" << http << ")";
+            emit statusUpdated(m_status);
+        }
+        pump();
+        return;
+    }
 
     if (http < 200 || http >= 300) {
         const auto apiError = Rfkit::parseApiError(body);
@@ -287,8 +317,15 @@ bool RfkitConnection::applyReply(const Request& request, const QByteArray& body)
     if (request.method == Request::Method::Post) {
         // POST /error/reset. Nothing in the reply is needed; re-read what an
         // error can have changed.
-        enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false});
-        enqueue(Request{Request::Method::Get, path(Rfkit::kPathInterface), {}, false});
+        enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false});
+        enqueue(Request{Request::Method::Get, path(Rfkit::kPathInterface), {}, false, false});
+        return false;
+    }
+    if (request.method == Request::Method::Put && p == QLatin1String(Rfkit::kPathTuner)) {
+        // PUT /tuner {"tuner_mode":"START"}. The reply is not trusted as the
+        // new state (Principle II): read the tuner and the status text back.
+        enqueue(Request{Request::Method::Get, path(Rfkit::kPathTuner), {}, false, false});
+        enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false});
         return false;
     }
     if (request.method == Request::Method::Put && p == QLatin1String(Rfkit::kPathAntennaActive)) {
@@ -297,7 +334,7 @@ bool RfkitConnection::applyReply(const Request& request, const QByteArray& body)
         }
         // The reply names only the new active antenna; the per-antenna states
         // come from the list.
-        enqueue(Request{Request::Method::Get, path(Rfkit::kPathAntennas), {}, false});
+        enqueue(Request{Request::Method::Get, path(Rfkit::kPathAntennas), {}, false, false});
         return false;
     }
 
@@ -356,13 +393,36 @@ void RfkitConnection::enqueueFullRefresh()
         Rfkit::kPathAntennas, Rfkit::kPathTuner, Rfkit::kPathInterface,
     };
     for (const char* literal : kPaths) {
-        enqueue(Request{Request::Method::Get, path(literal), {}, false});
+        enqueue(Request{Request::Method::Get, path(literal), {}, false, false});
     }
+    maybeProbeTuneApi();
+}
+
+void RfkitConnection::maybeProbeTuneApi()
+{
+    if (!m_connected || m_tuneProbePending || m_status.tuneApi != Rfkit::TuneApi::Unknown
+        || m_tuneProbeAttempts >= kMaxTuneProbes) {
+        return;
+    }
+    ++m_tuneProbeAttempts;
+    m_tuneProbePending = true;
+    Request request;
+    request.method = Request::Method::Put;
+    request.path = path(Rfkit::kPathTuner);
+    request.body = Rfkit::buildTunerProbeBody();
+    request.tuneProbe = true;
+    enqueue(request);
 }
 
 void RfkitConnection::onTransportFailure(const QString& errorString, const Request& request)
 {
     qCWarning(logRig) << "RfkitConnection: transport error on" << request.path << errorString;
+    if (request.tuneProbe) {
+        m_tuneProbePending = false;  // a later poll tick asks again, up to the cap
+    }
+    if (isTuneStart(request)) {
+        m_tuneStartPending = false;
+    }
     if (request.probe || !m_connected) {
         resetSession();
         emit connectionFailed(errorString);
@@ -405,11 +465,12 @@ void RfkitConnection::poll()
     if (!m_connected || m_inFlight || !m_queue.isEmpty()) {
         return;
     }
-    enqueue(Request{Request::Method::Get, path(Rfkit::kPathPower), {}, false});
-    enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false});
+    enqueue(Request{Request::Method::Get, path(Rfkit::kPathPower), {}, false, false});
+    enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false});
     const QStringList& slow = slowPollPaths();
-    enqueue(Request{Request::Method::Get, slow.at(m_slowPollIndex % slow.size()), {}, false});
+    enqueue(Request{Request::Method::Get, slow.at(m_slowPollIndex % slow.size()), {}, false, false});
     m_slowPollIndex = (m_slowPollIndex + 1) % slow.size();
+    maybeProbeTuneApi();
 }
 
 void RfkitConnection::setOperate(bool operate)
@@ -454,6 +515,34 @@ void RfkitConnection::resetError()
     Request request;
     request.method = Request::Method::Post;
     request.path = path(Rfkit::kPathErrorReset);
+    enqueue(request, true);
+}
+
+void RfkitConnection::startTune()
+{
+    if (!m_connected) {
+        qCDebug(logRig) << "RfkitConnection: dropping tune command, not connected";
+        return;
+    }
+    if (m_status.tuneApi != Rfkit::TuneApi::Supported) {
+        qCWarning(logRig) << "RfkitConnection: tune refused, this amplifier's REST server "
+                              "has no tune command";
+        return;
+    }
+    if (!m_status.tuner || !Rfkit::tuneAllowed(*m_status.tuner)) {
+        qCWarning(logRig) << "RfkitConnection: tune refused, the tuner is not idle in "
+                              "automatic or manual mode";
+        return;
+    }
+    if (m_tuneStartPending) {
+        qCDebug(logRig) << "RfkitConnection: tune already requested, ignoring";
+        return;
+    }
+    m_tuneStartPending = true;
+    Request request;
+    request.method = Request::Method::Put;
+    request.path = path(Rfkit::kPathTuner);
+    request.body = Rfkit::buildTunerStartBody();
     enqueue(request, true);
 }
 

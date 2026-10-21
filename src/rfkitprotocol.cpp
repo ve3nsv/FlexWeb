@@ -1,6 +1,7 @@
 // Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
-// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit), GPLv3.
-// "Constitution principle" references are AetherSDR's project rules.
+// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
+// 6392afe), GPLv3. "Constitution principle" references are AetherSDR's
+// project rules.
 
 #include "rfkitprotocol.h"
 
@@ -172,7 +173,9 @@ TunerMode tunerModeFromValue(const QJsonValue& v)
     const QString s = v.toString();
     if (s == QLatin1String("BYPASS"))      { return TunerMode::Bypass; }
     if (s == QLatin1String("MANUAL"))      { return TunerMode::Manual; }
-    if (s == QLatin1String("AUTO_TUNING")) { return TunerMode::AutoTuning; }
+    // A modified server reports the tune in progress as AUTO_TUNING_FROM_AUTO;
+    // take any AUTO_TUNING... name as "tuning".
+    if (s.startsWith(QLatin1String("AUTO_TUNING"))) { return TunerMode::AutoTuning; }
     if (s == QLatin1String("AUTO"))        { return TunerMode::Auto; }
     if (s == QLatin1String("false"))       { return TunerMode::Off; }
     return TunerMode::Unknown;
@@ -409,6 +412,34 @@ QByteArray buildAntennaBody(const Antenna& antenna)
         o.insert(QLatin1String("number"), antenna.number);
     }
     return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+QByteArray buildTunerStartBody()
+{
+    QJsonObject o;
+    o.insert(QLatin1String("tuner_mode"), QStringLiteral("START"));
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+QByteArray buildTunerProbeBody()
+{
+    return QJsonDocument(QJsonObject{}).toJson(QJsonDocument::Compact);
+}
+
+TuneApi classifyTuneProbe(int httpStatus)
+{
+    if ((httpStatus >= 200 && httpStatus < 300) || httpStatus == 400) {
+        return TuneApi::Supported;
+    }
+    if (httpStatus == 404 || httpStatus == 405 || httpStatus == 501) {
+        return TuneApi::Unsupported;
+    }
+    return TuneApi::Unknown;
+}
+
+bool tuneAllowed(const Tuner& tuner)
+{
+    return tuner.mode == TunerMode::Auto || tuner.mode == TunerMode::Manual;
 }
 
 // ── Presentation helpers ─────────────────────────────────────────────────
