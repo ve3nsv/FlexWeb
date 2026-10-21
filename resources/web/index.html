@@ -11422,6 +11422,9 @@ function digiTxLeadMs() {
     return Math.max(0, Math.min(1500, key + (wfClockRttMs || 0) / 2));
 }
 function digiRxShiftMs() { return digiAutoTiming ? digiRxLatencyMs : 0; }
+// The JS8 panel (js8-panel.mjs) uses the same corrections; it does not learn
+// the latency itself (FT8's DT does that).
+window.wfDigiTiming = { txLeadMs: digiTxLeadMs, rxShiftMs: digiRxShiftMs };
 
 // After each decode: nudge the receive latency by half the median DT of the
 // slot (3+ decodes), so it settles in a few slots and ignores odd stations.

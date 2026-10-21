@@ -533,9 +533,20 @@ const JS8_PANEL_MARKUP = `
         });
     }
 
+    // FT8 timing, shared (server page: window.wfDigiTiming): RX decodes late
+    // by the learned receive latency, TX starts early by the key-up lead.
+    // Both are 0 when the host has none or AUTO timing is off.
+    function digiTiming(kind) {
+        var t = window.wfDigiTiming;
+        var v = (t && typeof t[kind] === 'function') ? Number(t[kind]()) : 0;
+        return isFinite(v) ? v / 1000 : 0;
+    }
+
     function tickTimer() {
         if (!S.visible) return;
         var nowSec = (typeof window.wfNow === 'function' ? window.wfNow() : Date.now()) / 1000;
+        var rxNowSec = nowSec - digiTiming('rxShiftMs');
+        var txNowSec = nowSec + digiTiming('txLeadMs');
 
         // Clock + progress bar — driven by the user's selected TX submode
         // so it shows the cadence of the speed they'll transmit at.
@@ -574,7 +585,7 @@ const JS8_PANEL_MARKUP = `
         for (var i = 0; i < RX_MODES.length; ++i) {
             var sm = RX_MODES[i];
             var p  = getSubmode(sm).slotSeconds;
-            var idx = Math.floor(nowSec / p);
+            var idx = Math.floor(rxNowSec / p);
             if (idx !== S.lastSlot[sm]) {
                 if (S.lastSlot[sm] !== -1) {
                     modesEnded.push({ sm: sm, slotSeconds: p, bit: SUBMODE_BITS[sm] });
@@ -587,8 +598,9 @@ const JS8_PANEL_MARKUP = `
         }
 
         // TX: fire at the user's selected TX submode's slot boundary.
-        if (info.slotIndex !== S.slotIndex) {
-            S.slotIndex = info.slotIndex;
+        var txSlot = Math.floor(txNowSec / info.period);
+        if (txSlot !== S.slotIndex) {
+            S.slotIndex = txSlot;
             if (S.txQueue.length > 0 && !S.txBusy) {
                 fireNextTxFrame();
             } else {

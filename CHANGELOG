@@ -65,6 +65,10 @@ FlexRadio:
   recalled, saved from the current slice, renamed and deleted.
 - FM repeaters: DUP-/DUP+/simplex, offset and CTCSS TX tone set the
   slice's repeater offset and FM tone (the DUP and TONE tiles).
+- JS8 uses the FT8 timing corrections too: it decodes late by the learned
+  receive latency and starts transmitting early by the key-up lead (AUTO
+  timing in the FT8 bar turns both off), on top of the NTP clock it
+  already used.
 - Scope drag direction (FUNC > DRAG): VFO = drag right to tune up, as when
   dragging a slice in SmartSDR / AetherSDR (default with the AetherSDR
   look); BAND = pull the band like a map, drag left to tune up (default
