@@ -331,7 +331,9 @@ def test_aether_scope(flex):
         requests.put(f"{rest}/frequency", json={"hz": 14_205_000}, timeout=5)
         assert _wait(lambda: "slice tune 0 14.205000" in radio.commands, timeout=5)
         time.sleep(0.5)
-        assert not any(c.startswith(f"display pan set {PAN} center=") for c in radio.commands[n:]), radio.commands[n:]
+        # (the settled centre is sent once more 400 ms after a move: sendPanCenter)
+        assert not any(c.startswith(f"display pan set {PAN} center=") and not c.endswith("center=14.230000")
+                       for c in radio.commands[n:]), radio.commands[n:]
         # ...but one past the edge scrolls it.
         requests.put(f"{rest}/frequency", json={"hz": 14_400_000}, timeout=5)
         assert _wait(lambda: any(c.startswith(f"display pan set {PAN} center=") for c in radio.commands[n:]), timeout=5)
