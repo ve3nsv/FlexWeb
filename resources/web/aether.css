@@ -215,6 +215,8 @@ body.ae-desktop #aeZoom button {
     font: 600 16px var(--font-ui); line-height: 1;
 }
 body.ae-desktop #aeZoom button:hover { background: var(--ae-panel-hi); color: var(--ae-text-hi); }
+/* The FreeDV readout (top right of the scope) sits left of the zoom keys. */
+body.ae-desktop #freedvIndicator { right: 76px !important; }
 body.ae-desktop #ampIndicator { display: none !important; }
 
 /* the bottom bar: mode keys | band keys | FT8 TUNE FUNC MOX */
