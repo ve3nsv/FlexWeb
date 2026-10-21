@@ -3797,7 +3797,10 @@ function handleMessage(msg) {
             break;
         case 'meters':
             if (msg.transmitting !== undefined) updateTxStatus(msg.transmitting);
-            if (msg.sMeter !== undefined) updateSMeter(msg.sMeter);
+            if (msg.sMeter !== undefined) {
+                var sv = msg.sMeter;
+                if (isTransmitting || !scopeSyncDefer(function () { updateSMeter(sv); })) updateSMeter(sv);
+            }
             if (msg.powerMeter !== undefined) updatePowerMeter(msg.powerMeter);
             if (msg.swrMeter !== undefined) updateSwrMeter(msg.swrMeter);
             if (msg.alcMeter !== undefined) updateALCMeter(msg.alcMeter);
@@ -4400,6 +4403,7 @@ function sliderPosToHz(pos) {
 }
 
 function updateTxStatus(tx) {
+    if (tx && !isTransmitting && typeof scopeSyncFlush === 'function') scopeSyncFlush();
     var changed = (isTransmitting !== tx);
     isTransmitting = tx;
     // The rig went back to RX by itself (another client, its own TX
@@ -6342,6 +6346,17 @@ function renderAudioMicOverlay() {
         buf.id = 'audioBufBtn';
         buf.title = 'RX audio buffer. AUTO sizes it to the jitter it measures; tap to pin a fixed size.';
         grid.appendChild(buf);
+    }
+
+    // Scope sync: spectrum, waterfall and S meter follow the audio delay.
+    if (audioAvailable) {
+        var ss = makeFuncBtn('SYNC SCOPE', scopeSyncOn ? 'AUTO' + (scopeSyncCur > 0 ? ' ' + Math.round(scopeSyncCur) + ' ms' : '') : 'OFF',
+                             scopeSyncOn, toggleScopeSync);
+        ss.title = 'Hold the spectrum, waterfall and S meter back by the audio delay, so you see a signal as you hear it.';
+        grid.appendChild(ss);
+        var st = makeFuncBtn('SYNC TRIM', (scopeSyncTrim > 0 ? '+' : '') + scopeSyncTrim + ' ms', scopeSyncTrim !== 0, cycleScopeSyncTrim);
+        st.title = 'Fine-tune the scope sync by ear (the radio adds some delay of its own).';
+        grid.appendChild(st);
     }
 
     // Intercom: what this browser hears while another browser transmits.
@@ -8332,6 +8347,7 @@ function startWithScriptProcessor() {
 }
 
 function stopAudio() {
+    if (typeof scopeSyncFlush === 'function') setTimeout(scopeSyncFlush, 0);
     send({ cmd: 'enableAudio', value: false });
     audioEnabled = false;
     if (audioWorkletNode) { audioWorkletNode.disconnect(); audioWorkletNode = null; }
@@ -9061,10 +9077,76 @@ function initWaterfallBuffer(dataLen) {
     wfBufDirty = true;
 }
 
+// Scope sync (item 13): hold the spectrum, waterfall and S meter back by the
+// audio delay (jitter buffer depth + the sound card's output latency), so a
+// signal is seen as it is heard. Off while transmitting (TX meters stay
+// live), with audio off, or with SYNC SCOPE OFF; FUNC > AUDIO has a +/- trim.
+var scopeSyncOn = true, scopeSyncTrim = 0;
+try {
+    scopeSyncOn = localStorage.getItem('wfScopeSync') !== 'off';
+    scopeSyncTrim = parseInt(localStorage.getItem('wfScopeSyncTrim'), 10) || 0;
+} catch (e) {}
+var scopeSyncQ = [], scopeSyncCur = 0, scopeSyncLastDue = 0, scopeSyncTimer = null;
+var scopeSyncReleasing = false;
+function scopeSyncTarget() {
+    if (!scopeSyncOn || !audioEnabled || isTransmitting || !audioJbStats) return 0;
+    var out = 0;
+    try { if (audioCtx) out = ((audioCtx.outputLatency || 0) + (audioCtx.baseLatency || 0)) * 1000; } catch (e) {}
+    return Math.max(0, Math.min(1500, (audioJbStats.bufMs || 0) + out + scopeSyncTrim));
+}
+// Queue fn to run once it is as old as the audio delay; false = run it now.
+function scopeSyncDefer(fn) {
+    var target = scopeSyncTarget();
+    if (target <= 0 && !scopeSyncQ.length) { scopeSyncCur = 0; return false; }
+    // Follow the target slowly (about 50 ms per second at 25 frames/s),
+    // so a buffer change never makes the waterfall jump or stall.
+    scopeSyncCur += Math.max(-2, Math.min(2, target - scopeSyncCur));
+    var now = performance.now();
+    var due = Math.max(now + scopeSyncCur, scopeSyncLastDue);
+    scopeSyncLastDue = due;
+    scopeSyncQ.push({ due: due, fn: fn });
+    if (scopeSyncQ.length > 400) scopeSyncFlush();      // never pile up
+    if (!scopeSyncTimer) scopeSyncTimer = setInterval(scopeSyncRun, 10);
+    return true;
+}
+function scopeSyncRun() {
+    var now = performance.now();
+    scopeSyncReleasing = true;
+    while (scopeSyncQ.length && scopeSyncQ[0].due <= now) {
+        try { scopeSyncQ.shift().fn(); } catch (e) { console.error(e); }
+    }
+    scopeSyncReleasing = false;
+    if (!scopeSyncQ.length) { clearInterval(scopeSyncTimer); scopeSyncTimer = null; }
+}
+// Everything queued, now (keying up, SYNC OFF, audio off).
+function scopeSyncFlush() {
+    scopeSyncReleasing = true;
+    while (scopeSyncQ.length) {
+        try { scopeSyncQ.shift().fn(); } catch (e) { console.error(e); }
+    }
+    scopeSyncReleasing = false;
+    scopeSyncCur = 0;
+    scopeSyncLastDue = 0;
+}
+function toggleScopeSync() {
+    scopeSyncOn = !scopeSyncOn;
+    try { localStorage.setItem('wfScopeSync', scopeSyncOn ? 'auto' : 'off'); } catch (e) {}
+    if (!scopeSyncOn) scopeSyncFlush();
+    renderAudioMicOverlay();
+}
+function cycleScopeSyncTrim() {
+    var steps = [-100, -75, -50, -25, 0, 25, 50, 75, 100];
+    var i = steps.indexOf(scopeSyncTrim);
+    scopeSyncTrim = steps[(i + 1) % steps.length];
+    try { localStorage.setItem('wfScopeSyncTrim', String(scopeSyncTrim)); } catch (e) {}
+    renderAudioMicOverlay();
+}
+
 function handleBinaryMessage(buffer) {
     if (buffer.byteLength < 2) return;
     var view = new DataView(buffer);
     var msgType = view.getUint8(0);
+    if (msgType === 0x01 && !scopeSyncReleasing && scopeSyncDefer(function () { handleBinaryMessage(buffer); })) return;
     if (msgType === 0x02) { handleAudioData(buffer); return; }
     if (msgType === 0x04) {
         // TX audio echo — visualisation-only PCM teed from the server so the
