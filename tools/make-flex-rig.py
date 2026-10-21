@@ -53,6 +53,9 @@ commands = [
     "Preamp Status", "Attenuator Status", "Antenna", "Tuner/ATU Status",
     "Key Speed", "Send CW", "CW Pitch", "Monitor Status", "Monitor Gain",
     "Compressor Status", "RIT Frequency", "RIT Status", "Data Off Mod Input",
+    # VFO B = a second slice; SPLIT makes it the TX slice (flexCommander).
+    "Unselected Freq", "VFO A Select", "VFO B Select", "VFO Swap A/B", "VFO Equal AB",
+    "Split/Duplex",
 ]
 array("Commands", [{
     "Type": c, "String": "", "Min": -9999 if c == "RIT Frequency" else 0,

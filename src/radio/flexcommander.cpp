@@ -340,6 +340,11 @@ void flexCommander::resetSession()
     udpStats.clear();
     txAccumulator.clear();
     memories.clear();
+    sliceB = -1;
+    sliceBPending = false;
+    bFreqHz = 0;
+    selB = false;
+    splitOn = false;
     if (opusDec) { opus_decoder_destroy(opusDec); opusDec = nullptr; }
     wanHandle.clear();
     wanConnectRequested = false;
@@ -976,6 +981,11 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
         return;
     }
 
+    if (id == sliceB && id != sliceId) {
+        handleSliceBStatus(kvs);
+        return;
+    }
+
     if (sliceId < 0) {
         // Adopt a slice the radio says is ours (a restored session or the
         // reply to our own slice create arriving before its R line).
@@ -1001,7 +1011,7 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
     if (kvs.contains("RF_frequency") || kvs.contains("freq")) {
         const double mhz = (kvs.contains("RF_frequency") ? kvs.value("RF_frequency") : kvs.value("freq")).toDouble();
         freqHz = quint64(std::llround(mhz * 1e6));
-        reportCurrent(funcSelectedFreq);
+        reportVfoFreqs();
         recenterPan();
     }
     if (kvs.contains("mode")) {
@@ -1520,14 +1530,28 @@ bool flexCommander::reportCurrent(funcs func)
     case funcSelectedFreq:
     case funcFreq:
     case funcFreqGet: {
-        if (!freqHz) return true;
+        // The selected VFO: slice A, or slice B once VFO B is selected.
+        const quint64 hz = (selB && sliceB >= 0 && bFreqHz) ? bFreqHz : freqHz;
+        if (!hz) return true;
         freqt f;
-        f.Hz = freqHz;
-        f.MHzDouble = freqHz / 1e6;
+        f.Hz = hz;
+        f.MHzDouble = hz / 1e6;
         f.VFO = activeVFO;
         report(funcSelectedFreq, QVariant::fromValue<freqt>(f));
         return true;
     }
+    case funcUnselectedFreq: {
+        const quint64 hz = (selB && sliceB >= 0) ? freqHz : (sliceB >= 0 ? bFreqHz : freqHz);
+        if (!hz) return true;
+        freqt f;
+        f.Hz = hz;
+        f.MHzDouble = hz / 1e6;
+        report(funcUnselectedFreq, QVariant::fromValue<freqt>(f));
+        return true;
+    }
+    case funcSplitStatus:
+        report(funcSplitStatus, QVariant::fromValue<uchar>(splitOn ? 1 : 0));
+        return true;
     case funcSelectedMode:
     case funcMode:
     case funcModeGet:
@@ -1686,6 +1710,7 @@ void flexCommander::applyFilterWidth(int widthHz)
     const filterEdges e = edgesForWidth(mode, widthHz);
     if (e.hi > e.lo) {
         sendCmd(QString("filt %1 %2 %3").arg(sliceId).arg(e.lo).arg(e.hi));
+        if (sliceB >= 0) sendCmd(QString("filt %1 %2 %3").arg(sliceB).arg(e.lo).arg(e.hi));
         filterLo = e.lo;
         filterHi = e.hi;
         reportCurrent(funcFilterWidth);
@@ -1745,9 +1770,14 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
     case funcFreqSet: {
         const freqt f = value.value<freqt>();
         if (f.Hz == 0 || sliceId < 0) return;
+        if (selB && sliceB >= 0) {          // VFO B selected: tune slice B
+            tuneSlice(sliceB, f.Hz);
+            reportVfoFreqs();
+            return;
+        }
         sendCmd(QString("slice tune %1 %2").arg(sliceId).arg(f.Hz / 1e6, 0, 'f', 6));
         freqHz = f.Hz;
-        reportCurrent(funcSelectedFreq);
+        reportVfoFreqs();
         recenterPan();
         applyBandAntennas();
         return;
@@ -1759,8 +1789,10 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         const QString fm = flexModeForReg(m.reg);
         if (fm.isEmpty() || sliceId < 0) return;
         const int fil = (m.filter >= 1 && m.filter <= 3) ? m.filter : filterNum;
-        if (fm != mode)
+        if (fm != mode) {
             sliceSet(QString("mode=%1").arg(fm));
+            if (sliceB >= 0) sendCmd(QString("slice set %1 mode=%2").arg(sliceB).arg(fm));
+        }
         filterNum = fil;
         mode = fm;
         applyFilterWidth(presetWidth(fm, fil));
@@ -1946,9 +1978,52 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         sendCmd(QString("cwx send \"%1\"").arg(text));
         return;
     }
-    case funcSelectVFO:
+    case funcSelectVFO: {
+        const vfo_t v = value.value<vfo_t>();
+        const bool b = (v == vfoB || v == vfoSub);
+        if (b == selB && (!b || sliceB >= 0)) { reportVfoFreqs(); return; }
+        if (b) {
+            ensureSliceB([this]() { selB = true; reportVfoFreqs(); });
+        } else {
+            selB = false;
+            reportVfoFreqs();
+        }
+        return;
+    }
     case funcVFOASelect:
-        return;   // one slice = VFO A
+        selB = false;
+        reportVfoFreqs();
+        return;
+    case funcVFOBSelect:
+        ensureSliceB([this]() { selB = true; reportVfoFreqs(); });
+        return;
+    case funcVFOEqualAB:
+        // B = A (or A = B while B is selected, as the radio's own A=B does
+        // to the unselected VFO).
+        ensureSliceB([this]() {
+            if (selB) { sendCmd(QString("slice tune %1 %2").arg(sliceId).arg(bFreqHz / 1e6, 0, 'f', 6)); freqHz = bFreqHz; recenterPan(); }
+            else tuneSlice(sliceB, freqHz);
+            reportVfoFreqs();
+        });
+        return;
+    case funcVFOSwapAB:
+        ensureSliceB([this]() {
+            const quint64 a = freqHz, b = bFreqHz;
+            if (!a || !b) return;
+            sendCmd(QString("slice tune %1 %2").arg(sliceId).arg(b / 1e6, 0, 'f', 6));
+            freqHz = b;
+            tuneSlice(sliceB, a);
+            recenterPan();
+            applyBandAntennas();
+            reportVfoFreqs();
+        });
+        return;
+    case funcSplitStatus: {
+        // setSplit sends 0/1; a duplexMode_t (repeater) is not ours here.
+        if (!value.canConvert<uchar>() || value.userType() == qMetaTypeId<duplexMode_t>()) return;
+        setSplit(value.value<uchar>() != 0);
+        return;
+    }
 
     default:
         qDebug(logRig()) << "Flex: unsupported set command" << funcString[func];
@@ -2487,6 +2562,82 @@ void flexCommander::flexMemoryCommand(QString action, int id, QJsonObject fields
     } else if (action == "remove" && memories.contains(id)) {
         sendCmd(QString("memory remove %1").arg(id));
     }
+}
+
+// ─── VFO B / split ─────────────────────────────────────────────────────────
+
+void flexCommander::tuneSlice(int id, quint64 hz)
+{
+    if (id < 0 || !hz) return;
+    sendCmd(QString("slice tune %1 %2").arg(id).arg(hz / 1e6, 0, 'f', 6));
+    if (id == sliceB) bFreqHz = hz;
+}
+
+void flexCommander::ensureSliceB(std::function<void()> then)
+{
+    if (sliceB >= 0) { if (then) then(); return; }
+    if (sliceBPending || sliceId < 0 || panId.isEmpty() || !freqHz) return;
+    sliceBPending = true;
+    sendCmd(QString("slice create pan=%1 freq=%2 mode=%3").arg(panId).arg(freqHz / 1e6, 0, 'f', 6).arg(mode),
+            [this, then](quint32 code, const QString& body) {
+        sliceBPending = false;
+        bool ok = false;
+        const int id = body.trimmed().toInt(&ok);
+        if (code != 0 || !ok) {
+            qWarning(logRig()).noquote() << QString("Flex: cannot open a second slice for VFO B (0x%1) %2 - "
+                                                    "the radio may have no free slice").arg(code, 8, 16, QChar('0')).arg(body);
+            return;
+        }
+        sliceB = id;
+        bFreqHz = freqHz;
+        // Muted (you listen on A), same filter as A, not the TX slice yet.
+        sendCmd(QString("slice set %1 audio_mute=1 tx=0").arg(sliceB));
+        if (filterHi > filterLo) sendCmd(QString("filt %1 %2 %3").arg(sliceB).arg(filterLo).arg(filterHi));
+        qInfo(logRig()) << "Flex: VFO B is slice" << sliceB;
+        if (then) then();
+    });
+}
+
+void flexCommander::handleSliceBStatus(const QMap<QString, QString>& kvs)
+{
+    if (kvs.value("in_use") == "0") {
+        qInfo(logRig()) << "Flex: the VFO B slice was closed";
+        sliceB = -1;
+        selB = false;
+        if (splitOn) { splitOn = false; reportCurrent(funcSplitStatus); }
+        reportVfoFreqs();
+        return;
+    }
+    if (kvs.contains("RF_frequency") || kvs.contains("freq")) {
+        const double mhz = (kvs.contains("RF_frequency") ? kvs.value("RF_frequency") : kvs.value("freq")).toDouble();
+        bFreqHz = quint64(std::llround(mhz * 1e6));
+        reportVfoFreqs();
+    }
+}
+
+void flexCommander::reportVfoFreqs()
+{
+    reportCurrent(funcSelectedFreq);
+    reportCurrent(funcUnselectedFreq);
+}
+
+void flexCommander::setSplit(bool on)
+{
+    if (sliceId < 0) return;
+    if (!on) {
+        splitOn = false;
+        sliceSet("tx=1");
+        if (sliceB >= 0) sendCmd(QString("slice set %1 tx=0").arg(sliceB));
+        reportCurrent(funcSplitStatus);
+        return;
+    }
+    ensureSliceB([this]() {
+        splitOn = true;
+        sendCmd(QString("slice set %1 tx=1").arg(sliceB));   // the radio moves TX off A
+        sliceSet("tx=0");
+        qInfo(logRig()).noquote() << QString("Flex: split - RX %1 MHz, TX %2 MHz").arg(freqHz / 1e6, 0, 'f', 6).arg(bFreqHz / 1e6, 0, 'f', 6);
+        reportCurrent(funcSplitStatus);
+    });
 }
 
 void flexCommander::rememberHfAntennas()

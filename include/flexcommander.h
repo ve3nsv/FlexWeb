@@ -221,6 +221,19 @@ private:
     // Time from "xmit 1" to the radio on the air, smoothed: the FT8/JS8 page
     // starts that much earlier (flexDsp keyDelayMs).
     int keyDelayMs = -1;
+    // VFO B = a second slice of ours on the same panadapter, muted, mode and
+    // filter following A. Selecting B points tuning at it; SPLIT makes it
+    // the TX slice.
+    int sliceB = -1;
+    bool sliceBPending = false;
+    quint64 bFreqHz = 0;
+    bool selB = false;
+    bool splitOn = false;
+    void ensureSliceB(std::function<void()> then = nullptr);
+    void handleSliceBStatus(const QMap<QString, QString>& kvs);
+    void reportVfoFreqs();
+    void setSplit(bool on);
+    void tuneSlice(int id, quint64 hz);
     // Radio memories by index, as the radio reports them ("sub memories all").
     QMap<int, QMap<QString, QString>> memories;
     bool memPublishPending = false;

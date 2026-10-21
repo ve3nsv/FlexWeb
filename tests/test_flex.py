@@ -413,6 +413,53 @@ def test_opus_to_browser(flex):
         sock.close()
 
 
+def test_vfo_b_and_split(flex):
+    """VFO B is a second (muted) slice; selecting it points tuning at it,
+    SPLIT makes it the TX slice, A=B and swap work on the two slices."""
+    radio, rest = flex
+    from test_web_login import _Reader, _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    reader = _Reader(sock, buf)
+
+    def status_has(pred, timeout=6.0):
+        for text in reader.frames(timeout):
+            m = json.loads(text)
+            if pred(m):
+                return m
+        return None
+
+    try:
+        requests.put(f"{rest}/frequency", json={"hz": 14_200_000}, timeout=5)
+        assert _wait(lambda: radio.slice.get("RF_frequency", "").startswith("14.2"), timeout=5)
+        _ws_send(sock, {"cmd": "selectVFO", "value": "B"})
+        assert _wait(lambda: radio.slice_b.get("in_use") == "1", timeout=5), "no second slice"
+        assert _wait(lambda: radio.slice_b.get("audio_mute") == "1", timeout=5), radio.slice_b
+
+        # Tuning now moves B, not A.
+        requests.put(f"{rest}/frequency", json={"hz": 14_205_000}, timeout=5)
+        assert _wait(lambda: radio.slice_b.get("RF_frequency") == "14.205000", timeout=5), radio.slice_b
+        assert radio.slice.get("RF_frequency", "").startswith("14.2") and \
+            not radio.slice.get("RF_frequency", "").startswith("14.205")
+
+        _ws_send(sock, {"cmd": "setSplit", "value": True})
+        assert _wait(lambda: radio.slice_b.get("tx") == "1" and radio.slice.get("tx") == "0", timeout=5), \
+            (radio.slice, radio.slice_b)
+        assert status_has(lambda m: m.get("split") is True), "split not reported"
+
+        _ws_send(sock, {"cmd": "setSplit", "value": False})
+        assert _wait(lambda: radio.slice_b.get("tx") == "0" and radio.slice.get("tx") == "1", timeout=5)
+
+        _ws_send(sock, {"cmd": "selectVFO", "value": "A"})
+        _ws_send(sock, {"cmd": "swapVFO"})
+        assert _wait(lambda: radio.slice_b.get("RF_frequency", "").startswith("14.2000")
+                     and radio.slice.get("RF_frequency", "").startswith("14.205"), timeout=5), \
+            (radio.slice.get("RF_frequency"), radio.slice_b.get("RF_frequency"))
+    finally:
+        sock.close()
+
+
 # ── --on-demand ─────────────────────────────────────────────────────────────
 
 def _open_browser_ws(port: int):

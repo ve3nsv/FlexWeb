@@ -100,6 +100,7 @@ class MockFlexRadio:
         self._xmit_requested = False
         self.client_addr: tuple[str, int] | None = None
         self.slice: dict[str, str] = {}
+        self.slice_b: dict[str, str] = {}     # a second slice of ours (VFO B)
         self.pan: dict[str, str] = {}
         self.pan_scale: dict[str, str] = {}   # size/range in effect, not echoed
         self.transmit = {"rfpower": "100", "dax": "0", "mon": "0", "speech_processor_enable": "0"}
@@ -324,6 +325,22 @@ class MockFlexRadio:
             echoed = {k: v for k, v in mapped.items() if k not in own}
             if echoed:
                 self._pan_status(**echoed)
+            return 0, ""
+        if cmd.startswith("slice create") and self.slice.get("in_use") == "1":
+            # A second slice: VFO B.
+            kv = dict(w.split("=", 1) for w in words[2:] if "=" in w)
+            self.slice_b = {"in_use": "1", "client_handle": f"0x{self.handle:08X}",
+                            "RF_frequency": kv.get("freq", "14.2"), "mode": kv.get("mode", "USB"), "tx": "0"}
+            self.status("slice 1 " + " ".join(f"{k}={v}" for k, v in self.slice_b.items()))
+            return 0, "1"
+        if words[:2] in (["slice", "tune"], ["slice", "set"]) and len(words) > 2 and words[2] == "1":
+            if words[1] == "tune":
+                self.slice_b["RF_frequency"] = f"{float(words[3]):.6f}"
+                self.status(f"slice 1 RF_frequency={self.slice_b['RF_frequency']}")
+            else:
+                self.slice_b.update(dict(w.split("=", 1) for w in words[3:] if "=" in w))
+            return 0, ""
+        if cmd.startswith("filt 1 "):
             return 0, ""
         if cmd.startswith("slice create"):
             kv = dict(w.split("=", 1) for w in words[2:] if "=" in w)
