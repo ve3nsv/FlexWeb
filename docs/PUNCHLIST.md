@@ -151,3 +151,15 @@ Status: items 1-8 implemented for build 57.
    - Tests: node round trip encode -> decode for every mode, with noise,
      a frequency offset and a 0.1 % clock error; decode of real off-air
      recordings if available.
+
+# Next batch
+
+1. Off-screen VFO indicator like AetherSDR (user, 2026-10-21, screenshot:
+   VFO 7.185 LSB, scope panned to 7.456-7.556). When the VFO (and its
+   passband) is outside the scope, show a marker at that edge of the
+   spectrum: an arrow pointing left / right with "A 7.185.000 LSB" (and the
+   distance, e.g. "-321 kHz"), in the slice colour. Click / tap it to bring
+   the scope back to the VFO (panCenter = VFO, Flex free pan; a recentre on
+   other rigs). Also for VFO B / split TX when shown. Both looks (Aether and
+   CLASSIC); hidden while the VFO is on screen. Recorder video shows it too
+   (it draws the scope canvases, so draw it on the spectrum canvas overlay).
