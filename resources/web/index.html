@@ -1635,6 +1635,17 @@ body.digi-open #bottomBar { grid-row: 5; }
     box-shadow: 0 0 5px #fc0;
 }
 .gain-row.tx .gain-val { color: #fb0; }
+/* Mic VU (under MIC): -60..0 dBFS, green / amber above -12 / red above -3 */
+.mic-vu { flex: 1; height: 8px; position: relative; border-radius: 2px; overflow: hidden;
+    background: #161616; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); }
+.mic-vu::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(90deg, transparent calc(80% - 1px), rgba(255,255,255,0.35) calc(80% - 1px), rgba(255,255,255,0.35) 80%, transparent 80%,
+                                       transparent calc(95% - 1px), rgba(255,255,255,0.35) calc(95% - 1px), rgba(255,255,255,0.35) 95%, transparent 95%); }
+.mic-vu-fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+    background: linear-gradient(90deg, #1b8a3a 0%, #2ecc55 78%, #f5b400 82%, #f5b400 93%, #e53935 96%);
+    background-size: var(--vu-w, 100%) 100%; }
+.mic-vu-peak { position: absolute; top: 0; bottom: 0; width: 2px; left: 0; background: #fff; opacity: 0; }
+.mic-vu-row .gain-val { font-size: 11px; }
 .gain-val {
     font-family: 'Courier New', monospace;
     font-size: 12px; width: 40px;
@@ -2840,6 +2851,11 @@ try {
                     <input type="range" id="micGainSlider" min="0" max="255" value="128"></div>
                 <span class="gain-val" id="micGainVal">50%</span>
             </div>
+            <div class="gain-row tx mic-vu-row" title="Microphone level going to the radio (dBFS), live whenever the mic is on">
+                <span class="gain-label">LVL</span>
+                <div class="mic-vu" id="micVu"><div class="mic-vu-fill" id="micVuFill"></div><div class="mic-vu-peak" id="micVuPeak"></div></div>
+                <span class="gain-val" id="micVuVal">OFF</span>
+            </div>
             <div class="gain-row tx">
                 <span class="gain-label">MON</span>
                 <div class="gain-bar-bg"><div class="gain-bar-fill" id="monitorLevelFill" style="width:50%"></div>
@@ -3013,6 +3029,7 @@ try {
 <script src="reporters.js"></script>
 <script src="wf-canvas.js"></script>
 <script src="needle-meter.js"></script>
+<script>window.wfRecorderCredit = { name: 'FlexWeb', url: 'github.com/ve3nsv/FlexWeb' };</script>
 <script src="recorder.js"></script>
 <script src="rx-jitter.js"></script>
 <script src="cw-keyer.js"></script>
@@ -9015,6 +9032,7 @@ function startMic() {
             micWorkletNode.port.onmessage = function(e) {
                 // Suppress during DIGI TX or TUNE (FT8/JS8/tune audio uses
                 // the same type-0x03 channel)
+                if (micEnabled) micVuFeed(e.data);
                 if (!micEnabled || !txAudioReady() || digiTxActive || digiTuneActive) return;
                 // Suppress during packet TX too — a packet burst owns the
                 // 0x03 channel, and interleaved mic frames garble the modem
@@ -9043,6 +9061,45 @@ function startMic() {
 }
 
 // Also cancels a start in flight: its callbacks see a newer micStartGen.
+// Mic VU: peak of each mic frame, scaled by the MIC slider as the server
+// applies it on a Flex (75 % = unity), shown -60..0 dBFS with a 1.5 s peak hold.
+var micVuLevel = 0, micVuPeakDb = -99, micVuPeakT = 0, micVuRaf = 0;
+function micVuFeed(buf) {
+    var pcm = new Int16Array(buf), pk = 0;
+    for (var i = 0; i < pcm.length; i++) { var a = pcm[i] < 0 ? -pcm[i] : pcm[i]; if (a > pk) pk = a; }
+    var lvl = pk / 32768;
+    if (isFlexRig) {
+        var sl = document.getElementById('micGainSlider');
+        if (sl) lvl *= parseInt(sl.value, 10) / 191;
+    }
+    micVuLevel = Math.max(lvl, micVuLevel);
+    if (!micVuRaf) micVuRaf = requestAnimationFrame(micVuDraw);
+}
+function micVuDraw() {
+    micVuRaf = 0;
+    var fill = document.getElementById('micVuFill'), peak = document.getElementById('micVuPeak'),
+        val = document.getElementById('micVuVal'), box = document.getElementById('micVu');
+    if (!fill || !box) return;
+    if (!micEnabled) {
+        fill.style.width = '0'; peak.style.opacity = '0'; val.textContent = 'OFF';
+        micVuLevel = 0; micVuPeakDb = -99;
+        return;
+    }
+    var db = micVuLevel > 0 ? 20 * Math.log10(micVuLevel) : -99;
+    var pct = Math.max(0, Math.min(100, (db + 60) / 60 * 100));
+    box.style.setProperty('--vu-w', box.clientWidth + 'px');
+    fill.style.width = pct + '%';
+    var now = performance.now();
+    if (db >= micVuPeakDb || now - micVuPeakT > 1500) { micVuPeakDb = db; micVuPeakT = now; }
+    var ppct = Math.max(0, Math.min(100, (micVuPeakDb + 60) / 60 * 100));
+    peak.style.left = 'calc(' + ppct + '% - 2px)';
+    peak.style.opacity = ppct > 0 ? '1' : '0';
+    peak.style.background = micVuPeakDb > -3 ? '#ff5252' : micVuPeakDb > -12 ? '#ffcc33' : '#fff';
+    val.textContent = micVuPeakDb > -60 ? String(Math.round(micVuPeakDb)) : '-60';
+    // Fall back smoothly between frames (about 20 dB/s).
+    micVuLevel *= 0.85;
+}
+
 function stopMic() {
     if (micEnabled) send({ cmd: 'enableMic', value: false });
     micEnabled = false; micStarting = false; micStartGen++;
@@ -9052,6 +9109,7 @@ function stopMic() {
     if (micAudioCtx) { micAudioCtx.close(); micAudioCtx = null; }
     setAudioSessionType('ambient');
     micSeq = 0;
+    micVuDraw();
     micRepaint();
 }
 

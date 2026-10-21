@@ -23,7 +23,8 @@ var MP3_KBPS = 64;
 var VIDEO = { w: 1280, h: 720, fps: 15, bps: 2000000 };
 var HEADER_H = 132;              // status header height inside the video frame
 var METER_MAX_W = 600;           // widest the copied meter may be drawn
-var CREDIT = { name: 'wfweb', url: 'wfweb.k1fm.us' };   // shown in every video frame
+// Shown in every video frame; a page can name itself (FlexWeb does).
+var CREDIT = (typeof window !== 'undefined' && window.wfRecorderCredit) || { name: 'wfweb', url: 'wfweb.k1fm.us' };
 // digits-sprite.png, the page's frequency font: ten 25x25 cells (their left
 // edges are not evenly spaced) followed by a 6 px wide decimal point.
 var DIGITS = { h: 25, w: 25, x: [0, 25, 51, 75, 100, 125, 150, 175, 200, 225], dotX: 250, dotW: 6 };

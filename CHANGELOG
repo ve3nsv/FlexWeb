@@ -65,6 +65,10 @@ FlexRadio:
   recalled, saved from the current slice, renamed and deleted.
 - FM repeaters: DUP-/DUP+/simplex, offset and CTCSS TX tone set the
   slice's repeater offset and FM tone (the DUP and TONE tiles).
+- Mic level meter (LVL, under MIC): the microphone level going to the
+  radio in dBFS with a peak hold, live whenever the mic is on, not only
+  on transmit.
+- Recordings say FlexWeb (github.com/ve3nsv/FlexWeb) in the video frame.
 - P.AMP/ATT uses the radio's own preamp steps (display pan rfgain_info,
   -8..+32 dB in 8 dB steps on a FLEX-6400) and shows them in dB. The old
   fixed +10/+20/+30 / -10 dB values were not steps the radio accepts, so
