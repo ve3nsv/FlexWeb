@@ -1635,6 +1635,17 @@ body.digi-open #bottomBar { grid-row: 5; }
     box-shadow: 0 0 5px #fc0;
 }
 .gain-row.tx .gain-val { color: #fb0; }
+/* RF2K-S tuner indicator (applet header chip + amp panel tile) */
+.ae-amp-head { display: inline-flex; align-items: center; gap: 8px; }
+.ae-tuner-chip { padding: 1px 6px; border-radius: 3px; font: 700 10px var(--font-ui, sans-serif); letter-spacing: 0.6px;
+    background: rgba(255,255,255,0.08); color: var(--text-dim, #889); }
+.ae-tuner-chip.on { background: #1f7a3a; color: #e8fff0; }
+.ae-tuner-chip.off { background: #8c1f1f; color: #ffe8e8; }
+.ae-tuner-chip.tuning { background: #a86f00; color: #fff6e0; }
+.amp-tuner-ind { cursor: default; }
+.amp-tuner-ind.on { background: #1f7a3a !important; border-color: #2ecc55 !important; color: #fff !important; }
+.amp-tuner-ind.off { background: #6e1a1a !important; border-color: #e53935 !important; color: #fff !important; }
+.amp-tuner-ind.tuning { background: #8a5c00 !important; border-color: #f5b400 !important; }
 /* NEURAL NR panel */
 .nnr-adv-title { margin: 10px 0 4px; font-size: 11px; letter-spacing: 1px; color: var(--text-dim, #889); }
 .nnr-status { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 10px; border-radius: 4px;
@@ -6459,10 +6470,21 @@ function renderApplets() {
         var ah = document.createElement('h2');
         ah.innerHTML = '';
         ah.appendChild(document.createTextNode(ampEsc(a.device || 'AMP')));
+        var right = document.createElement('span');
+        right.className = 'ae-amp-head';
+        var ts = ampTunerState(a);
+        if (up) {
+            var chip = document.createElement('span');
+            chip.className = 'ae-tuner-chip' + (ts.cls ? ' ' + ts.cls : '');
+            chip.textContent = ts.text;
+            chip.title = ts.title;
+            right.appendChild(chip);
+        }
         var st = document.createElement('span');
         st.className = up ? (a.operate ? 'ae-ok' : 'ae-dim') : 'ae-bad';
         st.textContent = up ? (a.operate ? 'OPERATE' : 'STANDBY') : 'OFFLINE';
-        ah.appendChild(st);
+        right.appendChild(st);
+        ah.appendChild(right);
         amp.appendChild(ah);
         var body = document.createElement('button');
         body.type = 'button';
@@ -6938,6 +6960,21 @@ function ampTile(label, value, bad) {
         (value === undefined || value === '' ? '\u2014' : ampEsc(value)) + '</span></div>';
 }
 
+// The RF2K-S tuner as an indicator, as in the AetherSDR RF-KIT applet: ON
+// (green) while the tuner is in the signal path - AUTO, MANUAL or tuning -
+// OFF (red) when the amplifier reports it bypassed or off. Read-only: the
+// amplifier's API has no tuner control.
+function ampTunerState(a) {
+    var m = (a && a.connected && a.tuner) ? String(a.tuner).toUpperCase() : '';
+    if (m === 'AUTO' || m === 'MANUAL' || m === 'TUNING')
+        return { text: 'TUNER ' + (m === 'TUNING' ? 'TUNING' : m), cls: 'on' + (m === 'TUNING' ? ' tuning' : ''),
+                 on: true, title: 'Tuner in line (' + m.toLowerCase() + ')' };
+    if (m === 'BYPASS' || m === 'OFF')
+        return { text: 'TUNER ' + (m === 'BYPASS' ? 'BYPASS' : 'OFF'), cls: 'off', on: false,
+                 title: m === 'BYPASS' ? 'Tuner bypassed' : 'Tuner off' };
+    return { text: 'TUNER \u2014', cls: '', on: false, title: 'Tuner state unknown' };
+}
+
 function renderAmpOverlay() {
     var body = document.getElementById('ampBody');
     if (!body) return;
@@ -6986,6 +7023,13 @@ function renderAmpOverlay() {
     });
     opBtn.disabled = !up;
     grid.appendChild(opBtn);
+    var tsO = ampTunerState(a);
+    var tunerInd = makeFuncBtn('TUNER', up ? tsO.text.replace(/^TUNER /, '') : '\u2014', false, function () {});
+    tunerInd.classList.add('amp-tuner-ind');
+    if (up && tsO.cls) tsO.cls.split(' ').forEach(function (c) { tunerInd.classList.add(c); });
+    tunerInd.title = tsO.title + ' (read-only)';
+    tunerInd.setAttribute('aria-disabled', 'true');
+    grid.appendChild(tunerInd);
     var ants = (up && a.antennas) || [];
     for (var n = 1; n <= 4; n++) {
         var ant = null;

@@ -59,3 +59,6 @@ and FM / NFM.
    builds drowe67/codec2 master, macOS uses Homebrew, Ubuntu 24.04 /
    Debian 13 ship 1.2, Debian 12 ships 1.0 (distro package) - fine for 700D/
    700E/1600, nothing to do.
+7. RF2K-S tuner indicator (done in the tree, ships with this batch): green
+   TUNER AUTO / MANUAL, amber TUNING, red TUNER BYPASS / OFF - applet header
+   chip and amp panel tile (ampTunerState in index.html).

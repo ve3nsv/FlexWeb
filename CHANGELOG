@@ -65,6 +65,10 @@ FlexRadio:
   recalled, saved from the current slice, renamed and deleted.
 - FM repeaters: DUP-/DUP+/simplex, offset and CTCSS TX tone set the
   slice's repeater offset and FM tone (the DUP and TONE tiles).
+- RF2K-S tuner indicator, as in the AetherSDR RF-KIT applet: a chip in the
+  amplifier applet's header and a tile in the amplifier panel - green TUNER
+  AUTO / MANUAL while the tuner is in line, amber while tuning, red TUNER
+  BYPASS / OFF. Read-only (the amplifier's API has no tuner control).
 - FM repeaters: the transmit offset now follows the repeater shift. A memory
   recall, the radio's band memory or another program could set DUP+/DUP-
   and the shift without the slice's tx_offset_freq, so the page showed the
