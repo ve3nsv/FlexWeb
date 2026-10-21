@@ -1,5 +1,7 @@
 # FlexWeb next batch (aether-look branch)
 
+Status: all items below are implemented in build 56 (dev-aether-look).
+
 The previous 15-item batch shipped in 1.0.55.
 
 Digital modes and FM get a clean receive path: JS8, FT8 / FT4, FreeDV RADE,

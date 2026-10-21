@@ -1,5 +1,5 @@
 #!/bin/sh
-# Compile RADE V1 (radae_nopy) + LPCNet + FARGAN + speex resampler + rade_text
+# Compile RADE V1 (freedv/rade_c, checked out at resources/radae_nopy) + LPCNet + FARGAN + speex resampler + rade_text
 # to a WASM ES module so the browser-only wfweb build can encode/decode RADE
 # voice without the C++ server in the loop.
 #
@@ -11,7 +11,7 @@
 #
 # Requires: emcc on PATH (any 3.x release).
 #
-# Scope: rade modem (rade_api_nopy + rade_enc/dec + rade_dsp/ofdm/bpf/acq/tx/rx),
+# Scope: rade modem (rade_api + rade_enc/dec + rade_dsp/ofdm/bpf/acq/tx/rx),
 # the LPCNet feature extractor (lpcnet_compute_single_frame_features), the
 # FARGAN vocoder (fargan_init/cont/synthesize), the speex resampler used by
 # RadeProcessor, and the self-contained rade_text encoder/decoder. Everything
@@ -92,7 +92,7 @@ ls -lh "$OPUS_WASM_LIB" | awk '{print "    libopus.a (wasm): "$5}'
 # Step 2: compile RADE + speex + rade_text + wfweb shim into rade.mjs
 # -----------------------------------------------------------------------------
 RADE_SOURCES="
-    $SRC/rade_api_nopy.c
+    $SRC/rade_api.c
     $SRC/rade_enc.c
     $SRC/rade_dec.c
     $SRC/rade_enc_data.c
@@ -103,6 +103,15 @@ RADE_SOURCES="
     $SRC/rade_acq.c
     $SRC/rade_tx.c
     $SRC/rade_rx.c
+    $SRC/rade_enc_v2.c
+    $SRC/rade_dec_v2.c
+    $SRC/rade_sync.c
+    $SRC/rade_enc_v2_data.c
+    $SRC/rade_dec_v2_data.c
+    $SRC/rade_sync_data.c
+    $SRC/rade_v2_ofdm.c
+    $SRC/rade_tx_v2.c
+    $SRC/rade_rx_v2.c
     $SRC/kiss_fft.c
     $SRC/kiss_fftr.c
 "
