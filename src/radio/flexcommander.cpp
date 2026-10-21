@@ -339,6 +339,7 @@ void flexCommander::resetSession()
     udpSeen.clear();
     udpStats.clear();
     txAccumulator.clear();
+    memories.clear();
     if (opusDec) { opus_decoder_destroy(opusDec); opusDec = nullptr; }
     wanHandle.clear();
     wanConnectRequested = false;
@@ -618,6 +619,7 @@ void flexCommander::processLine(const QString& line)
         // Needed to hear "client <us> disconnected forced=1" when another
         // client kicks us: the radio does not always close the socket.
         sendCmd("sub client all");
+        sendCmd("sub memories all");
         // The two graphic equalisers answer with an "eq rxsc/txsc" status.
         sendCmd("eq rxsc info");
         sendCmd("eq txsc info");
@@ -870,6 +872,10 @@ void flexCommander::handleStatus(const message& msg)
     // band's stored settings (rfpower etc.) and would make the page jump.
     if (obj == QLatin1String("transmit")) {
         handleTransmitStatus(msg.kvs);
+        return;
+    }
+    if (obj.startsWith(QLatin1String("memory "))) {
+        handleMemoryStatus(obj, msg.kvs);
         return;
     }
     if (obj.compare(QLatin1String("eq rxsc"), Qt::CaseInsensitive) == 0
@@ -2357,6 +2363,96 @@ void flexCommander::setSliceAntennas(const QString& rx, const QString& tx)
 // The antennas to go back to after 2 m: whatever was last in use below 2 m,
 // tracked all the time (not sampled when 2 m is entered, by which time the
 // radio may already have switched them for the new band).
+// ─── Radio memories ────────────────────────────────────────────────────────
+//
+// "memory <n> key=value ..." for each memory, again on every change, and
+// "memory <n> removed". Text values carry spaces as 0x7F (FlexLib).
+
+void flexCommander::handleMemoryStatus(const QString& object, const QMap<QString, QString>& kvs)
+{
+    const QStringList words = object.split(' ', Qt::SkipEmptyParts);
+    bool ok = false;
+    const int id = words.size() > 1 ? words[1].toInt(&ok) : -1;
+    if (!ok)
+        return;
+    if (words.contains(QStringLiteral("removed")) || kvs.contains(QStringLiteral("removed"))) {
+        memories.remove(id);
+    } else {
+        QMap<QString, QString>& m = memories[id];
+        for (auto it = kvs.constBegin(); it != kvs.constEnd(); ++it)
+            m.insert(it.key(), QString(it.value()).replace(QChar(0x7F), QChar(' ')).remove('"'));
+    }
+    // The radio sends the whole list in a burst at subscribe time: one
+    // update for the page, not one per memory.
+    if (!memPublishPending) {
+        memPublishPending = true;
+        QTimer::singleShot(150, this, &flexCommander::publishMemories);
+    }
+}
+
+void flexCommander::publishMemories()
+{
+    memPublishPending = false;
+    QJsonArray list;
+    for (auto it = memories.constBegin(); it != memories.constEnd(); ++it) {
+        const QMap<QString, QString>& m = it.value();
+        QJsonObject o;
+        o["id"] = it.key();
+        o["name"] = m.value("name");
+        o["group"] = m.value("group");
+        o["owner"] = m.value("owner");
+        o["freq"] = m.value("freq").toDouble();          // MHz
+        o["mode"] = m.value("mode");
+        o["offsetDir"] = m.value("offset_dir");
+        o["offset"] = m.value("repeater_offset").toDouble();
+        o["toneMode"] = m.value("tone_mode");
+        o["toneValue"] = m.value("tone_value");
+        o["power"] = m.value("power").toInt();
+        o["rxLo"] = m.value("rx_filter_low").toInt();
+        o["rxHi"] = m.value("rx_filter_high").toInt();
+        list.append(o);
+    }
+    emit flexMemories(list);
+}
+
+void flexCommander::flexMemoryCommand(QString action, int id, QJsonObject fields)
+{
+    if (!handshakeDone || tcp == nullptr)
+        return;
+    auto text = [](QString v) {
+        // Spaces travel as 0x7F; '=' and '|' would break the command line.
+        v = v.trimmed().left(48);
+        v.remove('=').remove('|').remove('"');
+        return v.replace(' ', QChar(0x7F));
+    };
+    auto setFields = [this, text, fields](int mem) {
+        QStringList kv;
+        if (fields.contains("name")) kv << "name=" + text(fields.value("name").toString());
+        if (fields.contains("group")) kv << "group=" + text(fields.value("group").toString());
+        if (!kv.isEmpty())
+            sendCmd(QString("memory set %1 %2").arg(mem).arg(kv.join(' ')));
+    };
+    if (action == "apply" && memories.contains(id)) {
+        // The radio applies a memory to this client's active slice.
+        if (sliceId >= 0) sliceSet("active=1");
+        sendCmd(QString("memory apply %1").arg(id));
+        qInfo(logRig()).noquote() << "Flex: recalled memory" << id << memories.value(id).value("name");
+    } else if (action == "create") {
+        // "memory create" stores the active slice (frequency, mode, filter,
+        // offset, tone...); the name and group follow.
+        if (sliceId >= 0) sliceSet("active=1");
+        sendCmd("memory create", [setFields](quint32 code, const QString& body) {
+            bool ok = false;
+            const int mem = body.trimmed().toInt(&ok);
+            if (code == 0 && ok) setFields(mem);
+        });
+    } else if (action == "set" && memories.contains(id)) {
+        setFields(id);
+    } else if (action == "remove" && memories.contains(id)) {
+        sendCmd(QString("memory remove %1").arg(id));
+    }
+}
+
 void flexCommander::rememberHfAntennas()
 {
     if (on2m || isTwoMetres(freqHz))

@@ -2232,6 +2232,44 @@ body.digi-open #bottomBar { grid-row: 5; }
        GAIN readouts) that stacks down the left edge of the scope area. */
     #freedvIndicator { flex-wrap: wrap; justify-content: flex-end; row-gap: 2px; max-width: calc(100% - 150px); }
 }
+/* MEMORIES applet and MEM overlay: the radio's memory list. Here, not in
+   aether.css, so the list keeps its look with FUNC > LOOK: CLASSIC. */
+.ae-mem-head { cursor: pointer; user-select: none; }
+.ae-mem-head:focus-visible { outline: 2px solid var(--ae-accent, #00b4d8); outline-offset: -2px; }
+.ae-mem-body { padding: 8px 12px 0; }
+#flexMemOvBody { max-height: 70vh; overflow-y: auto; padding: 0 8px; box-sizing: border-box; }
+.ae-mem-bar { display: flex; gap: 6px; margin-bottom: 6px; }
+.ae-mem-search {
+    flex: 1; min-width: 0; padding: 6px 8px; border-radius: 3px; border: 1px solid var(--ae-line, #2a3a4d);
+    background: #0b0b14; color: var(--ae-text, #c8d8e8); font: 12px var(--font-ui, system-ui, sans-serif);
+}
+.ae-mem-search:focus { outline: 2px solid var(--ae-accent, #00b4d8); outline-offset: 0; }
+.ae-mem-add {
+    width: 32px; border-radius: 3px; border: 1px solid var(--ae-line, #2a3a4d); background: var(--ae-panel-hi, #304050);
+    color: var(--ae-text-hi, #e6f0fa); font: 600 16px var(--font-ui, system-ui, sans-serif); cursor: pointer;
+}
+.ae-mem-add:hover { background: var(--ae-accent-lo, #0070c0); }
+.ae-mem-list { display: flex; flex-direction: column; gap: 2px; max-height: 320px; overflow-y: auto; }
+#flexMemOvBody .ae-mem-list { max-height: none; }
+.ae-mem-group { margin: 6px 0 2px; font: 600 10px var(--font-ui, system-ui, sans-serif); letter-spacing: 1px; color: var(--ae-text-dim, #8ea8c0); text-transform: uppercase; }
+.ae-mem-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto 44px; gap: 8px; align-items: center;
+    padding: 6px 8px; min-height: 30px; border: 1px solid transparent; border-radius: 3px;
+    background: #121a26; color: var(--ae-text, #c8d8e8); text-align: left; cursor: pointer; font: 12px var(--font-ui, system-ui, sans-serif);
+}
+.ae-mem-row:hover { border-color: var(--ae-line, #2a3a4d); background: var(--ae-panel-hi, #304050); }
+.ae-mem-row:focus-visible { outline: 2px solid var(--ae-accent, #00b4d8); outline-offset: -2px; }
+.ae-mem-row.active { border-color: var(--ae-accent, #00b4d8); }
+.ae-mem-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ae-mem-freq { font-family: var(--font-mono, monospace); color: var(--ae-text-hi, #e6f0fa); }
+.ae-mem-mode { color: var(--ae-text-dim, #8ea8c0); text-align: right; }
+.ae-mem-actions { display: flex; gap: 4px; padding: 2px 0 6px; }
+.ae-mem-actions button {
+    flex: 1; padding: 5px 0; border-radius: 3px; border: 1px solid var(--ae-line, #2a3a4d);
+    background: var(--ae-panel-hi, #304050); color: var(--ae-text, #c8d8e8); font: 11px var(--font-ui, system-ui, sans-serif); cursor: pointer;
+}
+.ae-mem-actions button.danger { background: #4a1010; border-color: #c33; color: #ffd0d0; }
+.ae-mem-empty { padding: 8px 2px; color: var(--ae-text-dim, #8ea8c0); font: 12px var(--font-ui, system-ui, sans-serif); }
 </style>
 <!-- JS8 messenger panel styles — shared with the standalone build via
      resources/web-shared/js8-panel.css. -->
@@ -2890,6 +2928,12 @@ try {
         </div>
 
         <!-- RF-KIT amplifier (server --rfkit). Filled by renderAmpOverlay(). -->
+        <div id="flexMemOverlay" class="overlay">
+            <div class="overlay-title">MEMORIES</div>
+            <div id="flexMemOvBody" style="width:100%"></div>
+            <button type="button" class="ov-btn back-btn" onclick="setPanel('default')" aria-label="Back">&#x21A9;</button>
+        </div>
+
         <div id="ampOverlay" class="overlay">
             <div class="overlay-title">AMPLIFIER</div>
             <div id="ampBody" style="width:100%"></div>
@@ -2945,6 +2989,7 @@ try {
         </section>
         <section class="ae-applet" id="aeEq" hidden></section>
         <section class="ae-applet" id="aeAmp" hidden></section>
+        <section class="ae-applet" id="aeMem" hidden aria-label="Radio memories"></section>
     </aside>
 </div>
 
@@ -3546,6 +3591,10 @@ function handleMessage(msg) {
     // Forward to read-only consumer modules before main state-machine switch.
     if (window.Packet && window.Packet.onMessage) window.Packet.onMessage(msg);
     switch (msg.type) {
+        case 'flexMemories':
+            flexMemList = msg.list || [];
+            flexMemRenderAll();
+            break;
         case 'flexDsp':
             flexDsp = msg;
             if (document.getElementById('eqOverlay').classList.contains('visible')) renderEqOverlay();
@@ -5506,6 +5555,11 @@ function setPanel(name) {
     else if (name === 'eq') { renderEqOverlay(); document.getElementById('eqOverlay').classList.add('visible'); }
     else if (name === 'proc') { renderProcOverlay(); document.getElementById('procOverlay').classList.add('visible'); }
     else if (name === 'amp') { renderAmpOverlay(); document.getElementById('ampOverlay').classList.add('visible'); }
+    else if (name === 'flexmem') {
+        var mb = document.getElementById('flexMemOvBody'); mb.innerHTML = '';
+        flexMemRender(mb);
+        document.getElementById('flexMemOverlay').classList.add('visible');
+    }
     renderBottomBar();
 }
 
@@ -5663,11 +5717,160 @@ function aeSliceTexts() {
     return out;
 }
 
+// ---- Radio memories (FlexRadio): MEMORIES applet / MEM tile (item 17) ----
+// The radio's own memory list (flexCommander, {type:'flexMemories'}): tap to
+// recall, + stores the current frequency/mode/filter, long-press or
+// right-click to rename, regroup or delete. The applet header collapses it.
+var flexMemList = null;                 // null = not a Flex / no list yet
+var flexMemFilter = '';
+var flexMemOpen = true;
+try { flexMemOpen = localStorage.getItem('wfMemOpen') !== '0'; } catch (e) {}
+var flexMemMenuId = -1;                 // the row showing its actions
+
+function flexMemFreqText(mhz) {
+    var hz = Math.round(mhz * 1e6);
+    var s = String(hz);
+    while (s.length < 7) s = '0' + s;
+    var mhzPart = s.slice(0, -6), khz = s.slice(-6, -3), h = s.slice(-3);
+    return mhzPart + '.' + khz + '.' + h;
+}
+
+function flexMemSend(action, id, extra) {
+    var o = { cmd: 'flexMemory', action: action, id: id };
+    if (extra) for (var k in extra) o[k] = extra[k];
+    send(o);
+}
+
+function flexMemNew() {
+    var name = prompt('Name for a memory of ' + flexMemFreqText(currentFreq / 1e6) + ' ' + currentMode + ':', '');
+    if (name === null) return;
+    var group = prompt('Group (optional):', '');
+    if (group === null) group = '';
+    flexMemSend('create', 0, { name: name, group: group });
+}
+
+// Build the list into `host` (applet body or the phone overlay). The search
+// box is created once per host so typing keeps its focus across updates.
+function flexMemRender(host) {
+    if (!host) return;
+    var search = host.querySelector('.ae-mem-search');
+    if (!search) {
+        host.innerHTML = '';
+        var bar = document.createElement('div'); bar.className = 'ae-mem-bar';
+        search = document.createElement('input');
+        search.type = 'search'; search.className = 'ae-mem-search';
+        search.placeholder = 'Search memories';
+        search.setAttribute('aria-label', 'Search memories');
+        search.value = flexMemFilter;
+        search.oninput = function () { flexMemFilter = search.value; flexMemRenderAll(); };
+        var add = document.createElement('button');
+        add.type = 'button'; add.className = 'ae-mem-add'; add.textContent = '+';
+        add.title = 'Save the current frequency, mode and filter as a memory';
+        add.setAttribute('aria-label', 'New memory');
+        add.onclick = flexMemNew;
+        bar.appendChild(search); bar.appendChild(add);
+        host.appendChild(bar);
+        var listEl = document.createElement('div'); listEl.className = 'ae-mem-list';
+        host.appendChild(listEl);
+    } else if (search.value !== flexMemFilter && document.activeElement !== search) {
+        search.value = flexMemFilter;
+    }
+    var list = host.querySelector('.ae-mem-list');
+    list.innerHTML = '';
+    var q = flexMemFilter.trim().toLowerCase();
+    var groups = {}, order = [];
+    (flexMemList || []).forEach(function (m) {
+        var text = (m.name + ' ' + m.group + ' ' + m.mode + ' ' + flexMemFreqText(m.freq)).toLowerCase();
+        if (q && text.indexOf(q) < 0) return;
+        var g = m.group || '';
+        if (!groups[g]) { groups[g] = []; order.push(g); }
+        groups[g].push(m);
+    });
+    order.sort(function (a, b) { return a === '' ? 1 : b === '' ? -1 : a.localeCompare(b); });
+    if (!order.length) {
+        var empty = document.createElement('div'); empty.className = 'ae-mem-empty';
+        empty.textContent = (flexMemList && flexMemList.length) ? 'No match' : 'No memories on the radio yet. + saves this frequency.';
+        list.appendChild(empty);
+    }
+    order.forEach(function (g) {
+        var gh = document.createElement('div'); gh.className = 'ae-mem-group';
+        gh.textContent = g || 'No group';
+        list.appendChild(gh);
+        groups[g].sort(function (a, b) { return a.freq - b.freq; }).forEach(function (m) {
+            var row = document.createElement('button');
+            row.type = 'button'; row.className = 'ae-mem-row';
+            var tuned = Math.abs(m.freq * 1e6 - currentFreq) < 50 && m.mode === currentMode;
+            if (tuned) row.classList.add('active');
+            row.innerHTML = '<span class="ae-mem-name"></span><span class="ae-mem-freq"></span><span class="ae-mem-mode"></span>';
+            row.children[0].textContent = m.name || ('Memory ' + m.id);
+            row.children[1].textContent = flexMemFreqText(m.freq);
+            row.children[2].textContent = m.mode;
+            row.title = 'Tap to recall. Long-press or right-click for rename, group and delete.';
+            var pressT = null, longP = false;
+            row.onpointerdown = function () { longP = false; pressT = setTimeout(function () { longP = true; flexMemMenuId = m.id; flexMemRenderAll(); }, 600); };
+            row.onpointerup = row.onpointerleave = function () { clearTimeout(pressT); };
+            row.oncontextmenu = function (e) { e.preventDefault(); flexMemMenuId = m.id; flexMemRenderAll(); };
+            row.onclick = function () { if (longP) return; flexMemMenuId = -1; flexMemSend('apply', m.id); };
+            list.appendChild(row);
+            if (flexMemMenuId === m.id) {
+                var acts = document.createElement('div'); acts.className = 'ae-mem-actions';
+                [['Rename', function () { var n = prompt('Name:', m.name); if (n !== null) flexMemSend('set', m.id, { name: n }); }],
+                 ['Group', function () { var n = prompt('Group:', m.group); if (n !== null) flexMemSend('set', m.id, { group: n }); }],
+                 ['Delete', function (b) {
+                     if (b.dataset.armed) { flexMemMenuId = -1; flexMemSend('remove', m.id); return; }
+                     b.dataset.armed = '1'; b.textContent = 'Delete?'; b.classList.add('danger');
+                 }],
+                 ['Close', function () { flexMemMenuId = -1; flexMemRenderAll(); }]
+                ].forEach(function (a) {
+                    var b = document.createElement('button'); b.type = 'button'; b.textContent = a[0];
+                    b.onclick = function (e) { e.stopPropagation(); a[1](b); };
+                    acts.appendChild(b);
+                });
+                list.appendChild(acts);
+            }
+        });
+    });
+}
+
+// The desktop applet (collapsible header) and, if open, the phone overlay.
+function flexMemRenderAll() {
+    var sec = document.getElementById('aeMem');
+    if (sec) {
+        sec.hidden = flexMemList === null;
+        if (flexMemList !== null) {
+            var h = sec.querySelector('h2');
+            if (!h) {
+                h = document.createElement('h2');
+                h.className = 'ae-mem-head';
+                h.tabIndex = 0;
+                h.setAttribute('role', 'button');
+                h.onclick = h.onkeydown = function (e) {
+                    if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+                    if (e.type === 'keydown') e.preventDefault();
+                    flexMemOpen = !flexMemOpen;
+                    try { localStorage.setItem('wfMemOpen', flexMemOpen ? '1' : '0'); } catch (x) {}
+                    flexMemRenderAll();
+                };
+                sec.appendChild(h);
+                var body = document.createElement('div'); body.className = 'ae-mem-body';
+                sec.appendChild(body);
+            }
+            h.textContent = 'MEMORIES ' + (flexMemOpen ? '▾' : '▸') + ' ' + flexMemList.length;
+            h.setAttribute('aria-expanded', flexMemOpen ? 'true' : 'false');
+            var bodyEl = sec.querySelector('.ae-mem-body');
+            bodyEl.hidden = !flexMemOpen;
+            if (flexMemOpen) flexMemRender(bodyEl);
+        }
+    }
+    if (currentPanel === 'flexmem') flexMemRender(document.getElementById('flexMemOvBody'));
+}
+
 function aeTick() {
     if (!aeDesktop && !aePhone) return;
     var band = (typeof bandLabelOf === 'function') ? bandLabelOf(currentFreq) : '';
     var sig = JSON.stringify([currentMode, currentFilter, currentFilterWidth, band, nbOn, nrOn, anfOn,
         isTransmitting, flexDsp, ampConfigured, ampState, tunerState, hasTuner, currentPanel,
+        flexMemList === null ? -1 : flexMemList.length,
         digiBarVisible, availableModes.length, rigBands.length]);
     if (sig === aeLastSig) return;
     aeLastSig = sig;
@@ -5872,6 +6075,9 @@ function aePhoneButtons(isCW) {
         out.push({ label: 'AMP', sub: !a.connected ? 'OFFLINE' : (a.operate ? 'OPR ' : 'STBY ') + (a.fwd || 0) + ' W',
                    cls: 'ae-tile', action: function() { setPanel('amp'); } });
     }
+    if (flexMemList !== null)
+        out.push({ label: 'MEM', sub: String(flexMemList.length), cls: 'ae-tile', active: currentPanel === 'flexmem',
+                   action: function() { setPanel(currentPanel === 'flexmem' ? 'default' : 'flexmem'); } });
     out.push({ spacer: true, cls: 'ae-break' });
     out.push({ label: 'MODE', active: currentPanel === 'mode', action: function() { setPanel('mode'); } });
     out.push({ label: 'BAND', active: currentPanel === 'band', action: function() { setPanel('band'); } });
@@ -6135,6 +6341,10 @@ function renderFuncOverlay() {
     // list + save). Lit with the channel number while the rig is in memory
     // mode, so it doubles as an indicator.
     var memState = currentVfo === 'MEM' ? (memChannel !== null ? 'CH ' + memChannel : 'ON') : '';
+    // On a Flex, MEM is the radio's own memory list (the MEMORIES applet).
+    if (flexMemList !== null)
+        grid.appendChild(makeFuncBtn('MEM', String(flexMemList.length), currentPanel === 'flexmem', function() { setPanel('flexmem'); }));
+    else
     grid.appendChild(makeFuncBtn('MEM', memState, currentVfo === 'MEM', function() {
         openMemoryBrowser();
     }));

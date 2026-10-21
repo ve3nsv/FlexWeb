@@ -9,6 +9,7 @@ what reached the radio. Needs the built ./wfweb and the rig files installed
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import struct
 import subprocess
@@ -219,6 +220,57 @@ def test_2m_antennas_come_back(flex):
         time.sleep(1.5)   # past the radio's late recall of ANT1
         assert radio.slice.get("txant") == "ANT2", radio.slice
         assert radio.slice.get("rxant") == "ANT1", radio.slice
+    finally:
+        sock.close()
+
+
+def test_radio_memories(flex):
+    """The radio's memories reach the page, recall onto wfweb's slice, and
+    can be created, renamed, regrouped and removed from it."""
+    radio, rest = flex
+    from test_web_login import _Reader, _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    reader = _Reader(sock, buf)
+
+    def latest_list(timeout=6.0):
+        got = None
+        end = time.monotonic() + timeout
+        for text in reader.frames(timeout):
+            m = json.loads(text)
+            if m.get("type") == "flexMemories":
+                got = m["list"]
+                return got
+            if time.monotonic() > end:
+                break
+        return got
+
+    try:
+        mems = latest_list()
+        assert mems is not None, "no flexMemories"
+        by_name = {m["name"]: m for m in mems}
+        assert "Club net" in by_name and by_name["Club net"]["group"] == "Nets"   # 0x7F -> space
+        assert by_name["FT8"]["freq"] == 14.074 and by_name["FT8"]["mode"] == "DIGU"
+
+        _ws_send(sock, {"cmd": "flexMemory", "action": "apply", "id": by_name["Club net"]["id"]})
+        assert _wait(lambda: "memory apply 0" in radio.commands, timeout=5)
+        assert _wait(lambda: requests.get(f"{rest}/frequency", timeout=2).json().get("hz") == 3_873_000, timeout=5)
+
+        _ws_send(sock, {"cmd": "flexMemory", "action": "create", "id": 0, "name": "My spot", "group": "DX"})
+        assert _wait(lambda: any(c.startswith("memory set 2 ") and "name=My\x7fspot" in c and "group=DX" in c
+                                 for c in radio.commands), timeout=5)
+        mems = latest_list()
+        while mems is not None and not any(m["name"] == "My spot" for m in mems):
+            mems = latest_list()
+        assert mems and any(m["name"] == "My spot" and m["group"] == "DX" for m in mems)
+
+        _ws_send(sock, {"cmd": "flexMemory", "action": "remove", "id": 2})
+        assert _wait(lambda: "memory remove 2" in radio.commands, timeout=5)
+        mems = latest_list()
+        while mems is not None and any(m["id"] == 2 for m in mems):
+            mems = latest_list()
+        assert mems is not None and len(mems) == 2
     finally:
         sock.close()
 

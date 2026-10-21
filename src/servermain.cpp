@@ -364,6 +364,8 @@ void servermain::makeRig()
                     connect(flex, &flexCommander::evicted, this, [this](QString) { disconnectLan(); }, Qt::QueuedConnection);
                     connect(flex, &flexCommander::flexDspState, web, &webServer::onFlexDspState, Qt::QueuedConnection);
                     connect(web, &webServer::flexDspSet, flex, &flexCommander::setFlexDsp, Qt::QueuedConnection);
+                    connect(flex, &flexCommander::flexMemories, web, &webServer::onFlexMemories, Qt::QueuedConnection);
+                    connect(web, &webServer::flexMemorySet, flex, &flexCommander::flexMemoryCommand, Qt::QueuedConnection);
                 }
             }
 

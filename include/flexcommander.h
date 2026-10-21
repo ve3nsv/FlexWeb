@@ -31,6 +31,7 @@
 #include <QSet>
 #include <QElapsedTimer>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <functional>
 
 struct SpeexResamplerState_;
@@ -68,10 +69,15 @@ public slots:
     // 2 DX+), dexp (0/1), dexpLevel (0-100), micLevel (0-100), txLo / txHi
     // (TX filter edges, Hz).
     void setFlexDsp(QString key, int index, int value);
+    // The radio's memories (MEMORIES applet): action "apply" / "create" /
+    // "set" / "remove"; fields name, group for create and set.
+    void flexMemoryCommand(QString action, int id, QJsonObject fields);
 
 signals:
     // The radio's EQ and TX audio processing, as the page shows it.
     void flexDspState(QJsonObject state);
+    // The radio's memory list, every time it changes (coalesced).
+    void flexMemories(QJsonArray list);
     // Another client (SmartSDR, Maestro...) disconnected us, or the radio
     // dropped us for a duplicate client id. servermain closes the LAN session
     // so wfweb stays off the radio until a browser asks to connect again.
@@ -206,6 +212,11 @@ private:
     // the XVTR port, leaving the band puts back the HF antennas it had.
     bool on2m = false;
     QString hfRxAnt, hfTxAnt;
+    // Radio memories by index, as the radio reports them ("sub memories all").
+    QMap<int, QMap<QString, QString>> memories;
+    bool memPublishPending = false;
+    void handleMemoryStatus(const QString& object, const QMap<QString, QString>& kvs);
+    void publishMemories();
     // After leaving 2 m: the antennas wfweb put back, and until when it
     // defends them against the radio's own per-band antenna recall, which
     // can land after our command.

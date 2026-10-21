@@ -123,6 +123,17 @@ class MockFlexRadio:
         # that band's antennas back a moment later, after the client's own
         # commands. recall_hf is what it recalls below 2 m (a stale value).
         self.recall_hf = {"rxant": "ANT1", "txant": "ANT1"}
+        # Radio memories ("sub memories all", memory apply/create/set/remove).
+        self.memories = {
+            0: {"owner": "VE3NSV", "group": "Nets", "freq": "3.873000", "name": "Club\x7fnet",
+                "mode": "LSB", "step": "100", "repeater": "SIMPLEX", "repeater_offset": "0.000000",
+                "tone_mode": "OFF", "tone_value": "67.0", "power": "100",
+                "rx_filter_low": "-2700", "rx_filter_high": "-100", "squelch": "0", "squelch_level": "20"},
+            1: {"owner": "VE3NSV", "group": "", "freq": "14.074000", "name": "FT8",
+                "mode": "DIGU", "step": "10", "repeater": "SIMPLEX", "repeater_offset": "0.000000",
+                "tone_mode": "OFF", "tone_value": "67.0", "power": "50",
+                "rx_filter_low": "0", "rx_filter_high": "3000", "squelch": "0", "squelch_level": "20"},
+        }
         self.opus_sent = 0
         self._opus: _OpusEncoder | None = None
         self._opus_pending: list[int] = []
@@ -237,6 +248,10 @@ class MockFlexRadio:
         body = " ".join(f"{k}={v}" for k, v in kv.items())
         self.status(f"slice 0 {body}")
 
+    def _memory_status(self, i: int) -> None:
+        body = " ".join(f"{k}={v}" for k, v in self.memories[i].items())
+        self.status(f"memory {i} {body}")
+
     def _pan_status(self, **kv) -> None:
         self.pan.update({k: str(v) for k, v in kv.items()})
         body = " ".join(f"{k}={v}" for k, v in kv.items())
@@ -248,6 +263,36 @@ class MockFlexRadio:
             if self.wan:
                 return 0x50001000, "not supported over WAN"
             self.client_addr = (self._peer_ip, int(words[2]))
+            return 0, ""
+        if cmd == "sub memories all":
+            for i in sorted(self.memories):
+                self._memory_status(i)
+            return 0, ""
+        if cmd.startswith("memory apply"):
+            m = self.memories.get(int(words[2]))
+            if not m:
+                return 0x50000016, "no such memory"
+            self._slice_status(RF_frequency=m["freq"], mode=m["mode"])
+            return 0, ""
+        if cmd == "memory create":
+            i = max(self.memories, default=-1) + 1
+            self.memories[i] = {"owner": "VE3NSV", "group": "", "name": "",
+                                "freq": f'{float(self.slice.get("RF_frequency", 14.2)):.6f}',
+                                "mode": self.slice.get("mode", "USB"), "power": "100"}
+            self._memory_status(i)
+            return 0, str(i)
+        if cmd.startswith("memory set"):
+            i = int(words[2])
+            if i not in self.memories:
+                return 0x50000016, "no such memory"
+            kv = dict(w.split("=", 1) for w in words[3:] if "=" in w)
+            self.memories[i].update(kv)
+            self._memory_status(i)
+            return 0, ""
+        if cmd.startswith("memory remove"):
+            i = int(words[2])
+            self.memories.pop(i, None)
+            self.status(f"memory {i} removed")
             return 0, ""
         if cmd.startswith("sub meter"):
             defs = "#".join(f"{i}.src={s}#{i}.num={n}#{i}.nam={nm}#{i}.unit={u}"

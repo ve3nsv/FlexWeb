@@ -2801,6 +2801,13 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
             emit requestPowerOff();
         }
     }
+    else if (type == "flexMemory") {
+        // MEMORIES applet: {cmd:'flexMemory', action, id, name?, group?}.
+        QJsonObject fields;
+        if (cmd.contains("name")) fields["name"] = cmd["name"].toString();
+        if (cmd.contains("group")) fields["group"] = cmd["group"].toString();
+        emit flexMemorySet(cmd["action"].toString(), cmd["id"].toInt(), fields);
+    }
     else if (type == "flexDsp") {
         // FUNC > EQ / PROC on a Flex: {cmd:'flexDsp', key, index, value}.
         emit flexDspSet(cmd["key"].toString(), cmd["index"].toInt(), cmd["value"].toInt());
@@ -3939,6 +3946,12 @@ void webServer::sendCurrentState(QWebSocket *client)
         QJsonObject d = flexDspJson_;
         d["type"] = "flexDsp";
         sendJsonTo(client, d);
+    }
+    if (haveFlexMemories_) {
+        QJsonObject m;
+        m["type"] = "flexMemories";
+        m["list"] = flexMemoriesJson_;
+        sendJsonTo(client, m);
     }
     // The log itself is paged over REST; this only tells the browser to fetch page 1.
     sendJsonTo(client, logbookSummary());
@@ -8903,6 +8916,16 @@ void webServer::onDemandBrowserLeft()
     qInfo() << "On-demand: last browser closed, releasing the rig in"
             << onDemandIdleSec_ << "s unless one comes back";
     onDemandTimer_->start(onDemandIdleSec_ * 1000);
+}
+
+void webServer::onFlexMemories(QJsonArray list)
+{
+    flexMemoriesJson_ = list;
+    haveFlexMemories_ = true;
+    QJsonObject o;
+    o["type"] = "flexMemories";
+    o["list"] = list;
+    sendJsonToAll(o);
 }
 
 void webServer::onFlexDspState(QJsonObject state)
