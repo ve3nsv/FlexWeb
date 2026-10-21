@@ -22,5 +22,21 @@ Suggested order: 5, 6, 7 first (daily use), NNR (3) last.
 12. XIT (`xit_on`, `xit_freq`).
 13. TNF and WNB (`tnf ...`, `display pan set wnb= wnb_level=`).
 14. Max power and tune power limits (`transmit set max_power_level=`, `tunepower=`).
+15. FlexWeb branding everywhere the user sees it (keep internal names so settings survive):
+    - Page: splash/power-off version spans ("wfweb"), the local-memories badge and tooltips, the
+      REMOTE-jack hint, console banner, logbook export name (wfweb_<call>_….adi -> FlexWeb_…).
+      Keep: localStorage keys, the "WFWEB" waterfall palette id (rename label only), worklet class names.
+    - Server text: --smartlink-login hint, "settings cleared", "wfweb stopped", login warning
+      ("wfweb --add-user"), self-signed cert CN, the "power off from wfweb" log line.
+    - Flex: SmartLink `application register name=FlexWeb`; send `client program FlexWeb` (and station
+      name) so SmartSDR / the radio list show FlexWeb instead of a blank / wfweb.
+    - Launcher: window/tray/message-box titles and texts, product/description/company in the .exe
+      resources (QMAKE_TARGET_PRODUCT etc.).
+    - Download names: zip/deb/AppImage names wfweb-* -> FlexWeb-* in build.yml (update the user's
+      .bat files' WFWEB_DIR accordingly) — ask before changing, it moves the download URL.
+    - README / docs text where it describes this fork.
+    - Keep unchanged: wfweb.exe / wfweb-launcher.exe file names (the .bat files and launcher call
+      them), QSettings("wfweb", …) organisation/app names and %APPDATA%\wfweb (user's settings,
+      users, SmartLink sign-in), WFWEB_* env vars and macros, upstream credit ("based on wfweb").
 
 Skipped by the user: VOX / VOX delay, NAT hole punching.
