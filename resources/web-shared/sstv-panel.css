@@ -1,12 +1,12 @@
 /* SSTV panel (sstv-panel.mjs). Like the JS8 panel it fills #scopeArea,
    whose grid row is widened while body.sstv-open is set. */
+/* The scope stays visible on top (resizeCanvases sizes it and sets
+   --sstv-top); the panel takes the space under it. */
 body.sstv-open #scopeInfoBar { display: none !important; }
-body.sstv-open #spectrumCanvas,
-body.sstv-open #waterfallCanvas { display: none !important; }
 body.sstv-open #scopeArea { grid-row: 3 / 5; }
 body.sstv-open #bottomBar { grid-row: 5; }
 
-.sstv-bar { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column; gap: 8px;
+.sstv-bar { position: absolute; inset: 0; top: var(--sstv-top, 0); z-index: 60; display: flex; flex-direction: column; gap: 8px;
     padding: 8px 10px; overflow: auto; background: var(--ae-bg, #0b1118);
     color: var(--ae-text, #c9d6e2); font: 12px var(--font-mono, monospace); }
 .sstv-bar.hidden { display: none; }

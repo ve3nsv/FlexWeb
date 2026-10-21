@@ -827,8 +827,11 @@ function drawFt8Body(r, v) {
 
 // --- JS8 --------------------------------------------------------------------
 
-function drawSstvBody(r, v) {
+function drawSstvBody(r, v, cv) {
     var g = r.g, W = VIDEO.w, H = VIDEO.h, T = r.theme, y = HEADER_H;
+    // the scope strip stays on top, as on the page
+    var scopeH = 170;
+    if (cv) { drawScopeBody(g, cv, y, y + scopeH); y += scopeH; }
     g.fillStyle = T.bar; g.fillRect(0, y, W, 32);
     g.font = 'bold 15px ' + T.mono;
     tile(g, 12, y + 5, 56, 22, '#0e5c8a', '#e6f3ff', 'SSTV');
@@ -1184,7 +1187,7 @@ function drawFrame(r) {
     var view;
     if ((view = ft8View())) return drawFt8Body(r, view);
     if ((view = js8View())) return drawJs8Body(r, view);
-    if ((view = sstvView())) return drawSstvBody(r, view);
+    if ((view = sstvView())) return drawSstvBody(r, view, cv);
     if ((view = packetView())) return drawPacketBody(r, view);
     var cw = cwView(), fdv = cw ? null : freedvView();
     var panelH = cw ? CW_PANEL_H : fdv ? FDV_PANEL_H : 0;

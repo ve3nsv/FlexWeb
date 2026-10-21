@@ -415,6 +415,7 @@ function open() {
     S.tickTimer = setInterval(tick, 500); tick();
     renderTxPreview();
     if (typeof aeTick === 'function') { window.aeLastSig = ''; aeTick(); }
+    if (typeof resizeCanvases === 'function') setTimeout(resizeCanvases, 0);
 }
 function close() {
     if (!S.visible) return;
@@ -428,6 +429,7 @@ function close() {
     if (S.tickTimer) { clearInterval(S.tickTimer); S.tickTimer = null; }
     if (typeof window.restoreVfoSnapshot === 'function') window.restoreVfoSnapshot();
     if (typeof aeTick === 'function') { window.aeLastSig = ''; aeTick(); }
+    if (typeof resizeCanvases === 'function') setTimeout(resizeCanvases, 0);
 }
 
 (function init() {

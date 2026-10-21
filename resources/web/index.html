@@ -10204,6 +10204,13 @@ function resizeCanvases() {
     if (cwBar && !cwBar.classList.contains('hidden')) {
         availH = Math.max(areaRect.height * 0.35, areaRect.height - cwBar.getBoundingClientRect().height);
     }
+    // SSTV keeps the scope: spectrum + waterfall in the top strip (a third,
+    // a bit more on a phone where the strip is short), the panel under it
+    // (sstv-panel.css places it from --sstv-top).
+    if (document.body.classList.contains('sstv-open')) {
+        availH = Math.round(areaRect.height * (areaRect.width < 760 ? 0.3 : 0.36));
+        area.style.setProperty('--sstv-top', availH + 'px');
+    }
     var spectH = Math.round(availH * 0.35);
     var wfH = Math.round(availH * 0.65);
     spectCanvas.style.height = spectH + 'px';
