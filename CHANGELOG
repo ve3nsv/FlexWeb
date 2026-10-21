@@ -96,8 +96,9 @@ FlexRadio:
   still tune directly.
 - FreeDV Reporter: a MESSAGE field in the station settings, shown in the
   Message column on qso.freedv.org and kept by the server.
-- Recordings (AetherSDR look) have a sidebar column with the RX / TX /
-  amplifier values and the mic level; Recorder.renderFrame() draws a frame.
+- Recorder.renderFrame() draws one video frame (tests, previews). (A sidebar
+  column with the applet values was tried in 1.0.55 and taken out again at the
+  user's request: the video is header + full-width scope as before.)
 - FlexWeb everywhere it shows: page and recordings, server messages,
   launcher, SmartLink and the radio's client list (client program FlexWeb,
   client station <host>), and the downloads (FlexWeb-…zip / .deb /

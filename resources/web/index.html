@@ -4641,45 +4641,6 @@ function updateRfGainIndicator(val) {
     el.style.display = '';
 }
 
-// The AetherSDR sidebar's values for the recorder's video column (recorder.js
-// drawSidebar). Only with the AetherSDR look; CLASSIC keeps the full-width video.
-function recorderSidebar() {
-    if (aeClassic) return null;
-    var t = function (id) { var e = document.getElementById(id); return e ? e.textContent.trim() : ''; };
-    var onoff = function (v) { return v ? 'ON' : 'OFF'; };
-    var out = [];
-    var rx = [['AF', t('afGainVal')], [isFlexRig ? 'AGC-T' : 'RF', t('rfGainVal')], ['SQL', t('squelchVal')],
-              ['FILTER', filterFuncState()],
-              ['NOISE', [nbOn ? 'NB' : '', nrOn ? 'NR' : '', anfOn ? 'ANF' : '',
-                         flexDsp && flexDsp.nnr ? 'NNR' + (flexDsp.nnrActive ? '' : '(wait)') : ''].filter(Boolean).join(' ') || 'OFF'],
-              ['P.AMP/ATT', getPreampAttState().label]];
-    if (currentAgc !== null) rx.push(['AGC', agcLabel(currentAgc)]);
-    if (flexDsp && flexDsp.rxAnt) rx.push(['ANT', flexDsp.rxAnt + (flexDsp.txAnt && flexDsp.txAnt !== flexDsp.rxAnt ? ' / TX ' + flexDsp.txAnt : '')]);
-    out.push({ title: 'RX', rows: rx });
-    var tx = [['PWR', t('rfPowerVal')], ['MIC', t('micGainVal')]];
-    if (micEnabled) {
-        var db = micVuPeakDb > -60 ? Math.round(micVuPeakDb) : -60;
-        tx.push(['LVL', db + ' dB', (db + 60) / 60, db > -3 ? 'hot' : db > -12 ? 'warn' : '']);
-    }
-    if (flexDsp) {
-        tx.push(['PROC', flexDsp.proc ? ['NOR', 'DX', 'DX+'][flexDsp.procLevel] || 'ON' : 'OFF']);
-        tx.push(['TX FILTER', flexDsp.txLo + '-' + flexDsp.txHi]);
-        if (flexDsp.tune) tx.push(['TUNE', 'CARRIER', null, 'hot']);
-    }
-    if (hasTuner) tx.push(['ATU', tunerState === 2 ? 'TUNING' : onoff(tunerState)]);
-    out.push({ title: 'TX', rows: tx });
-    if (ampState && ampState.connected) {
-        var a = [['STATE', ampState.operate ? 'OPERATE' : 'STANDBY'],
-                 ['FWD', (ampState.fwd !== undefined ? ampState.fwd : '-') + ' W'],
-                 ['SWR', ampState.swr ? Number(ampState.swr).toFixed(2) : '-', null, ampState.swr > 2 ? 'hot' : ampState.swr > 1.5 ? 'warn' : ''],
-                 ['TEMP', ampState.temp !== undefined ? Math.round(ampState.temp) + ' C' : '-'],
-                 ['BAND', ampState.band || '-']];
-        if (ampState.tuner) a.push(['TUNER', ampState.tuner + (ampState.tunerL ? ' ' + ampState.tunerL : '') + (ampState.tunerC ? ' ' + ampState.tunerC : '')]);
-        out.push({ title: ampState.device || 'AMP', rows: a });
-    }
-    return out;
-}
-
 // FreeDV Reporter message (server-side; the field saves on Enter or blur).
 function setReporterMessageField(text) {
     var el = document.getElementById('digiReporterMsg');
@@ -14975,8 +14936,7 @@ Recorder.init({
             tx: isTransmitting,
             meterNeedle: needleActive(),
             rig: rigTagName || rigModelName,
-            call: getMyCall(),
-            side: recorderSidebar()
+            call: getMyCall()
         };
     },
     getCanvases: function() {

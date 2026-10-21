@@ -40,7 +40,5 @@ and FM / NFM.
 5. From the user's recording (FlexWeb_…3755kHz_LSB.mp4, 2026-10-21) - fixed in
    the tree, ship with this batch:
    - Recording files were still named wfweb_<call>_…; now FlexWeb_<call>_….
-   - The amplifier's name in the video sidebar kept leading spaces from the
-     amp's custom name (indented "RF-POWER"); trimmed.
-   - The video sidebar's noise line left NNR out (it showed OFF with NNR on);
-     now "NOISE: NB NR ANF NNR".
+   - The video sidebar (1.0.55) is removed again at the user's request: the
+     recording is the header and a full-width scope, as before.
