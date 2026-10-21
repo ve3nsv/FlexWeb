@@ -3669,7 +3669,17 @@ function scheduleReconnect() {
 }
 
 function send(obj) {
+    if (obj && obj.cmd === 'setPTT') micTxWanted = !!obj.value;
     if (wsTransport) wsTransport.sendCommand(obj);
+}
+// The microphone goes to the server only while this browser keys (from the
+// PTT request, so the first syllable is not lost, through the release drain
+// until setPTT false), while the radio transmits for this browser from
+// elsewhere (REST / rigctld PTT), or while intercom TALK is on. Otherwise an
+// open mic streamed ~1 Mbit/s of PCM for nothing. The LVL meter is local.
+var micTxWanted = false;
+function micSendWanted() {
+    return micTxWanted || talkOn || (isTransmitting && !txOtherBy);
 }
 
 function txAudioReady() {
@@ -9646,6 +9656,7 @@ function startMic() {
                 // the same type-0x03 channel)
                 if (micEnabled) micVuFeed(e.data);
                 if (!micEnabled || !txAudioReady() || digiTxActive || digiTuneActive) return;
+                if (!micSendWanted()) return;
                 // Suppress during packet TX too — a packet burst owns the
                 // 0x03 channel, and interleaved mic frames garble the modem
                 // audio on the air. txBusy covers one-shot UI frames;
@@ -10752,17 +10763,45 @@ function drawSpectrum() {
             ctx.closePath();
             ctx.fill();
         } else {
-            // The VFO left a FIXED window: a chevron on the side it went to.
-            var dir = fxPos < 0 ? -1 : 1, ex = dir < 0 ? 2 : w - 2, ey = plotH - 4;
+            // The VFO is off the scope: a tab on that edge, as in AetherSDR,
+            // pointing at it with its frequency, mode and distance. A tap on
+            // it brings the scope back to the VFO (offVfoTap).
+            var dir = fxPos < 0 ? -1 : 1;
+            var hz2 = Math.round(currentFreq || 0);
+            var fstr2 = Math.floor(hz2 / 1e6) + '.' + String(Math.floor(hz2 % 1e6 / 1e3)).padStart(3, '0') + '.' + String(hz2 % 1e3).padStart(3, '0');
+            var dKhz = Math.round(hz2 / 1e3 - (spectStartFreq + spectEndFreq) / 2 * 1e3);
+            var txt = (w >= 520 ? fstr2 + (currentMode ? '  ' + currentMode : '') + '  ' : '') + (dKhz > 0 ? '+' : '\u2212') + Math.abs(dKhz) + ' kHz';
+            ctx.font = '11px ' + aeFonts().mono;
+            var tw = ctx.measureText(txt).width, th = 20, arrowW = 12;
+            var tabW = arrowW + 22 + tw + 10, ty = Math.round(plotH / 2 - th / 2);
+            var tx = dir < 0 ? 2 : w - 2 - tabW;
+            ctx.fillStyle = 'rgba(15,15,26,0.9)';
+            ctx.fillRect(tx, ty, tabW, th);
+            ctx.strokeStyle = '#00d4ff'; ctx.lineWidth = 1;
+            ctx.strokeRect(tx + 0.5, ty + 0.5, tabW - 1, th - 1);
+            // arrow on the outer side, then the "A" tab, then the text
             ctx.fillStyle = '#00d4ff';
+            var ax = dir < 0 ? tx + 3 : tx + tabW - 3;
             ctx.beginPath();
-            ctx.moveTo(ex - dir * 8, ey - 6);
-            ctx.lineTo(ex, ey);
-            ctx.lineTo(ex - dir * 8, ey + 6);
+            ctx.moveTo(ax, ty + th / 2);
+            ctx.lineTo(ax - dir * arrowW, ty + 3);
+            ctx.lineTo(ax - dir * arrowW, ty + th - 3);
             ctx.closePath();
             ctx.fill();
+            var ax0 = dir < 0 ? tx + arrowW + 4 : tx + 2;
+            ctx.fillRect(ax0, ty + 1, 16, th - 2);
+            ctx.fillStyle = '#041019';
+            ctx.font = 'bold 11px ' + aeFonts().ui;
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('A', ax0 + 8, ty + th / 2 + 0.5);
+            ctx.fillStyle = '#e6f0fa';
+            ctx.font = '11px ' + aeFonts().mono;
+            ctx.textAlign = 'left';
+            ctx.fillText(txt, ax0 + 21, ty + th / 2 + 0.5);
+            offVfoHit = { x: tx, y: ty, w: tabW, h: th };
         }
     }
+    if (!(spectStartFreq > 0 && spectEndFreq > spectStartFreq && isFinite(cx)) || (cx >= 0 && cx <= w)) offVfoHit = null;
 
     // Level labels for the 10 dB lines (dB above the noise floor)
     ctx.fillStyle = '#8ea8c0';
@@ -10991,8 +11030,23 @@ function aeScopeThrottle(fn, final) {
     aeScopeSendAt = now;
     fn();
 }
+// The off-screen VFO tab (drawSpectrum): a tap brings the scope back to the
+// VFO. On a Flex the panadapter is moved there; elsewhere the scope goes
+// back to CENTER mode, which keeps the VFO in the middle.
+var offVfoHit = null;
+function offVfoTap(e) {
+    if (!offVfoHit || !e.target || e.target.id !== 'spectrumCanvas') return false;
+    var r = e.target.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+    var h = offVfoHit;
+    if (x < h.x - 4 || x > h.x + h.w + 4 || y < h.y - 6 || y > h.y + h.h + 6) return false;
+    e.preventDefault(); e.stopPropagation();
+    if (isFlexRig && flexDsp && flexDsp.panFree) sendFlexDsp('panCenter', 0, Math.round(currentFreq), true);
+    else setScopeMode(0);
+    return true;
+}
 function aeScopeDown(e) {
     if (!aeScopeOn() || (typeof e.button === 'number' && e.button !== 0)) return;
+    if (offVfoTap(e)) return;
     var c = e.target;
     if (c.id !== 'spectrumCanvas' && c.id !== 'waterfallCanvas') return;
     e.preventDefault(); e.stopPropagation();
@@ -11084,6 +11138,7 @@ function scopeWheel(e) {
 function scopePointerDown(e) {
     if (spectStartFreq <= 0 || spectEndFreq <= spectStartFreq) return;
     if (typeof e.button === 'number' && e.button !== 0) return;
+    if (offVfoTap(e)) return;
 
     e.preventDefault();
 

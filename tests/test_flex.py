@@ -283,6 +283,25 @@ def test_nnr(flex):
         assert len(gains) >= 3 and all(0.0 <= g <= 1.0 for g in gains), gains
         assert active_state["nnrDelayMs"] > 0
 
+        # Not while transmitting: the stream is then the radio's monitor of
+        # our own audio (TX LISTEN ON-AIR), passed on unchanged.
+        requests.put(f"{rest}/ptt", json={"transmitting": True}, timeout=5)
+        paused = False
+        for text in reader.frames(8.0):
+            m = json.loads(text)
+            if m.get("type") == "nnrGain" and not m.get("active"):
+                paused = True
+                break
+        requests.put(f"{rest}/ptt", json={"transmitting": False}, timeout=5)
+        assert paused, "NNR kept running while transmitting"
+        resumed = False
+        for text in reader.frames(8.0):
+            m = json.loads(text)
+            if m.get("type") == "nnrGain" and m.get("active"):
+                resumed = True
+                break
+        assert resumed, "NNR did not come back after unkey"
+
         requests.put(f"{rest}/mode", json={"mode": "CW", "filter": 1}, timeout=5)
         stopped = False
         for text in reader.frames(8.0):

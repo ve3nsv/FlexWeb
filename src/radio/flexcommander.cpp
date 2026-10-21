@@ -1688,8 +1688,12 @@ void flexCommander::handleRxAudio(const QByteArray& d, const vitaPacket& p)
     spx_uint32_t outLen = static_cast<spx_uint32_t>(out.size());
     speex_resampler_process_float(rxResampler, 0, in.constData(), &inLen, out.data(), &outLen);
 
-    // NNR on voice modes only (a speech model removes a steady carrier).
-    const bool nnrActive = nnrCfg.on && nnrModeOk() && nnrFilter::rateSupported(int(outRate));
+    // NNR on voice modes only (a speech model removes a steady carrier),
+    // and not while transmitting: the stream then carries the radio's monitor
+    // of our own TX audio, which TX LISTEN ON-AIR relays to other browsers
+    // and which must reach them as sent.
+    const bool nnrActive = nnrCfg.on && nnrModeOk() && !transmitting
+                           && nnrFilter::rateSupported(int(outRate));
     if (nnrActive) {
         if (!nnrF || nnrF->rate() != int(outRate)) {
             nnrF.reset(new nnrFilter(int(outRate)));
