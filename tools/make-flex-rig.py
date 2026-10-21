@@ -54,6 +54,8 @@ commands = [
     "Key Speed", "Send CW", "CW Pitch", "Monitor Status", "Monitor Gain",
     "Compressor Status", "RIT Frequency", "RIT Status", "Data Off Mod Input",
     # VFO B = a second slice; SPLIT makes it the TX slice (flexCommander).
+    # Twin PBT -> a shift / narrowing of the slice filter (flexCommander).
+    "PBT Inner", "PBT Outer",
     "Unselected Freq", "VFO A Select", "VFO B Select", "VFO Swap A/B", "VFO Equal AB",
     "Split/Duplex",
 ]

@@ -25,9 +25,9 @@ VERSION_LINE  = $$find(VERSION_LINES, "define WFWEB_VERSION ")
 VERSION       = $$replace(VERSION_LINE, "[^0-9.]", "")
 isEmpty(VERSION): error("could not read WFWEB_VERSION from include/wfweb_version.h")
 
-QMAKE_TARGET_PRODUCT     = "wfweb launcher"
-QMAKE_TARGET_DESCRIPTION = "Starts and supervises the wfweb server"
-QMAKE_TARGET_COMPANY     = "wfweb"
+QMAKE_TARGET_PRODUCT     = "FlexWeb launcher"
+QMAKE_TARGET_DESCRIPTION = "Starts and supervises the FlexWeb server"
+QMAKE_TARGET_COMPANY     = "FlexWeb"
 
 INCLUDEPATH += $$PWD/src $$PWD/../include
 

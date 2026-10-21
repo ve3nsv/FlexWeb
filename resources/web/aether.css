@@ -316,3 +316,6 @@ body.ae-desktop .softBtn.ae-band { text-transform: none; }
 .ae-txbw-step .ae-key { flex: 0 0 28px; padding: 0; height: 28px; }
 .ae-txbw-step b { flex: 1 1 auto; text-align: center; font: 500 13px var(--font-mono); color: var(--ae-text-hi);
     background: var(--ae-ground); border: 1px solid var(--ae-line); border-radius: 3px; padding: 4px 0; }
+
+/* TUNE carrier on air */
+.ae-key.ae-tuning, .softBtn.ae-tuning { background: #7a1d1d !important; color: #fff !important; border-color: #e53935 !important; }

@@ -1,4 +1,6 @@
 #include "flexcommander.h"
+#include <QRegularExpression>
+#include <QSysInfo>
 #include <QJsonArray>
 
 #include <QDebug>
@@ -95,6 +97,7 @@ flexCommander::~flexCommander()
 void flexCommander::process()
 {
     // Thread entry; all work happens in commSetup() and the socket slots.
+    nnrLoad();
 }
 
 void flexCommander::commSetup(rigTypedef rigList, quint16 rigCivAddr, QString rigSerialPort, quint32 rigBaudRate, QString vsp, quint16 tcp, quint8 wf)
@@ -625,6 +628,7 @@ void flexCommander::processLine(const QString& line)
         // client kicks us: the radio does not always close the socket.
         sendCmd("sub client all");
         sendCmd("sub memories all");
+        sendCmd("sub tnf all");
         // The two graphic equalisers answer with an "eq rxsc/txsc" status.
         sendCmd("eq rxsc info");
         sendCmd("eq txsc info");
@@ -634,6 +638,8 @@ void flexCommander::processLine(const QString& line)
         // GUID servermain gives each rig.
         const QUuid id = QUuid::fromRfc4122(QByteArray(reinterpret_cast<const char*>(guid), GUIDLEN));
         const QString clientId = id.toString().mid(1, 36).toUpper();
+        // Our name in SmartSDR's and the radio's client lists.
+        sendCmd("client program FlexWeb");
         sendCmd(QString("client gui %1").arg(clientId), [this](quint32 code, const QString& body) {
             if (code != 0) {
                 qWarning(logRig()).noquote() << QString("Flex: client gui refused (0x%1) %2 — retrying without client id")
@@ -652,6 +658,11 @@ void flexCommander::processLine(const QString& line)
             }
             // Everything below is queued behind client gui on the socket,
             // so it runs whether or not the id variant was accepted.
+            {
+                QString station = QSysInfo::machineHostName().left(32);
+                station.replace(QRegularExpression("[^A-Za-z0-9_.-]"), "_");
+                if (!station.isEmpty()) sendCmd(QString("client station %1").arg(station));
+            }
             if (pingTimer) pingTimer->start();
             if (wan) {
                 // Over SmartLink the radio learns our public UDP address
@@ -924,7 +935,7 @@ void flexCommander::handleStatus(const message& msg)
             const bool dup = truthy(msg.kvs.value("duplicate_client_id"));
             if (forced || dup) {
                 const QString why = dup
-                    ? QStringLiteral("another client is using wfweb's client id")
+                    ? QStringLiteral("another client is using FlexWeb's client id")
                     : QStringLiteral("disconnected by another client on the radio");
                 qWarning(logRig()).noquote() << "Flex:" << why << "- not reconnecting";
                 // No automatic retry: whoever kicked us meant it. servermain
@@ -994,8 +1005,187 @@ void flexCommander::handleStatus(const message& msg)
     }
     if (obj == QLatin1String("radio")) {
         if (msg.kvs.contains("nickname")) radioNickname = msg.kvs.value("nickname");
+        if (msg.kvs.contains("tnf_enabled")) { extra["tnfEnabled"] = truthy(msg.kvs.value("tnf_enabled")); publishDsp(); }
         return;
     }
+    // Tracking notch filters: "tnf 3 freq=14.100000 width=0.000100 depth=1 permanent=0",
+    // "tnf 3 removed".
+    if (obj.startsWith(QLatin1String("tnf "))) {
+        bool ok = false;
+        const int id = obj.mid(4).trimmed().section(' ', 0, 0).toInt(&ok);
+        if (!ok) return;
+        if (msg.raw.contains(QLatin1String(" removed")) || msg.kvs.value("in_use") == "0") {
+            tnfs.remove(id);
+        } else {
+            QJsonObject t = tnfs.value(id);
+            t["id"] = id;
+            if (msg.kvs.contains("freq")) t["freq"] = double(std::llround(msg.kvs.value("freq").toDouble() * 1e6));
+            if (msg.kvs.contains("width")) {
+                // MHz on the wire (FlexLib); a plain Hz figure on older firmware.
+                const double w = msg.kvs.value("width").toDouble();
+                t["width"] = int(std::lround(w < 1.0 ? w * 1e6 : w));
+            }
+            if (msg.kvs.contains("depth")) t["depth"] = msg.kvs.value("depth").toInt();
+            if (msg.kvs.contains("permanent")) t["permanent"] = truthy(msg.kvs.value("permanent"));
+            tnfs.insert(id, t);
+        }
+        publishDsp();
+        return;
+    }
+}
+
+void flexCommander::takeExtra(const QMap<QString, QString>& kvs, const char* const (*map)[2], int n)
+{
+    bool changed = false;
+    for (int i = 0; i < n; ++i) {
+        const QString wire = QString::fromLatin1(map[i][0]);
+        if (!kvs.contains(wire)) continue;
+        const QString v = kvs.value(wire);
+        const int iv = (v == QLatin1String("on") || v == QLatin1String("true")) ? 1
+                     : (v == QLatin1String("off") || v == QLatin1String("false")) ? 0 : v.toInt();
+        extra[QString::fromLatin1(map[i][1])] = iv;
+        changed = true;
+    }
+    if (changed) publishDsp();
+}
+
+// ─── NNR ───────────────────────────────────────────────────────────────────
+
+bool flexCommander::nnrModeOk() const
+{
+    static const QStringList voice = {"USB", "LSB", "AM", "SAM", "FM", "NFM", "DFM"};
+    return voice.contains(mode);
+}
+
+void flexCommander::nnrApply()
+{
+    if (!nnrF) return;
+    nnrF->setStrength(nnrCfg.strength);
+    nnrF->setAlpha(nnrCfg.alpha / 100.0);
+    nnrF->setKnee(nnrCfg.knee / 10.0);
+    nnrF->setTau(nnrCfg.tau / 100.0);
+    nnrF->setMaxGain(nnrCfg.maxGain / 10.0);
+    nnrF->setSmooth(nnrCfg.attack, nnrCfg.release);
+    nnrModelInUse = nnrF->setModel(nnrCfg.model);
+}
+
+static QSettings* nnrStore()
+{
+    const QString dir = qEnvironmentVariable("WFWEB_CONFIG_DIR");
+    return dir.isEmpty() ? new QSettings("wfweb", "nnr") : new QSettings(dir + "/nnr.ini", QSettings::IniFormat);
+}
+
+void flexCommander::nnrLoad()
+{
+    std::unique_ptr<QSettings> s(nnrStore());
+    nnrCfg.on = s->value("on", 0).toInt();
+    nnrCfg.strength = s->value("strength", 38).toInt();
+    nnrCfg.model = s->value("model", 0).toInt();
+    nnrCfg.alpha = s->value("alpha", 100).toInt();
+    nnrCfg.knee = s->value("knee", 100).toInt();
+    nnrCfg.tau = s->value("tau", 200).toInt();
+    nnrCfg.maxGain = s->value("maxGain", 120).toInt();
+    nnrCfg.attack = s->value("attack", 0).toInt();
+    nnrCfg.release = s->value("release", 0).toInt();
+}
+
+void flexCommander::nnrSave()
+{
+    std::unique_ptr<QSettings> s(nnrStore());
+    s->setValue("on", nnrCfg.on);
+    s->setValue("strength", nnrCfg.strength);
+    s->setValue("model", nnrCfg.model);
+    s->setValue("alpha", nnrCfg.alpha);
+    s->setValue("knee", nnrCfg.knee);
+    s->setValue("tau", nnrCfg.tau);
+    s->setValue("maxGain", nnrCfg.maxGain);
+    s->setValue("attack", nnrCfg.attack);
+    s->setValue("release", nnrCfg.release);
+}
+
+bool flexCommander::setNnr(const QString& key, int value)
+{
+    if (key == "nnr") nnrCfg.on = value ? 1 : 0;
+    else if (key == "nnrStrength") nnrCfg.strength = qBound(0, value, 100);
+    else if (key == "nnrModel") nnrCfg.model = qBound(0, value, 1);
+    else if (key == "nnrAlpha") nnrCfg.alpha = qBound(0, value, 400);
+    else if (key == "nnrKnee") nnrCfg.knee = qBound(0, value, 400);
+    else if (key == "nnrTau") nnrCfg.tau = qBound(5, value, 3000);
+    else if (key == "nnrMaxGain") nnrCfg.maxGain = qBound(0, value, 240);
+    else if (key == "nnrAttack") nnrCfg.attack = qBound(0, value, 500);
+    else if (key == "nnrRelease") nnrCfg.release = qBound(0, value, 500);
+    else if (key == "nnrReset") { const int on = nnrCfg.on, model = nnrCfg.model; nnrCfg = nnrSettings(); nnrCfg.on = on; nnrCfg.model = model; }
+    else return false;
+    nnrApply();
+    nnrSave();
+    publishDsp();
+    return true;
+}
+
+// The page's settings beyond the Icom set: {cmd:'flexDsp', key, index, value}.
+bool flexCommander::setExtra(const QString& key, int index, int value)
+{
+    static const QMap<QString, QString> sliceKeys = {
+        {"nbLevel", "nb_level"}, {"nrLevel", "nr_level"}, {"anfLevel", "anf_level"},
+        {"apf", "apf"}, {"apfLevel", "apf_level"}, {"xitOn", "xit_on"}, {"xitFreq", "xit_freq"}};
+    static const QMap<QString, QString> txKeys = {
+        {"tunePower", "tunepower"}, {"maxPower", "max_power_level"}, {"amCarrier", "am_carrier"},
+        {"monGainCw", "mon_gain_cw"}};
+    static const QMap<QString, QString> cwKeys = {
+        {"breakIn", "break_in"}, {"breakInDelay", "break_in_delay"}, {"iambic", "iambic"},
+        {"iambicMode", "mode"}, {"sidetone", "sidetone"}};
+    if (sliceKeys.contains(key)) {
+        if (sliceId < 0) return true;
+        const bool onOff = key == "apf" || key == "xitOn";
+        const int v = onOff ? (value ? 1 : 0) : key == "xitFreq" ? qBound(-99999, value, 99999) : qBound(0, value, 100);
+        sliceSet(QString("%1=%2").arg(sliceKeys.value(key)).arg(v));
+        extra[key] = v;
+    } else if (txKeys.contains(key)) {
+        const int v = qBound(0, value, 100);
+        sendCmd(QString("transmit set %1=%2").arg(txKeys.value(key)).arg(v));
+        extra[key] = v;
+    } else if (cwKeys.contains(key)) {
+        const int v = key == "breakInDelay" ? qBound(0, value, 2000) : key == "iambicMode" ? (value ? 1 : 0) : (value ? 1 : 0);
+        sendCmd(QString("cw %1 %2").arg(cwKeys.value(key)).arg(v));
+        extra[key] = v;
+    } else if (key == "tune") {
+        sendCmd(QString("transmit tune %1").arg(value ? 1 : 0));
+        extra["tune"] = value ? 1 : 0;
+    } else if (key == "wnb" || key == "wnbLevel") {
+        if (panId.isEmpty()) return true;
+        const int v = key == "wnb" ? (value ? 1 : 0) : qBound(0, value, 100);
+        sendCmd(QString("display pan set %1 %2=%3").arg(panId, key == "wnb" ? "wnb" : "wnb_level").arg(v));
+        extra[key] = v;
+    } else if (key == "tnfEnabled") {
+        sendCmd(QString("radio set tnf_enabled=%1").arg(value ? 1 : 0));
+        extra[key] = value ? 1 : 0;
+    } else if (key == "tnfAdd") {
+        // value: frequency in Hz (0 = the VFO)
+        const quint64 hz = value > 0 ? quint64(value) : freqHz;
+        if (hz) sendCmd(QString("tnf create freq=%1").arg(hz / 1e6, 0, 'f', 6));
+    } else if (key == "tnfRemove") {
+        sendCmd(QString("tnf remove %1").arg(index));
+        tnfs.remove(index);
+    } else if (key == "tnfWidth") {
+        sendCmd(QString("tnf set %1 width=%2").arg(index).arg(qBound(10, value, 5000) / 1e6, 0, 'f', 6));
+        if (tnfs.contains(index)) tnfs[index]["width"] = qBound(10, value, 5000);
+    } else if (key == "tnfDepth") {
+        sendCmd(QString("tnf set %1 depth=%2").arg(index).arg(qBound(1, value, 3)));
+        if (tnfs.contains(index)) tnfs[index]["depth"] = qBound(1, value, 3);
+    } else if (key == "tnfPermanent") {
+        sendCmd(QString("tnf set %1 permanent=%2").arg(index).arg(value ? 1 : 0));
+        if (tnfs.contains(index)) tnfs[index]["permanent"] = value != 0;
+    } else if (key == "band") {
+        // The radio's own band memory (SmartSDR's band keys): it restores the
+        // band's frequency, mode, filter and antennas. value = band in metres
+        // (160..6), the key the radio takes.
+        if (panId.isEmpty()) return true;
+        sendCmd(QString("display pan set %1 band=%2").arg(panId).arg(value));
+    } else {
+        return false;
+    }
+    publishDsp();
+    return true;
 }
 
 void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
@@ -1048,7 +1238,17 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
     if (kvs.contains("filter_lo") || kvs.contains("filter_hi")) {
         if (kvs.contains("filter_lo")) filterLo = kvs.value("filter_lo").toInt();
         if (kvs.contains("filter_hi")) filterHi = kvs.value("filter_hi").toInt();
-        filterNum = filterNumForWidth(mode, filterHi - filterLo);
+        if (filterLo != sentLo || filterHi != sentHi) {
+            // Changed by the radio or another client: that is the new base,
+            // centred (wfweb's own PBT does not apply to it).
+            filterBaseW = filterHi - filterLo;
+            if (pbtIn != 128 || pbtOut != 128) {
+                pbtIn = pbtOut = 128;
+                reportCurrent(funcPBTInner);
+                reportCurrent(funcPBTOuter);
+            }
+        }
+        filterNum = filterNumForWidth(mode, filterBaseW > 0 ? filterBaseW : filterHi - filterLo);
         reportCurrent(funcFilterWidth);
         modeChanged = true;
     }
@@ -1093,6 +1293,10 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
     }
     if (kvs.contains("rit_on")) { ritOn = truthy(kvs.value("rit_on")); reportCurrent(funcRitStatus); }
     if (kvs.contains("rit_freq")) { ritFreq = kvs.value("rit_freq").toInt(); reportCurrent(funcRitFreq); }
+    static const char* const sliceMap[][2] = {
+        {"nb_level", "nbLevel"}, {"nr_level", "nrLevel"}, {"anf_level", "anfLevel"},
+        {"apf", "apf"}, {"apf_level", "apfLevel"}, {"xit_on", "xitOn"}, {"xit_freq", "xitFreq"}};
+    takeExtra(kvs, sliceMap, int(sizeof(sliceMap) / sizeof(sliceMap[0])));
 }
 
 void flexCommander::handlePanStatus(const QString& id, const QMap<QString, QString>& kvs)
@@ -1130,6 +1334,8 @@ void flexCommander::handlePanStatus(const QString& id, const QMap<QString, QStri
         reportCurrent(funcAttenuator);
         publishDsp();
     }
+    static const char* const panMap[][2] = {{"wnb", "wnb"}, {"wnb_level", "wnbLevel"}};
+    takeExtra(kvs, panMap, 2);
     if (kvs.contains("bandwidth"))
         reportCurrent(funcScopeSpan);
 }
@@ -1152,6 +1358,12 @@ void flexCommander::handleTransmitStatus(const QMap<QString, QString>& kvs)
     if (kvs.contains("hi")) { txFilterHi = kvs.value("hi").toInt(); dsp = true; }
     if (dsp) publishDsp();
     if (kvs.contains("tune")) tuning = truthy(kvs.value("tune"));
+    static const char* const txMap[][2] = {
+        {"tune", "tune"}, {"tunepower", "tunePower"}, {"max_power_level", "maxPower"},
+        {"am_carrier_level", "amCarrier"}, {"mon_gain_cw", "monGainCw"}, {"break_in", "breakIn"},
+        {"break_in_delay", "breakInDelay"}, {"iambic", "iambic"}, {"iambic_mode", "iambicMode"},
+        {"sidetone", "sidetone"}};
+    takeExtra(kvs, txMap, int(sizeof(txMap) / sizeof(txMap[0])));
     if (kvs.contains("speed")) { cwSpeed = kvs.value("speed").toInt(); reportCurrent(funcKeySpeed); }
     if (kvs.contains("pitch")) { cwPitch = kvs.value("pitch").toInt(); reportCurrent(funcCwPitch); }
 }
@@ -1428,6 +1640,41 @@ void flexCommander::handleRxAudio(const QByteArray& d, const vitaPacket& p)
     spx_uint32_t outLen = static_cast<spx_uint32_t>(out.size());
     speex_resampler_process_float(rxResampler, 0, in.constData(), &inLen, out.data(), &outLen);
 
+    // NNR on voice modes only (a speech model removes a steady carrier).
+    const bool nnrActive = nnrCfg.on && nnrModeOk() && nnrFilter::rateSupported(int(outRate));
+    if (nnrActive) {
+        if (!nnrF || nnrF->rate() != int(outRate)) {
+            nnrF.reset(new nnrFilter(int(outRate)));
+            if (!nnrF->isValid()) {
+                qWarning(logRig()) << "Flex: NNR could not start at" << outRate << "Hz";
+                nnrCfg.on = 0;
+                nnrF.reset();
+            } else {
+                nnrApply();
+                qInfo(logRig()) << "Flex: NNR on, model" << (nnrModelInUse ? "Premium" : "Standard")
+                                << "delay" << nnrF->delayMs() << "ms";
+            }
+        }
+        if (nnrF) {
+            QVector<float> v(static_cast<int>(outLen));
+            std::copy(out.constBegin(), out.constBegin() + int(outLen), v.begin());
+            nnrF->process(v);
+            std::copy(v.constBegin(), v.constEnd(), out.begin());
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            if (now - nnrGainAt >= 200) {
+                nnrGainAt = now;
+                emit flexNnrGain(nnrF->gain(), true);
+            }
+        }
+    } else if (nnrF) {
+        nnrF->reset();
+    }
+    if (nnrWasActive != (nnrActive && nnrF)) {
+        nnrWasActive = nnrActive && nnrF;
+        if (!nnrWasActive) emit flexNnrGain(1.0f, false);
+        publishDsp();
+    }
+
     audioPacket pkt;
     pkt.seq = rxSeq++;
     pkt.time = QTime::currentTime();
@@ -1586,9 +1833,18 @@ bool flexCommander::reportCurrent(funcs func)
         if (mode.isEmpty() || !haveRigCaps) return true;
         report(funcSelectedMode, QVariant::fromValue<modeInfo>(modeFor(mode, filterNum)));
         return true;
-    case funcFilterWidth:
-        if (filterHi - filterLo > 0)
-            report(funcFilterWidth, QVariant::fromValue<ushort>(ushort(filterHi - filterLo)));
+    case funcFilterWidth: {
+        // The set width: PBT narrows the passband but not the filter itself.
+        const int w = filterBaseW > 0 ? filterBaseW : filterHi - filterLo;
+        if (w > 0)
+            report(funcFilterWidth, QVariant::fromValue<ushort>(ushort(w)));
+        return true;
+    }
+    case funcPBTInner:
+        report(funcPBTInner, QVariant::fromValue<ushort>(ushort(pbtIn)));
+        return true;
+    case funcPBTOuter:
+        report(funcPBTOuter, QVariant::fromValue<ushort>(ushort(pbtOut)));
         return true;
     case funcAfGain:
         report(funcAfGain, QVariant::fromValue<ushort>(ushort(to255(audioLevel))));
@@ -1734,16 +1990,34 @@ void flexCommander::sliceSet(const QString& kv)
 
 void flexCommander::applyFilterWidth(int widthHz)
 {
-    if (sliceId < 0 || mode.isEmpty() || modeHasFixedFilter(mode))
+    filterBaseW = widthHz;
+    applyFilter();
+}
+
+void flexCommander::applyFilter()
+{
+    if (sliceId < 0 || mode.isEmpty() || modeHasFixedFilter(mode) || filterBaseW <= 0)
         return;
-    const filterEdges e = edgesForWidth(mode, widthHz);
-    if (e.hi > e.lo) {
-        sendCmd(QString("filt %1 %2 %3").arg(sliceId).arg(e.lo).arg(e.hi));
-        if (sliceB >= 0) sendCmd(QString("filt %1 %2 %3").arg(sliceB).arg(e.lo).arg(e.hi));
-        filterLo = e.lo;
-        filterHi = e.hi;
-        reportCurrent(funcFilterWidth);
-    }
+    const filterEdges e = edgesForWidth(mode, filterBaseW);
+    if (e.hi <= e.lo)
+        return;
+    // PBT works in audio terms; LSB-side passbands (negative edges) mirror.
+    const bool lower = e.hi <= 0;
+    int aLo = lower ? -e.hi : e.lo, aHi = lower ? -e.lo : e.hi;
+    const double w = e.hi - e.lo;
+    const int s1 = int(std::lround((pbtIn - 128) / 128.0 * w / 2));
+    const int s2 = int(std::lround((pbtOut - 128) / 128.0 * w / 2));
+    aLo += qMax(s1, s2);
+    aHi += qMin(s1, s2);
+    if (aHi - aLo < 50) { const int mid = (aLo + aHi) / 2; aLo = mid - 25; aHi = mid + 25; }
+    const int lo = lower ? -aHi : aLo, hi = lower ? -aLo : aHi;
+    sendCmd(QString("filt %1 %2 %3").arg(sliceId).arg(lo).arg(hi));
+    if (sliceB >= 0) sendCmd(QString("filt %1 %2 %3").arg(sliceB).arg(lo).arg(hi));
+    filterLo = sentLo = lo;
+    filterHi = sentHi = hi;
+    reportCurrent(funcFilterWidth);
+    reportCurrent(funcPBTInner);
+    reportCurrent(funcPBTOuter);
 }
 
 void flexCommander::setTransmit(bool on)
@@ -1830,15 +2104,23 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         }
         filterNum = fil;
         mode = fm;
+        pbtIn = pbtOut = 128;               // a filter preset starts centred
         applyFilterWidth(presetWidth(fm, fil));
         reportCurrent(funcSelectedMode);
         return;
     }
     case funcFilterWidth:
         applyFilterWidth(value.toInt());
-        filterNum = filterNumForWidth(mode, filterHi - filterLo);
+        filterNum = filterNumForWidth(mode, filterBaseW);
         reportCurrent(funcSelectedMode);
         return;
+    case funcPBTInner:
+    case funcPBTOuter: {
+        (func == funcPBTInner ? pbtIn : pbtOut) = qBound(0, value.toInt(), 255);
+        if (filterBaseW <= 0) filterBaseW = filterHi - filterLo;
+        applyFilter();
+        return;
+    }
     case funcAfGain:
         sliceSet(QString("audio_level=%1").arg(to100(value.toInt())));
         audioLevel = to100(value.toInt());
@@ -2307,7 +2589,7 @@ void flexCommander::determineRigCaps()
         configurePan();
     }
     // Push everything we already know so the page fills in at once.
-    for (funcs f : {funcSelectedFreq, funcSelectedMode, funcFilterWidth, funcAfGain, funcRfGain, funcRFPower,
+    for (funcs f : {funcSelectedFreq, funcSelectedMode, funcFilterWidth, funcPBTInner, funcPBTOuter, funcAfGain, funcRfGain, funcRFPower,
                     funcSquelch, funcAGC, funcNoiseBlanker, funcNoiseReduction, funcAutoNotch, funcPreamp,
                     funcAttenuator, funcAntenna, funcTransceiverStatus, funcKeySpeed, funcDATAOffMod,
                     funcScopeSpan, funcScopeMode, funcUSBModLevel, funcMonitor, funcCompressor})
@@ -2328,7 +2610,7 @@ void flexCommander::powerOff()
 {
     // "radio shutdown" exists but turning a remote station off from a web
     // page by accident is worse than not offering it.
-    qInfo(logRig()) << "Flex: power off from wfweb is disabled; use the radio or SmartSDR";
+    qInfo(logRig()) << "Flex: power off from FlexWeb is disabled; use the radio or SmartSDR";
 }
 
 void flexCommander::setRigID(quint16 rigID)
@@ -2409,6 +2691,23 @@ void flexCommander::publishDsp()
             st["rfgLow"] = rfgLow;
             st["rfgHigh"] = rfgHigh;
             st["rfgStep"] = rfgStep;
+            for (auto it = extra.constBegin(); it != extra.constEnd(); ++it)
+                st[it.key()] = it.value();
+            st["nnr"] = nnrCfg.on;
+            st["nnrStrength"] = nnrCfg.strength;
+            st["nnrModel"] = nnrCfg.model;
+            st["nnrModelInUse"] = nnrF ? nnrModelInUse : nnrCfg.model;
+            st["nnrAlpha"] = nnrCfg.alpha;
+            st["nnrKnee"] = nnrCfg.knee;
+            st["nnrTau"] = nnrCfg.tau;
+            st["nnrMaxGain"] = nnrCfg.maxGain;
+            st["nnrAttack"] = nnrCfg.attack;
+            st["nnrRelease"] = nnrCfg.release;
+            st["nnrActive"] = nnrWasActive;
+            st["nnrDelayMs"] = nnrF ? nnrF->delayMs() : 0;
+            QJsonArray tl;
+            for (const QJsonObject& t : tnfs) tl.append(t);
+            st["tnfs"] = tl;
             emit flexDspState(st);
         });
     }
@@ -2478,6 +2777,10 @@ void flexCommander::setFlexDsp(QString key, int index, int value)
         else setSliceAntennas(QString(), list.at(value));
     } else if (key == "panRfGain") {
         setPanRfGain(value);
+        return;
+    } else if (setExtra(key, index, value)) {
+        return;
+    } else if (setNnr(key, value)) {
         return;
     } else if (key == "txLo" || key == "txHi") {
         // The radio keeps at least 50 Hz between the edges; so do we.

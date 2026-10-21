@@ -140,6 +140,8 @@ public slots:
     // FlexRadio memory list (flexCommander::flexMemories), pushed to the page
     // as {type:'flexMemories', list} for the MEMORIES applet.
     void onFlexMemories(QJsonArray list);
+    // NNR's NR GAIN (flexCommander::flexNnrGain) as {type:'nnrGain', gain, active}.
+    void onFlexNnrGain(float gain, bool active);
     // --on-demand: hold the rig's LAN session only while a browser is
     // connected; release it idleSeconds after the last one leaves.
     void setOnDemand(int idleSeconds);
@@ -524,6 +526,7 @@ private:
     PskReporter *pskReporter = nullptr;
     QString reporterCallsign;
     QString reporterGrid;
+    QString reporterMessage;             // FreeDV Reporter "Message" column
     QMap<int, QString> cwMacros_;       // slot (1..10) -> macro text
     bool reporterEnabled = false;       // FreeDV Reporter toggle
     bool pskReporterEnabled = false;    // pskreporter.info toggle (FT8/FT4)

@@ -156,7 +156,7 @@ void MainWindow::buildUi()
     m_usbRadio->setChecked(true);
 
     m_serialCombo = new RefreshingComboBox(m_rigGroup);
-    m_serialCombo->setToolTip("Auto looks for an Icom by its USB serial number, as wfweb does on its own.");
+    m_serialCombo->setToolTip("Auto looks for an Icom by its USB serial number, as FlexWeb does on its own.");
     m_manufacturerCombo = new QComboBox(m_rigGroup);
     m_manufacturerCombo->addItem("Icom", int(LaunchConfig::Icom));
     m_manufacturerCombo->addItem("Kenwood", int(LaunchConfig::Kenwood));
@@ -296,10 +296,10 @@ void MainWindow::buildUi()
     m_nameEdit->setToolTip("Shown in the web UI top bar and browser tab instead of the rig model (-n).");
     m_settingsEdit = new QLineEdit(m_serverGroup);
     m_settingsEdit->setPlaceholderText("default location");
-    m_settingsEdit->setToolTip("Optional: wfweb's own settings file (-s). Leave empty to keep using its default location.");
+    m_settingsEdit->setToolTip("Optional: FlexWeb's own settings file (-s). Leave empty to keep using its default location.");
     m_browseButton = new QPushButton("Browse…", m_serverGroup);
     m_extraEdit = new QLineEdit(m_serverGroup);
-    m_extraEdit->setPlaceholderText("anything else from wfweb --help, e.g. --rigctld-port 4532");
+    m_extraEdit->setPlaceholderText("anything else from wfweb --help (FlexWeb's server), e.g. --rigctld-port 4532");
     m_startOnOpenCheck = new QCheckBox("Start the server when the launcher opens", m_serverGroup);
     m_openBrowserCheck = new QCheckBox("Open the browser once it is up", m_serverGroup);
     m_autostartCheck = new QCheckBox("Start the launcher with Windows, in the tray", m_serverGroup);
@@ -449,7 +449,7 @@ void MainWindow::buildTray()
     menu->addSeparator();
     menu->addAction("Quit", this, &MainWindow::quitAfterStop);
     m_tray->setContextMenu(menu);
-    m_tray->setToolTip("wfweb");
+    m_tray->setToolTip("FlexWeb");
     connect(m_tray, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
         if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick)
             showAndRaise();
@@ -653,17 +653,17 @@ void MainWindow::startServer()
 
     if (m_cfg.transport == LaunchConfig::Lan && m_cfg.lanHost.isEmpty()) {
         showAndRaise();
-        QMessageBox::warning(this, "wfweb", "Enter the radio's LAN address first.");
+        QMessageBox::warning(this, "FlexWeb", "Enter the radio's LAN address first.");
         return;
     }
     if (m_cfg.transport == LaunchConfig::SmartLink && !QSettings("wfweb", "smartlink").contains("refreshToken")) {
         showAndRaise();
-        QMessageBox::warning(this, "wfweb", "Sign in to SmartLink first (Radio tab, Sign in…).");
+        QMessageBox::warning(this, "FlexWeb", "Sign in to SmartLink first (Radio tab, Sign in…).");
         return;
     }
     if (!QFileInfo::exists(m_exePath)) {
         showAndRaise();
-        QMessageBox::critical(this, "wfweb",
+        QMessageBox::critical(this, "FlexWeb",
             QStringLiteral("%1 was not found next to the launcher:\n%2")
                 .arg(kServerExe, QDir::toNativeSeparators(m_exePath)));
         return;
@@ -692,7 +692,7 @@ void MainWindow::stopServer()
 {
     if (!m_server.isRunning())
         return;
-    appendLauncherLine("Stopping wfweb (q on its stdin)…");
+    appendLauncherLine("Stopping FlexWeb (q on its stdin)…");
     m_server.stop();
 }
 
@@ -715,10 +715,10 @@ void MainWindow::openBrowser()
     if (m_url.startsWith("https") && !s.value(kCertHintKey, false).toBool()) {
         QMessageBox box(this);
         box.setIcon(QMessageBox::Information);
-        box.setWindowTitle("wfweb");
+        box.setWindowTitle("FlexWeb");
         box.setText("Your browser will warn about the certificate.");
         box.setInformativeText(
-            "wfweb serves the web UI over HTTPS with a certificate it made on this computer, "
+            "FlexWeb serves the web UI over HTTPS with a certificate it made on this computer, "
             "so the browser cannot verify it. The warning is expected: choose Advanced, then "
             "Proceed (or Accept the risk). The browser remembers the choice.");
         auto *dontShow = new QCheckBox("Don't show this again", &box);
@@ -742,7 +742,7 @@ void MainWindow::browseSettingsFile()
     const QString startDir = current.isEmpty()
         ? QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
         : QFileInfo(current).absolutePath();
-    const QString file = QFileDialog::getSaveFileName(this, "wfweb settings file", startDir,
+    const QString file = QFileDialog::getSaveFileName(this, "FlexWeb settings file", startDir,
                                                       "Settings (*.ini);;All files (*)", nullptr,
                                                       QFileDialog::DontConfirmOverwrite);
     if (!file.isEmpty())
@@ -784,19 +784,19 @@ bool MainWindow::resolvePortConflict(int port)
 
     QMessageBox box(this);
     box.setIcon(QMessageBox::Warning);
-    box.setWindowTitle("wfweb");
+    box.setWindowTitle("FlexWeb");
     box.setText(QStringLiteral("Port %1 is already in use.").arg(port));
 
     if (!owner.isWfweb) {
         box.setInformativeText(owner.found
-            ? QStringLiteral("It is held by %1, which is not wfweb. Stop that program, or choose a different web port.").arg(who)
-            : QStringLiteral("Is another wfweb running? Stop it, or choose a different web port."));
+            ? QStringLiteral("It is held by %1, which is not FlexWeb. Stop that program, or choose a different web port.").arg(who)
+            : QStringLiteral("Is another FlexWeb running? Stop it, or choose a different web port."));
         box.addButton(QMessageBox::Ok);
         box.exec();
         return false;
     }
 
-    QString info = QStringLiteral("Another wfweb is running as PID %1").arg(owner.pid);
+    QString info = QStringLiteral("Another FlexWeb is running as PID %1").arg(owner.pid);
     if (!owner.commandLine.isEmpty()) {
         // One flag per line: a message box grows to fit its longest line,
         // and a full command line would push the buttons off the screen.
@@ -827,10 +827,10 @@ bool MainWindow::resolvePortConflict(int port)
     QString error;
     if (!PortOwner::terminate(owner.pid, &error)) {
         appendLine(now(), QStringLiteral("Could not stop PID %1: %2").arg(owner.pid).arg(error), LogLine::Critical);
-        QMessageBox::critical(this, "wfweb", QStringLiteral("Could not stop wfweb (PID %1):\n%2").arg(owner.pid).arg(error));
+        QMessageBox::critical(this, "FlexWeb", QStringLiteral("Could not stop FlexWeb (PID %1):\n%2").arg(owner.pid).arg(error));
         return false;
     }
-    appendLauncherLine(QStringLiteral("Stopped wfweb (PID %1), which held port %2.").arg(owner.pid).arg(port));
+    appendLauncherLine(QStringLiteral("Stopped FlexWeb (PID %1), which held port %2.").arg(owner.pid).arg(port));
 
     // The listening socket closes a moment after the process; allow a few seconds.
     QElapsedTimer waited;
@@ -868,8 +868,8 @@ void MainWindow::onServerFinished(int exitCode, bool crashed)
 {
     m_tail.stop();
     m_poller.stop();
-    appendLauncherLine(crashed ? QStringLiteral("wfweb crashed.")
-                               : QStringLiteral("wfweb exited with code %1.").arg(exitCode));
+    appendLauncherLine(crashed ? QStringLiteral("FlexWeb crashed.")
+                               : QStringLiteral("FlexWeb exited with code %1.").arg(exitCode));
     m_url.clear();
     m_rigConnected = false;
     setFormEnabled(true);
@@ -877,7 +877,7 @@ void MainWindow::onServerFinished(int exitCode, bool crashed)
     setRigStatus(QString(), true);
     updateButtons();
     if (m_tray)
-        m_tray->setToolTip("wfweb");
+        m_tray->setToolTip("FlexWeb");
     if (m_quitWhenStopped)
         qApp->quit();
 }
@@ -895,7 +895,7 @@ void MainWindow::onServerFailedToStart(const QString &error)
         return;
     }
     showAndRaise();
-    QMessageBox::critical(this, "wfweb", QStringLiteral("Could not start %1:\n%2").arg(kServerExe, error));
+    QMessageBox::critical(this, "FlexWeb", QStringLiteral("Could not start %1:\n%2").arg(kServerExe, error));
 }
 
 void MainWindow::onLogLine(const QString &text)
@@ -963,7 +963,7 @@ void MainWindow::onListening(bool https)
     m_copyUrlButton->setToolTip(lanUrls.isEmpty() ? QString()
                                                   : "From another device on the LAN:\n" + lanUrls.join('\n'));
     if (m_tray)
-        m_tray->setToolTip(QStringLiteral("wfweb — %1").arg(m_url));
+        m_tray->setToolTip(QStringLiteral("FlexWeb — %1").arg(m_url));
     updateButtons();
     if (m_cfg.openBrowserOnStart)
         openBrowser();
@@ -1095,7 +1095,7 @@ void MainWindow::updateTransportWidgets()
 int MainWindow::runServerTool(const QStringList &args, const QByteArray &input, QString *output, int timeoutMs)
 {
     if (!QFileInfo::exists(m_exePath)) {
-        QMessageBox::critical(this, "wfweb", QStringLiteral("%1 was not found next to the launcher.").arg(kServerExe));
+        QMessageBox::critical(this, "FlexWeb", QStringLiteral("%1 was not found next to the launcher.").arg(kServerExe));
         return -1;
     }
     QProcess p;
@@ -1299,8 +1299,8 @@ void MainWindow::closeEvent(QCloseEvent *event)
 
     QMessageBox box(this);
     box.setIcon(QMessageBox::Question);
-    box.setWindowTitle("wfweb");
-    box.setText("wfweb is running.");
+    box.setWindowTitle("FlexWeb");
+    box.setText("FlexWeb is running.");
     box.setInformativeText("Stop the server and quit, or keep it running from the tray?");
     QPushButton *stopButton = box.addButton("Stop and quit", QMessageBox::AcceptRole);
     QPushButton *trayButton = m_tray ? box.addButton("Keep running in tray", QMessageBox::ActionRole) : nullptr;

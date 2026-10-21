@@ -411,6 +411,24 @@ class MockFlexRadio:
             return 0, ""
         if cmd.startswith("cw ") or cmd.startswith("cwx ") or cmd.startswith("atu "):
             return 0, ""
+        if cmd.startswith("transmit tune "):
+            self.transmit["tune"] = words[2]
+            return 0, ""
+        if cmd.startswith("radio set "):
+            return 0, ""
+        if cmd.startswith("tnf create"):
+            self._tnf_id = getattr(self, "_tnf_id", 0) + 1
+            freq = cmd.split("freq=")[1].split()[0]
+            self.tnfs = getattr(self, "tnfs", {})
+            self.tnfs[self._tnf_id] = freq
+            self.status(f"tnf {self._tnf_id} freq={freq} width=0.000100 depth=1 permanent=0")
+            return 0, str(self._tnf_id)
+        if cmd.startswith("tnf remove "):
+            getattr(self, "tnfs", {}).pop(int(words[2]), None)
+            self.status(f"tnf {words[2]} removed")
+            return 0, ""
+        if cmd.startswith("tnf set "):
+            return 0, ""
         return 0x50000015, "Unknown command"
 
     # ── VITA-49 streams ───────────────────────────────────────────────────

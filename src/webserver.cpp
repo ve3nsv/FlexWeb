@@ -322,7 +322,7 @@ bool webServer::setupSsl()
             << "req" << "-x509" << "-newkey" << "rsa:2048"
             << "-keyout" << keyPath << "-out" << certPath
             << "-days" << "3650" << "-nodes"
-            << "-subj" << "/CN=wfweb");
+            << "-subj" << "/CN=FlexWeb");
         if (!proc.waitForFinished(10000) || proc.exitCode() != 0) {
             qWarning() << "Web: Failed to generate SSL certificate:" << proc.readAllStandardError();
             return false;
@@ -488,7 +488,7 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
         qInfo() << "Web login is on:" << webAuth::users().size() << "user(s)";
     else
         qWarning() << "Web login is off: anyone who can reach port" << httpPort
-                   << "can use the radio. Add a user with  wfweb --add-user <name>  before port forwarding.";
+                   << "can use the radio. Add a user with  wfweb --add-user <name>  (FlexWeb's wfweb.exe) before port forwarding.";
 
     startNtp();
 
@@ -2843,7 +2843,23 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     }
     else if (type == "flexDsp") {
         // FUNC > EQ / PROC on a Flex: {cmd:'flexDsp', key, index, value}.
-        emit flexDspSet(cmd["key"].toString(), cmd["index"].toInt(), cmd["value"].toInt());
+        const QString key = cmd["key"].toString();
+        if (key == "tune") {
+            // The TUNE carrier keys the radio: same TX lock as PTT.
+            const bool on = cmd["value"].toInt() != 0;
+            if (pttClient && pttClient != client && wsClients.contains(pttClient)) {
+                if (on) {
+                    QJsonObject busy;
+                    busy["type"] = "txBusy";
+                    busy["by"] = clientLabel(pttClient);
+                    sendJsonTo(client, busy);
+                }
+                return;
+            }
+            pttClient = on ? client : nullptr;
+            broadcastTxState();
+        }
+        emit flexDspSet(key, cmd["index"].toInt(), cmd["value"].toInt());
     }
     else if (type == "disconnectLan") {
         emit requestLanDisconnect();
@@ -3671,6 +3687,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
                         this, &webServer::onReporterStateChanged);
             }
             freedvReporter->setStation(reporterCallsign, reporterGrid);
+            if (!reporterMessage.isEmpty()) freedvReporter->setMessage(reporterMessage);
 
             // Seed reporter with current frequency from cache
             if (queue) {
@@ -3730,6 +3747,20 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
 
         notifyFreedvReporterStatus();
         notifyPskReporterStatus();
+    }
+    else if (type == "setReporterMessage") {
+        // The Message column on qso.freedv.org; kept in the settings file.
+        reporterMessage = cmd["message"].toString().simplified().left(80);
+        {
+            auto settings = openSettings();
+            settings->setValue("Station/ReporterMessage", reporterMessage);
+        }
+        if (freedvReporter) freedvReporter->setMessage(reporterMessage);
+        QJsonObject o;
+        o["type"] = "reporterMessage";
+        o["message"] = reporterMessage;
+        for (QWebSocket *c : wsClients) sendJsonTo(c, o);
+        qInfo().noquote() << "Web: FreeDV Reporter message:" << (reporterMessage.isEmpty() ? QString("(none)") : reporterMessage);
     }
     else if (type == "setStationCallsign") {
         // A browser changed the station callsign (or grid) in one of its
@@ -3970,6 +4001,7 @@ void webServer::sendCurrentState(QWebSocket *client)
     // The browser adopts these on connect instead of pushing its own copy.
     info["stationCallsign"] = reporterCallsign;
     info["stationGrid"] = reporterGrid;
+    info["reporterMessage"] = reporterMessage;
     info["ampConfigured"] = !rfkitTarget_.isEmpty();
 
     sendJsonTo(client, info);
@@ -4264,6 +4296,10 @@ QJsonObject webServer::buildStatusJson()
     // Noise Reduction
     cacheItem nr = queue->getCache(funcNoiseReduction, 0);
     if (nr.value.isValid()) status["nr"] = nr.value.toBool();
+
+    // AGC time constant: 0 off (Flex), 1 fast, 2 mid, 3 slow
+    cacheItem agcSt = queue->getCache(funcAGC, 0);
+    if (agcSt.value.isValid()) status["agc"] = agcSt.value.toInt();
 
     // IF Filter Width
     cacheItem fw = queue->getCache(funcFilterWidth, 0);
@@ -4595,6 +4631,9 @@ void webServer::receiveCache(cacheItem item)
         break;
     case funcPBTInner:
         update["pbtInner"] = item.value.toInt();
+        break;
+    case funcAGC:
+        update["agc"] = item.value.toInt();
         break;
     case funcPBTOuter:
         update["pbtOuter"] = item.value.toInt();
@@ -7073,6 +7112,7 @@ void webServer::configureLogbook(const QString &logbookOverride,
     // QSOs with it.
     applyStationCallsign(settings->value("Station/Callsign").toString(),
                          settings->value("Station/Grid").toString(), false);
+    reporterMessage = settings->value("Station/ReporterMessage").toString().left(80);
     loadCwMacros();
 
     // --logbook wins over Logbook= in the settings file.  A relative path in
@@ -9125,6 +9165,15 @@ void webServer::onDemandBrowserLeft()
     qInfo() << "On-demand: last browser closed, releasing the rig in"
             << onDemandIdleSec_ << "s unless one comes back";
     onDemandTimer_->start(onDemandIdleSec_ * 1000);
+}
+
+void webServer::onFlexNnrGain(float gain, bool active)
+{
+    QJsonObject o;
+    o["type"] = "nnrGain";
+    o["gain"] = double(std::lround(gain * 1000)) / 1000.0;
+    o["active"] = active;
+    sendJsonToAll(o);
 }
 
 void webServer::onFlexMemories(QJsonArray list)

@@ -33,6 +33,8 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <functional>
+#include <memory>
+#include "nnrfilter.h"
 
 struct SpeexResamplerState_;
 
@@ -78,6 +80,9 @@ signals:
     void flexDspState(QJsonObject state);
     // The radio's memory list, every time it changes (coalesced).
     void flexMemories(QJsonArray list);
+    // NNR's NR GAIN reading (post / pre level, 0..1), about 5 per second
+    // while NNR runs; active=false once it stops.
+    void flexNnrGain(float gain, bool active);
     // Another client (SmartSDR, Maestro...) disconnected us, or the radio
     // dropped us for a duplicate client id. servermain closes the LAN session
     // so wfweb stays off the radio until a browser asks to connect again.
@@ -195,6 +200,13 @@ private:
     int filterLo = 0;
     int filterHi = 0;
     int filterNum = 1;
+    // Icom-style twin PBT on the Flex filter: 0..255, 128 = centred. Each
+    // shifts a copy of the base filter by up to half its width; the slice
+    // filter is their overlap (the page draws the same model).
+    int pbtIn = 128, pbtOut = 128;
+    int filterBaseW = 0;                 // width before PBT (0 = filterHi - filterLo)
+    int sentLo = 0, sentHi = 0;          // the last edges wfweb set
+    void applyFilter();
     int audioLevel = 50;            // 0..100
     int agcThreshold = 65;          // 0..100, used as "RF gain"
     QString agcMode;
@@ -271,6 +283,26 @@ private:
     QTimer* dspPublishTimer = nullptr;
     void handleEqStatus(bool tx, const QMap<QString, QString>& kvs);
     void publishDsp();
+    // Radio settings the page shows as they are (levels, CW, tune, limits,
+    // XIT, WNB, TNF): page key -> value, published in flexDsp.
+    QMap<QString, int> extra;
+    // NNR (neural noise reduction) on the RX audio; settings kept in
+    // QSettings("wfweb", "nnr"). Fixed-point for the page: alpha x100,
+    // knee x10, tau x100, max gain x10, attack / release in ms.
+    struct nnrSettings { int on = 0, strength = 38, model = 0, alpha = 100, knee = 100, tau = 200,
+                         maxGain = 120, attack = 0, release = 0; } nnrCfg;
+    std::unique_ptr<nnrFilter> nnrF;
+    int nnrModelInUse = 0;
+    qint64 nnrGainAt = 0;
+    bool nnrWasActive = false;
+    bool nnrModeOk() const;
+    void nnrApply();
+    void nnrLoad();
+    void nnrSave();
+    bool setNnr(const QString& key, int value);
+    QMap<int, QJsonObject> tnfs;          // tnf id -> {id, freq (Hz), width (Hz), depth, permanent}
+    void takeExtra(const QMap<QString, QString>& kvs, const char* const (*map)[2], int n);
+    bool setExtra(const QString& key, int index, int value);
     int cwSpeed = 20;
     int cwPitch = 600;
     bool transmitting = false;

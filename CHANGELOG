@@ -65,6 +65,38 @@ FlexRadio:
   recalled, saved from the current slice, renamed and deleted.
 - FM repeaters: DUP-/DUP+/simplex, offset and CTCSS TX tone set the
   slice's repeater offset and FM tone (the DUP and TONE tiles).
+- NNR, the neural noise reduction from WDSP 2.10 (as in AetherSDR's
+  AetherRX > NNR): NNR next to NB / NR / ANF, and FUNC > NNR (or DSP… >
+  NNR…) for Strength, Standard / Premium model, defaults, the six advanced
+  settings, the method line and an NR GAIN trace. It runs on the server's
+  receive audio for everyone listening, in voice modes only, and its
+  settings are remembered. CPU: about a third of one core for Standard and
+  two thirds for Premium on a 2.8 GHz cloud Xeon (less on a desktop PC);
+  a Raspberry Pi 4 is too slow for it. The NNR block is vendored as a
+  subset (resources/wdsp-nnr) with a small FFT in place of FFTW.
+- Filter WIDTH and the twin PBT now work on a Flex: any width, and PBT
+  shifts / narrows the slice filter (mirrored on LSB). SHARP/SOFT is hidden.
+- AGC mode: AGC SLOW / MED / FAST / OFF in the RX applet and FUNC.
+- TUNE is the tune carrier on a Flex (as in SmartSDR), at TUNE PWR, with
+  the same TX lock as PTT; the radio's ATU stays on the ATU button.
+- FUNC > PROC (TRANSMIT): TUNE PWR, MAX PWR, AM CARRIER (also in the TX
+  applet in AM), XIT on/off and offset, and CW: break-in (QSK / semi),
+  break-in delay, keyer (iambic A / B / straight), sidetone, CW monitor.
+- RECEIVE DSP panel (DSP… in the RX applet, FUNC > RX DSP): NB / NR / ANF
+  levels, APF and its level, WNB and its level, and tracking notches (add at
+  the VFO, width, depth, keep, remove, all on / off).
+- Band keys on a Flex use the radio's own band memory (frequency, mode,
+  filter, antennas per band, shared with SmartSDR); 2 m / transverter bands
+  still tune directly.
+- FreeDV Reporter: a MESSAGE field in the station settings, shown in the
+  Message column on qso.freedv.org and kept by the server.
+- Recordings (AetherSDR look) have a sidebar column with the RX / TX /
+  amplifier values and the mic level; Recorder.renderFrame() draws a frame.
+- FlexWeb everywhere it shows: page and recordings, server messages,
+  launcher, SmartLink and the radio's client list (client program FlexWeb,
+  client station <host>), and the downloads (FlexWeb-…zip / .deb /
+  .AppImage; the folder in the Windows zip is FlexWeb). The programs and
+  their settings keep the wfweb names, so nothing has to be set up again.
 - JS8 uses the FT8 timing corrections too: it decodes late by the learned
   receive latency and starts transmitting early by the key-up lead (AUTO
   timing in the FT8 bar turns both off), on top of the NTP clock it

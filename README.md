@@ -1,6 +1,12 @@
-# wfweb
+# FlexWeb
 
-**Control your Icom, Kenwood, Yaesu or FlexRadio radio from any browser — phone, tablet, or desktop.**
+**Control your FlexRadio (or Icom, Kenwood, Yaesu) radio from any browser — phone, tablet, or desktop.**
+
+FlexWeb is a fork of [wfweb](https://github.com/adecarolis/wfweb) focused on FlexRadio, with an AetherSDR-style
+interface and FlexRadio protocol support from [AetherSDR](https://github.com/aethersdr/AetherSDR). Downloads are
+on the [releases page](https://github.com/ve3nsv/FlexWeb/releases) (`FlexWeb-…` files). The programs inside keep
+their wfweb names (`wfweb.exe`, `wfweb-launcher.exe`), and so do the settings they store, so nothing has to be set up
+again when you upgrade. The rest of this document comes from wfweb and still calls it that.
 
 wfweb turns your transceiver into a web-accessible station. Waterfall, SSB, CW decoding, FT8/FT4, JS8 messaging, FreeDV digital voice, [RADE](https://youtu.be/Rj9E1CAQ9Ls), and AX.25 packet (APRS, connected QSOs, file transfer) — all in the browser, no client software required.
 

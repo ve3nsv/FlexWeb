@@ -313,11 +313,11 @@ static int smartLinkRun(const QString& email, const QString& password)
         for (const smartLinkRadio& r : radios) {
             std::cout << QString("  %1  \"%2\"  serial %3  %4  %5")
                 .arg(r.model, r.nickname, r.serial, r.status,
-                     r.needsHolePunch ? "(no forwarded/UPnP ports: wfweb cannot reach it yet)"
+                     r.needsHolePunch ? "(no forwarded/UPnP ports: FlexWeb cannot reach it yet)"
                                       : QString("(%1 TLS %2 UDP %3)").arg(r.publicIp).arg(r.publicTlsPort).arg(r.publicUdpPort))
                 .toStdString() << "\n";
         }
-        std::cout << "\nThe sign-in is saved. Start wfweb with\n"
+        std::cout << "\nThe sign-in is saved. Start FlexWeb with\n"
                      "  wfweb --smartlink <serial or radio name>\n"
                      "(--smartlink auto picks the only radio on the account).\n";
         loop.quit();
@@ -595,7 +595,7 @@ int main(int argc, char *argv[])
                     }
                     settings->clear();
                     delete settings;
-                    std::cout << QString("All wfweb settings cleared.\n").toStdString();
+                    std::cout << QString("All FlexWeb settings cleared.\n").toStdString();
                     exit(0);
                 }
             }
@@ -949,7 +949,7 @@ int main(int argc, char *argv[])
     delete server.data();
     if (console != Q_NULLPTR) {
         ConsoleStatus::restoreTerminal();
-        std::cout << "wfweb stopped. Log: " << logFilename.toLocal8Bit().toStdString() << std::endl;
+        std::cout << "FlexWeb stopped. Log: " << logFilename.toLocal8Bit().toStdString() << std::endl;
     }
 #endif
 #if defined(BUILD_WFSERVER) && defined(Q_OS_WIN)

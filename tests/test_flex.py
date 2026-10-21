@@ -149,6 +149,154 @@ def test_set_mode_and_filter(flex):
     assert _wait(lambda: "filt 0 100 2800" in radio.commands, timeout=5)
 
 
+def test_width_and_pbt(flex):
+    """WIDTH sets any filter width on the Flex, and the twin PBT shifts /
+    narrows the slice filter in audio terms (mirrored on LSB)."""
+    radio, rest = flex
+    from test_web_login import _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, _ = _ws(port, None)
+    assert " 101" in st, st
+    try:
+        requests.put(f"{rest}/mode", json={"mode": "USB", "filter": 1}, timeout=5)
+        assert _wait(lambda: "filt 0 100 2800" in radio.commands, timeout=5)
+        _ws_send(sock, {"cmd": "setFilterWidth", "value": 2400})
+        assert _wait(lambda: "filt 0 100 2500" in radio.commands, timeout=5)
+        _ws_send(sock, {"cmd": "setPBTInner", "value": 255})
+        assert _wait(lambda: "filt 0 1291 2500" in radio.commands, timeout=5), radio.commands[-5:]
+        _ws_send(sock, {"cmd": "setPBTOuter", "value": 255})
+        assert _wait(lambda: "filt 0 1291 3691" in radio.commands, timeout=5), radio.commands[-5:]
+        # The reported width stays the set width, not the narrowed passband.
+        assert _wait(lambda: requests.get(f"{rest}/mode", timeout=2).json().get("filter") is not None, timeout=3)
+
+        requests.put(f"{rest}/mode", json={"mode": "LSB", "filter": 1}, timeout=5)   # preset: PBT centred
+        assert _wait(lambda: "slice set 0 mode=LSB" in radio.commands, timeout=5)
+        _ws_send(sock, {"cmd": "setFilterWidth", "value": 2400})
+        assert _wait(lambda: "filt 0 -2500 -100" in radio.commands, timeout=5), radio.commands[-5:]
+        _ws_send(sock, {"cmd": "setPBTInner", "value": 160})
+        _ws_send(sock, {"cmd": "setPBTOuter", "value": 160})
+        assert _wait(lambda: "filt 0 -2800 -400" in radio.commands, timeout=5), radio.commands[-5:]
+    finally:
+        sock.close()
+
+
+def test_flex_extras(flex):
+    """The settings beyond the Icom set: AGC mode, NB/NR/ANF levels, APF,
+    XIT, tune carrier + tune / max power, AM carrier, CW keyer, WNB, TNF,
+    the radio's band memory and the FreeDV Reporter message."""
+    radio, rest = flex
+    from test_web_login import _Reader, _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    reader = _Reader(sock, buf)
+    PAN = "0x40000000"
+
+    def dsp(key, value, index=0):
+        _ws_send(sock, {"cmd": "flexDsp", "key": key, "index": index, "value": value})
+
+    try:
+        _ws_send(sock, {"cmd": "setAGC", "value": 3})
+        assert _wait(lambda: radio.slice.get("agc_mode") == "slow", timeout=5), radio.slice
+        for key, value, wire, want in (("nbLevel", 70, "nb_level", "70"), ("nrLevel", 30, "nr_level", "30"),
+                                       ("anfLevel", 20, "anf_level", "20"), ("apf", 1, "apf", "1"),
+                                       ("apfLevel", 60, "apf_level", "60"), ("xitOn", 1, "xit_on", "1"),
+                                       ("xitFreq", -150, "xit_freq", "-150")):
+            dsp(key, value)
+            assert _wait(lambda: radio.slice.get(wire) == want, timeout=5), (key, radio.slice)
+        for key, value, wire, want in (("tunePower", 15, "tunepower", "15"), ("maxPower", 80, "max_power_level", "80"),
+                                       ("amCarrier", 40, "am_carrier", "40"), ("monGainCw", 55, "mon_gain_cw", "55")):
+            dsp(key, value)
+            assert _wait(lambda: radio.transmit.get(wire) == want, timeout=5), (key, radio.transmit)
+        dsp("breakIn", 1); dsp("breakInDelay", 300); dsp("iambicMode", 1); dsp("sidetone", 0)
+        for c in ("cw break_in 1", "cw break_in_delay 300", "cw mode 1", "cw sidetone 0"):
+            assert _wait(lambda: c in radio.commands, timeout=5), c
+        dsp("wnb", 1); dsp("wnbLevel", 45)
+        assert _wait(lambda: f"display pan set {PAN} wnb=1" in radio.commands
+                     and f"display pan set {PAN} wnb_level=45" in radio.commands, timeout=5)
+        dsp("band", 20)
+        assert _wait(lambda: f"display pan set {PAN} band=20" in radio.commands, timeout=5)
+
+        # A tracking notch at the VFO, reported back to the page, then removed.
+        dsp("tnfAdd", 0)
+        assert _wait(lambda: any(c.startswith("tnf create freq=") for c in radio.commands), timeout=5)
+        tnf = None
+        for text in reader.frames(6.0):
+            m = json.loads(text)
+            if m.get("type") == "flexDsp" and m.get("tnfs"):
+                tnf = m["tnfs"][0]
+                break
+        assert tnf and tnf["freq"] > 0 and tnf["width"] == 100, tnf
+        dsp("tnfRemove", 0, index=tnf["id"])
+        assert _wait(lambda: f"tnf remove {tnf['id']}" in radio.commands, timeout=5)
+
+        # TUNE carrier keys the radio and takes the TX lock like PTT.
+        dsp("tune", 1)
+        assert _wait(lambda: radio.transmit.get("tune") == "1", timeout=5)
+        got = None
+        for text in reader.frames(4.0):
+            m = json.loads(text)
+            if m.get("type") == "txState" and m.get("on"):
+                got = m
+                break
+        assert got and got.get("mine"), got
+        dsp("tune", 0)
+        assert _wait(lambda: radio.transmit.get("tune") == "0", timeout=5)
+
+        _ws_send(sock, {"cmd": "setReporterMessage", "message": "  Flex 6400   from FN03  "})
+        msg = None
+        for text in reader.frames(4.0):
+            m = json.loads(text)
+            if m.get("type") == "reporterMessage":
+                msg = m
+                break
+        assert msg and msg["message"] == "Flex 6400 from FN03", msg
+    finally:
+        sock.close()
+
+
+def test_nnr(flex):
+    """NNR runs on the RX audio in voice modes: the page gets NR GAIN
+    readings and the state; in CW it waits (a speech model would remove the
+    carrier) and says so."""
+    radio, rest = flex
+    from test_web_login import _Reader, _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    reader = _Reader(sock, buf)
+    try:
+        requests.put(f"{rest}/mode", json={"mode": "USB", "filter": 1}, timeout=5)
+        _ws_send(sock, {"cmd": "enableAudio", "value": True})
+        _ws_send(sock, {"cmd": "flexDsp", "key": "nnrModel", "index": 0, "value": 0})
+        _ws_send(sock, {"cmd": "flexDsp", "key": "nnr", "index": 0, "value": 1})
+        gains, active_state = [], None
+        for text in reader.frames(10.0):
+            m = json.loads(text)
+            if m.get("type") == "nnrGain" and m.get("active"):
+                gains.append(m["gain"])
+            if m.get("type") == "flexDsp" and m.get("nnr") == 1 and m.get("nnrActive"):
+                active_state = m
+            if len(gains) >= 3 and active_state:
+                break
+        assert active_state, "NNR never reported active"
+        assert len(gains) >= 3 and all(0.0 <= g <= 1.0 for g in gains), gains
+        assert active_state["nnrDelayMs"] > 0
+
+        requests.put(f"{rest}/mode", json={"mode": "CW", "filter": 1}, timeout=5)
+        stopped = False
+        for text in reader.frames(8.0):
+            m = json.loads(text)
+            if m.get("type") == "nnrGain" and not m.get("active"):
+                stopped = True
+                break
+        assert stopped, "NNR kept running in CW"
+    finally:
+        _ws_send(sock, {"cmd": "flexDsp", "key": "nnr", "index": 0, "value": 0})
+        requests.put(f"{rest}/mode", json={"mode": "USB", "filter": 1}, timeout=5)
+        sock.close()
+
+
 def test_gains(flex):
     radio, rest = flex
     requests.put(f"{rest}/gains", json={"afGain": 128, "rfPower": 51}, timeout=5)
@@ -710,7 +858,7 @@ def test_smartlink():
 
         # Signed in with the refresh token, registered, asked for the radio.
         assert broker.token_requests[-1].get("grant_type") == "refresh_token"
-        assert any(l.startswith("application register name=wfweb") for l in broker.lines)
+        assert any(l.startswith("application register name=FlexWeb") for l in broker.lines)
         assert any(l.startswith("application connect serial=1234-5678 hole_punch_port=") for l in broker.lines)
         # The radio heard the WAN handle first, then the usual session.
         assert radio.commands[0] == f"wan validate handle={radio.wan_handle}"

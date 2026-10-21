@@ -241,6 +241,16 @@ SOURCES += src/freedvprocessor.cpp src/freedvreporter.cpp src/pskreporter.cpp
 HEADERS += include/freedvprocessor.h include/freedvreporter.h include/pskreporter.h include/spotreporter.h
 message("FreeDV codec2 support enabled")
 
+# WDSP neural noise reduction (NNR), the subset in resources/wdsp-nnr
+# (README-vendoring.md): FlexRadio RX audio, FUNC > RX DSP > NNR.
+SOURCES += \
+    resources/wdsp-nnr/nnr.c \
+    resources/wdsp-nnr/nnet.c \
+    resources/wdsp-nnr/nnio.c \
+    resources/wdsp-nnr/fftw_shim.c \
+    resources/wdsp-nnr/nnr_model_0.c \
+    resources/wdsp-nnr/nnr_model_1.c
+
 # Dire Wolf packet modem (AX.25 / APRS) — always built.
 # Dire Wolf expects these version macros from the build system.
 DEFINES += MAJOR_VERSION=1 MINOR_VERSION=7 EXTRA_VERSION=\\\"wfweb\\\"
@@ -347,6 +357,7 @@ SOURCES += \
     src/radio/kenwoodserver.cpp \
     src/radio/yaesucommander.cpp \
     src/radio/flexcommander.cpp \
+    src/nnrfilter.cpp \
     src/radio/smartlinkclient.cpp \
     src/webauth.cpp \
     src/radio/flexprotocol.cpp \
@@ -428,6 +439,7 @@ HEADERS  += \
     include/kenwoodserver.h \
     include/yaesucommander.h \
     include/flexcommander.h \
+    include/nnrfilter.h \
     include/smartlinkclient.h \
     include/webauth.h \
     include/flexprotocol.h \

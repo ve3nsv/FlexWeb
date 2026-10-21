@@ -312,6 +312,8 @@ queue->add(priorityImmediate, queueItem(funcMemoryContents, QVariant::fromValue<
 | `src/rfkitconnection.cpp` / `src/rfkitprotocol.cpp` | RF-KIT (RF2K-S) amplifier over REST, ported from AetherSDR; owned by `webServer::configureRfkit` (`--rfkit`), pushed to the page as `{type:'amp'}`, FUNC > AMP; `tests/rfkitprotocol_test.cpp` |
 | `src/radio/smartlinkclient.cpp` | SmartLink (Flex WAN): Auth0 sign-in, broker TLS session, radio list; refresh token + radio cert pins in `QSettings("wfweb","smartlink")`. `--smartlink-login` / `--smartlink <radio>` (prefs.ipAddress `smartlink:<radio>`); flexCommander's WAN path (`startWan`) does TLS to the radio, `wan validate`, `client udp_register` |
 | `src/webauth.cpp` | Web login: users (PBKDF2 in `QSettings("wfweb","webusers")`), sessions by SHA-256 of the cookie token, lockout; pure Qt Core+Network, also linked by the launcher (Web users tab); `tests/webauth_test.cpp`, `tests/test_web_login.py`. `WFWEB_CONFIG_DIR` puts it (and SmartLink's store) in ini files for tests |
+| `src/nnrfilter.cpp` | NNR (WDSP neural noise reduction) on the Flex RX audio, driven from flexCommander::handleRxAudio; settings in `QSettings("wfweb","nnr")`, page keys `nnr*` via flexDsp, NR GAIN as `{type:'nnrGain'}` |
+| `resources/wdsp-nnr/` | Vendored WDSP 2.10 NNR subset + `comm.h` / `fftw3.h` shims (radix-2 FFT, no FFTW); see its README-vendoring.md |
 | `tests/mock_flex_radio.py` | Mock SmartSDR radio (TCP + VITA-49) for `tests/test_flex.py`; runnable standalone |
 | `src/radeprocessor.cpp` | RADE V1 modem processing |
 | `src/freedvprocessor.cpp` | Classic FreeDV codec processing |

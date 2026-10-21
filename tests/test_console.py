@@ -202,7 +202,7 @@ def test_q_quits_and_restores_terminal(terminal, when):
     term.type(b"q")
     assert term.wait_exit() == 0, term.diagnostics()
     assert PAGE_OFF in term.output
-    assert term.output.rstrip().endswith(b"wfweb stopped. Log: " + str(term.log).encode())
+    assert term.output.rstrip().endswith(b"FlexWeb stopped. Log: " + str(term.log).encode())
     assert term.restored()
 
 
@@ -234,7 +234,7 @@ def test_plain_log_on_request(terminal, args, env):
     term.proc.send_signal(signal.SIGTERM)
     term.wait_exit()
     assert b"\x1b" not in term.output
-    assert b"wfweb stopped" not in term.output
+    assert b"FlexWeb stopped" not in term.output
 
 
 def test_plain_log_on_a_pipe(tmp_path):
@@ -251,7 +251,7 @@ def test_plain_log_on_a_pipe(tmp_path):
     out, _ = proc.communicate(timeout=10)
     assert LOG_LINE.search(out)
     assert b"\x1b" not in out
-    assert b"wfweb stopped" not in out
+    assert b"FlexWeb stopped" not in out
 
 
 def test_daemon_leaves_terminal_alone(terminal):

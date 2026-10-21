@@ -214,7 +214,7 @@ void smartLinkClient::onEncrypted()
     serverUp = true;
     QString platform = QSysInfo::productType();
     platform.replace(' ', '_');
-    socket.write(QString("application register name=wfweb platform=%1 token=%2\n").arg(platform, idToken).toUtf8());
+    socket.write(QString("application register name=FlexWeb platform=%1 token=%2\n").arg(platform, idToken).toUtf8());
     pingTimer.start();
     emit serverConnected();
 }

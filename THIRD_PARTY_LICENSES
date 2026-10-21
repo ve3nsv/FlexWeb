@@ -176,3 +176,17 @@ FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 
 The full text of the GNU General Public License v2 is available at:
 https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+
+================================================================================
+WDSP — Neural Noise Reduction (resources/wdsp-nnr)
+================================================================================
+
+Copyright (C) 2026 Warren Pratt, NR0V. From WDSP 2.10
+(TAPR/OpenHPSDR-wdsp, commit b02d5bac675dd2f33ec2bab2b339f79a597c47dd), as
+vendored by AetherSDR. Only the NNR block and its two built-in models are
+included; see resources/wdsp-nnr/README-vendoring.md.
+
+This program is free software; you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation; either version 2 of the License, or (at your option) any later
+version. The full license text is in resources/wdsp-nnr/LICENSE.

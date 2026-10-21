@@ -627,13 +627,13 @@ body.meter-needle #meterCanvas { width: auto; height: 128px; aspect-ratio: 611 /
 
 /* AMP / EQ / PROC overlays: a 5-column tile grid like AUDIO, then their
    own rows under it. */
-#ampOverlay.visible, #eqOverlay.visible, #procOverlay.visible, #flexAntOverlay.visible {
+#ampOverlay.visible, #eqOverlay.visible, #procOverlay.visible, #rxDspOverlay.visible, #nnrOverlay.visible, #flexAntOverlay.visible {
     flex-direction: column;
     padding: 4px 12px;
     justify-content: center;
     overflow-y: auto;
 }
-#ampOverlay .overlay-grid, #eqOverlay .overlay-grid, #procOverlay .overlay-grid, #flexAntOverlay .overlay-grid {
+#ampOverlay .overlay-grid, #eqOverlay .overlay-grid, #procOverlay .overlay-grid, #rxDspOverlay .overlay-grid, #nnrOverlay .overlay-grid, #flexAntOverlay .overlay-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
     gap: 5px; padding: 4px 0;
@@ -1635,6 +1635,23 @@ body.digi-open #bottomBar { grid-row: 5; }
     box-shadow: 0 0 5px #fc0;
 }
 .gain-row.tx .gain-val { color: #fb0; }
+/* NEURAL NR panel */
+.nnr-adv-title { margin: 10px 0 4px; font-size: 11px; letter-spacing: 1px; color: var(--text-dim, #889); }
+.nnr-status { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 10px; border-radius: 4px;
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); }
+.nnr-status b { color: var(--text, #ddd); }
+.nnr-k { font-size: 11px; letter-spacing: 1px; color: var(--text-dim, #889); }
+.nnr-dot { width: 10px; height: 10px; border-radius: 50%; background: #555; flex: 0 0 auto; }
+.nnr-dot.on { background: #2ecc55; }
+.nnr-dot.wait { background: #f5b400; }
+#nnrGainCanvas { flex: 1 1 120px; min-width: 80px; height: 28px; background: #05070c; border-radius: 3px; }
+.ae-key.ae-dim { opacity: 0.6; }
+/* RECEIVE DSP: one tracking notch per row */
+.tnf-row { display: flex; align-items: center; gap: 6px; margin: 4px 8px; flex-wrap: wrap; }
+.tnf-row .tnf-freq { flex: 1 1 auto; font-family: var(--font-mono, monospace); color: var(--text, #ddd); }
+.tnf-row .dup-btn { padding: 6px 10px; background: var(--ae-panel, #1b2330); color: var(--text, #ddd);
+    border: 1px solid var(--ae-line, #33404f); border-radius: 3px; font: inherit; font-size: 12px; cursor: pointer; }
+.tnf-row .dup-btn.active { background: var(--accent, #0a7bd6); color: #fff; }
 /* Mic VU (under MIC): -60..0 dBFS, green / amber above -12 / red above -3 */
 .mic-vu { flex: 1; height: 8px; position: relative; border-radius: 2px; overflow: hidden;
     background: #161616; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); }
@@ -2339,7 +2356,7 @@ try {
         </div>
     </div>
     <div style="position: absolute; bottom: 20px; left: 20px; font-size: 11px; color: #555;">
-        <span id="splashVersion">wfweb</span>
+        <span id="splashVersion">FlexWeb</span>
     </div>
 </div>
 <div id="audioErrorBanner"><span id="audioErrorText"></span><button onclick="document.getElementById('audioErrorBanner').style.display='none'">&#x2715;</button></div>
@@ -2356,7 +2373,7 @@ try {
         </div>
     </div>
     <div style="position: absolute; bottom: 20px; left: 20px; font-size: 11px; color: #555;">
-        <span id="powerOffVersion">wfweb</span>
+        <span id="powerOffVersion">FlexWeb</span>
     </div>
 </div>
 <div id="powerConfirm">
@@ -2538,7 +2555,7 @@ try {
         <!-- Memory modal (styled like QSO Log) -->
         <div id="memoryOverlay" class="mem-modal">
             <div class="mem-modal-title">
-                <span>Memories <span id="memLocalBadge" class="wf-badge" style="display:none" title="This radio cannot store memory channels over CI-V, so wfweb keeps them itself. They are not written to the radio.">wfweb</span> <span id="memScanStatus"></span></span>
+                <span>Memories <span id="memLocalBadge" class="wf-badge" style="display:none" title="This radio cannot store memory channels over CI-V, so FlexWeb keeps them itself. They are not written to the radio.">FlexWeb</span> <span id="memScanStatus"></span></span>
                 <span id="memGroupRow" class="mode-digi" style="display:none;flex:0 0 auto;font-weight:normal;">
                     <label for="memGroupSelect" style="color:var(--mode-accent-dim);">Group</label>
                     <select id="memGroupSelect" class="wf-field" onchange="onMemGroupChange()"></select>
@@ -2743,6 +2760,11 @@ try {
                 </label>
                 <span id="digiReporterStatus" style="font-size:10px;color:#556;margin-left:8px"></span>
             </div>
+            <div class="digi-settings-field">
+                <span class="digi-field-label">MESSAGE:</span>
+                <input type="text" id="digiReporterMsg" class="wf-field" maxlength="80" style="flex:1;min-width:0"
+                       placeholder="Shown in the Message column on qso.freedv.org" autocomplete="off">
+            </div>
             <div class="digi-settings-field" style="margin-top:6px">
                 <label style="display:flex;align-items:center;gap:6px;color:#8cf;font-size:12px;cursor:pointer">
                     <input type="checkbox" id="digiPskReporterEnable">
@@ -2820,7 +2842,7 @@ try {
             </div>
             <!-- Browser-side playback volume (setRxVolume) — the AF row above is
                  the radio's own speaker, which over USB does not touch the stream. -->
-            <div class="gain-row rx-vol-row" title="wfweb playback volume in this browser. AF is the radio's own speaker.">
+            <div class="gain-row rx-vol-row" title="FlexWeb playback volume in this browser. AF is the radio's own speaker.">
                 <span class="gain-label">VOL</span>
                 <div class="gain-bar-bg"><div class="gain-bar-fill rx-vol-fill" style="width:100%"></div>
                     <input type="range" class="rx-vol-slider" id="rxVolumeSlider" min="0" max="100" value="100"></div>
@@ -2910,7 +2932,7 @@ try {
                         <input type="range" id="pbtOuterSlider" min="0" max="255" value="128"></div>
                     <span class="gain-val pbt-val" id="pbtOuterVal" title="Tap to centre" onclick="centerPBT('pbtOuter')">0</span>
                 </div>
-                <div class="filter-seg-row">
+                <div class="filter-seg-row" id="filterShapeRow">
                     <span class="dup-label">SHAPE</span>
                     <button class="dup-btn" id="sharpBtn" onclick="sendFilterShape(0)">SHARP</button>
                     <button class="dup-btn" id="softBtn" onclick="sendFilterShape(1)">SOFT</button>
@@ -2952,8 +2974,18 @@ try {
             <div class="overlay-title">ANTENNAS</div>
             <div id="flexAntBody" style="width:100%"></div>
         </div>
+        <div id="nnrOverlay" class="overlay">
+            <div class="overlay-title">NEURAL NR</div>
+            <div id="nnrBody" style="width:100%"></div>
+        </div>
+
+        <div id="rxDspOverlay" class="overlay">
+            <div class="overlay-title">RECEIVE DSP</div>
+            <div id="rxDspBody" style="width:100%"></div>
+        </div>
+
         <div id="procOverlay" class="overlay">
-            <div class="overlay-title">TX PROCESSING</div>
+            <div class="overlay-title">TRANSMIT</div>
             <div id="procBody" style="width:100%"></div>
         </div>
 
@@ -2983,7 +3015,7 @@ try {
                 </label>
                 <div class="audio-dev-note" id="audioDevNote"></div>
             </div>
-            <div class="gain-row rx-vol-row" id="audioVolRow" title="wfweb playback volume in this browser. AF is the radio's own speaker.">
+            <div class="gain-row rx-vol-row" id="audioVolRow" title="FlexWeb playback volume in this browser. AF is the radio's own speaker.">
                 <span class="gain-label">VOL</span>
                 <div class="gain-bar-bg"><div class="gain-bar-fill rx-vol-fill" style="width:100%"></div>
                     <input type="range" class="rx-vol-slider" id="audioVolSlider" min="0" max="100" value="100"></div>
@@ -3645,6 +3677,8 @@ function handleMessage(msg) {
             flexFmSync(msg);
             if (document.getElementById('eqOverlay').classList.contains('visible')) renderEqOverlay();
             if (document.getElementById('procOverlay').classList.contains('visible')) renderProcOverlay();
+            if (document.getElementById('rxDspOverlay').classList.contains('visible')) renderRxDspOverlay();
+            if (document.getElementById('nnrOverlay').classList.contains('visible')) renderNnrOverlay();
             if (document.getElementById('flexAntOverlay').classList.contains('visible')) renderFlexAntOverlay();
             if (currentPanel === 'func') renderFuncOverlay();
             break;
@@ -3657,6 +3691,12 @@ function handleMessage(msg) {
         case 'txState':
             setTxOther(msg.on && !msg.mine ? (msg.by || 'another browser') : '');
             break;
+        case 'nnrGain':
+            onNnrGain(msg);
+            break;
+        case 'reporterMessage':
+            setReporterMessageField(msg.message);
+            break;
         case 'talkers':
             onTalkers(msg);
             break;
@@ -3666,6 +3706,7 @@ function handleMessage(msg) {
             break;
         case 'rigInfo':
             if (msg.webUser !== undefined) setWebUser(msg.webUser);
+            if (msg.reporterMessage !== undefined) setReporterMessageField(msg.reporterMessage);
             if (msg.ampConfigured !== undefined) { ampConfigured = !!msg.ampConfigured; renderAmpIndicator(); }
             if (msg.version) {
                 serverVersion = msg.version;
@@ -3817,6 +3858,7 @@ function handleMessage(msg) {
             if (msg.rfGain !== undefined) updateSlider('rfGain', msg.rfGain);
             if (msg.rfPower !== undefined) updateSlider('rfPower', msg.rfPower);
             if (msg.squelch !== undefined) updateSlider('squelch', msg.squelch);
+            if (msg.agc !== undefined) updateAgc(msg.agc);
             if (msg.micGain !== undefined) updateSlider('micGain', msg.micGain);
             if (msg.monitor !== undefined) { monitorEnabled = msg.monitor; if (currentPanel === 'func') renderFuncOverlay(); }
             if (msg.monitorGain !== undefined) { monitorLevel = msg.monitorGain; updateSlider('monitorLevel', msg.monitorGain); if (currentPanel === 'func') renderFuncOverlay(); }
@@ -3866,6 +3908,7 @@ function handleMessage(msg) {
             if (msg.rfGain !== undefined) updateSlider('rfGain', msg.rfGain);
             if (msg.rfPower !== undefined) updateSlider('rfPower', msg.rfPower);
             if (msg.squelch !== undefined) updateSlider('squelch', msg.squelch);
+            if (msg.agc !== undefined) updateAgc(msg.agc);
             if (msg.micGain !== undefined) updateSlider('micGain', msg.micGain);
             if (msg.monitor !== undefined) { monitorEnabled = msg.monitor; if (currentPanel === 'func') renderFuncOverlay(); }
             if (msg.monitorGain !== undefined) { monitorLevel = msg.monitorGain; updateSlider('monitorLevel', msg.monitorGain); if (currentPanel === 'func') renderFuncOverlay(); }
@@ -4387,6 +4430,8 @@ function renderFilterModal() {
     // Nothing below the FIL row on FM-family modes, or on rigs without PBT.
     document.getElementById('filterAdjustControls').classList.toggle('hidden',
         filterModeType === 'fm' || !hasFilterSettings);
+    // A Flex filter has no SHARP / SOFT shape.
+    document.getElementById('filterShapeRow').hidden = isFlexRig;
     showFilterWidth(currentFilterWidth);
     showPBT('pbtInner', currentPBTInner);
     showPBT('pbtOuter', currentPBTOuter);
@@ -4594,6 +4639,83 @@ function updateRfGainIndicator(val) {
     }
     el.textContent = 'RFG ' + pct + '%';
     el.style.display = '';
+}
+
+// The AetherSDR sidebar's values for the recorder's video column (recorder.js
+// drawSidebar). Only with the AetherSDR look; CLASSIC keeps the full-width video.
+function recorderSidebar() {
+    if (aeClassic) return null;
+    var t = function (id) { var e = document.getElementById(id); return e ? e.textContent.trim() : ''; };
+    var onoff = function (v) { return v ? 'ON' : 'OFF'; };
+    var out = [];
+    var rx = [['AF', t('afGainVal')], [isFlexRig ? 'AGC-T' : 'RF', t('rfGainVal')], ['SQL', t('squelchVal')],
+              ['FILTER', filterFuncState()],
+              ['NB/NR/ANF', [nbOn ? 'NB' : '', nrOn ? 'NR' : '', anfOn ? 'ANF' : ''].filter(Boolean).join(' ') || 'OFF'],
+              ['P.AMP/ATT', getPreampAttState().label]];
+    if (currentAgc !== null) rx.push(['AGC', agcLabel(currentAgc)]);
+    if (flexDsp && flexDsp.rxAnt) rx.push(['ANT', flexDsp.rxAnt + (flexDsp.txAnt && flexDsp.txAnt !== flexDsp.rxAnt ? ' / TX ' + flexDsp.txAnt : '')]);
+    out.push({ title: 'RX', rows: rx });
+    var tx = [['PWR', t('rfPowerVal')], ['MIC', t('micGainVal')]];
+    if (micEnabled) {
+        var db = micVuPeakDb > -60 ? Math.round(micVuPeakDb) : -60;
+        tx.push(['LVL', db + ' dB', (db + 60) / 60, db > -3 ? 'hot' : db > -12 ? 'warn' : '']);
+    }
+    if (flexDsp) {
+        tx.push(['PROC', flexDsp.proc ? ['NOR', 'DX', 'DX+'][flexDsp.procLevel] || 'ON' : 'OFF']);
+        tx.push(['TX FILTER', flexDsp.txLo + '-' + flexDsp.txHi]);
+        if (flexDsp.tune) tx.push(['TUNE', 'CARRIER', null, 'hot']);
+    }
+    if (hasTuner) tx.push(['ATU', tunerState === 2 ? 'TUNING' : onoff(tunerState)]);
+    out.push({ title: 'TX', rows: tx });
+    if (ampState && ampState.connected) {
+        var a = [['STATE', ampState.operate ? 'OPERATE' : 'STANDBY'],
+                 ['FWD', (ampState.fwd !== undefined ? ampState.fwd : '-') + ' W'],
+                 ['SWR', ampState.swr ? Number(ampState.swr).toFixed(2) : '-', null, ampState.swr > 2 ? 'hot' : ampState.swr > 1.5 ? 'warn' : ''],
+                 ['TEMP', ampState.temp !== undefined ? Math.round(ampState.temp) + ' C' : '-'],
+                 ['BAND', ampState.band || '-']];
+        if (ampState.tuner) a.push(['TUNER', ampState.tuner + (ampState.tunerL ? ' ' + ampState.tunerL : '') + (ampState.tunerC ? ' ' + ampState.tunerC : '')]);
+        out.push({ title: ampState.device || 'AMP', rows: a });
+    }
+    return out;
+}
+
+// FreeDV Reporter message (server-side; the field saves on Enter or blur).
+function setReporterMessageField(text) {
+    var el = document.getElementById('digiReporterMsg');
+    if (el && document.activeElement !== el) el.value = text || '';
+}
+(function () {
+    var el = document.getElementById('digiReporterMsg');
+    if (!el) return;
+    var last = null;
+    var commit = function () {
+        var v = el.value.replace(/\s+/g, ' ').trim().slice(0, 80);
+        if (v === last) return;
+        last = v;
+        send({ cmd: 'setReporterMessage', message: v });
+    };
+    el.addEventListener('change', commit);
+    el.addEventListener('keydown', function (e) { if (e.key === 'Enter') { commit(); el.blur(); } });
+})();
+
+// AGC (Flex: off / fast / med / slow; Icom: fast / mid / slow, no OFF).
+var currentAgc = null;
+function agcLabel(v) { return v === 1 ? 'FAST' : v === 2 ? (isFlexRig ? 'MED' : 'MID') : v === 3 ? 'SLOW' : v === 0 ? 'OFF' : '--'; }
+function updateAgc(v) {
+    if (v === currentAgc) return;
+    currentAgc = v;
+    if (currentPanel === 'func') renderFuncOverlay();
+    if (document.body.classList.contains('ae-desktop') && typeof renderApplets === 'function') renderApplets();
+}
+function cycleAgc() {
+    // SLOW -> MED -> FAST (-> OFF on a Flex) -> SLOW
+    var order = isFlexRig ? [3, 2, 1, 0] : [3, 2, 1];
+    var i = order.indexOf(currentAgc);
+    var next = order[(i + 1) % order.length];
+    currentAgc = next;
+    send({ cmd: 'setAGC', value: next });
+    if (currentPanel === 'func') renderFuncOverlay();
+    if (document.body.classList.contains('ae-desktop') && typeof renderApplets === 'function') renderApplets();
 }
 
 function updateDspIndicators() {
@@ -5226,6 +5348,29 @@ function renderProcOverlay() {
     }
     grid.appendChild(stepBtn('TX LOW', 'txLo', TX_LO_STEPS));
     grid.appendChild(stepBtn('TX HIGH', 'txHi', TX_HI_STEPS));
+    function toggle(label, key, onTxt, offTxt) {
+        if (flexDsp[key] === undefined) return;
+        grid.appendChild(makeFuncBtn(label, flexDsp[key] ? (onTxt || 'ON') : (offTxt || 'OFF'), !!flexDsp[key], function () {
+            flexDsp[key] = flexDsp[key] ? 0 : 1;
+            sendFlexDsp(key, 0, flexDsp[key], true);
+            renderProcOverlay();
+        }));
+    }
+    if (flexDsp.tune !== undefined)
+        grid.appendChild(makeFuncBtn('TUNE', flexDsp.tune ? 'CARRIER' : 'OFF', !!flexDsp.tune, toggleTuneCarrier));
+    toggle('XIT', 'xitOn');
+    toggle('BREAK-IN', 'breakIn', 'QSK', 'SEMI');
+    if (flexDsp.iambic !== undefined) {
+        grid.appendChild(makeFuncBtn('KEYER', !flexDsp.iambic ? 'STRAIGHT' : (flexDsp.iambicMode ? 'IAMBIC B' : 'IAMBIC A'),
+            !!flexDsp.iambic, function () {
+                // IAMBIC A -> IAMBIC B -> STRAIGHT -> IAMBIC A
+                if (flexDsp.iambic && !flexDsp.iambicMode) { flexDsp.iambicMode = 1; sendFlexDsp('iambicMode', 0, 1, true); }
+                else if (flexDsp.iambic) { flexDsp.iambic = 0; sendFlexDsp('iambic', 0, 0, true); }
+                else { flexDsp.iambic = 1; flexDsp.iambicMode = 0; sendFlexDsp('iambic', 0, 1, true); sendFlexDsp('iambicMode', 0, 0, true); }
+                renderProcOverlay();
+            }));
+    }
+    toggle('SIDETONE', 'sidetone');
     grid.appendChild(dspBackButton());
     wrap.appendChild(grid);
 
@@ -5245,12 +5390,249 @@ function renderProcOverlay() {
     }
     row('MIC LEVEL', 'micLevel', 0, 100, true);
     row('DEXP LEVEL', 'dexpLevel', 0, 100, !!flexDsp.dexp);
+    function opt(label, key, min, max, enabled) { if (flexDsp[key] !== undefined) row(label, key, min, max, enabled); }
+    opt('TUNE PWR', 'tunePower', 0, 100, true);
+    opt('MAX PWR', 'maxPower', 0, 100, true);
+    opt('AM CARRIER', 'amCarrier', 0, 100, true);
+    opt('XIT Hz', 'xitFreq', -2000, 2000, !!flexDsp.xitOn);
+    opt('CW MON', 'monGainCw', 0, 100, true);
+    opt('BK DELAY ms', 'breakInDelay', 0, 1000, true);
     var note = document.createElement('div');
     note.className = 'audio-dev-note';
     note.textContent = 'TX filter ' + flexDsp.txLo + '\u2013' + flexDsp.txHi +
-        ' Hz. TX LOW / TX HIGH step through common edges. These settings are kept in the radio.';
+        ' Hz. TX LOW / TX HIGH step through common edges. TUNE PWR is the TUNE carrier\'s power; MAX PWR caps the PWR slider. These settings are kept in the radio.';
     wrap.appendChild(note);
     body.appendChild(wrap);
+}
+
+// TUNE carrier (Flex): a carrier at TUNE PWR for an amplifier's or a manual
+// tuner; the radio's own ATU stays on the ATU button. Same TX lock as PTT.
+function toggleTuneCarrier() {
+    if (!flexDsp) return;
+    var on = !flexDsp.tune;
+    if (on && txOtherBy) { txBusyRefused(); return; }
+    flexDsp.tune = on ? 1 : 0;
+    sendFlexDsp('tune', 0, flexDsp.tune, true);
+    if (document.getElementById('procOverlay').classList.contains('visible')) renderProcOverlay();
+    if (document.body.classList.contains('ae-desktop')) renderApplets();
+    renderBottomBar();
+}
+
+// RECEIVE DSP (Flex): NB / NR / ANF levels, APF (CW), WNB, tracking notches.
+function renderRxDspOverlay() {
+    var body = document.getElementById('rxDspBody');
+    if (!body || !flexDsp) return;
+    if (body.querySelector('input[data-dragging="1"]')) return;
+    body.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'flex-dsp';
+    var grid = document.createElement('div');
+    grid.className = 'overlay-grid';
+    function toggle(label, key) {
+        if (flexDsp[key] === undefined) return;
+        grid.appendChild(makeFuncBtn(label, flexDsp[key] ? 'ON' : 'OFF', !!flexDsp[key], function () {
+            flexDsp[key] = flexDsp[key] ? 0 : 1;
+            sendFlexDsp(key, 0, flexDsp[key], true);
+            renderRxDspOverlay();
+        }));
+    }
+    toggle('APF', 'apf');
+    toggle('WNB', 'wnb');
+    toggle('TNF', 'tnfEnabled');
+    grid.appendChild(makeFuncBtn('+ NOTCH', 'AT VFO', false, function () { sendFlexDsp('tnfAdd', 0, 0, true); }));
+    if (flexDsp.nnr !== undefined)
+        grid.appendChild(makeFuncBtn('NNR\u2026', flexDsp.nnr ? (flexDsp.nnrModel ? 'PREMIUM' : 'STANDARD') : 'OFF', !!flexDsp.nnr,
+            function () { setPanel('nnr'); }));
+    grid.appendChild(dspBackButton());
+    wrap.appendChild(grid);
+    function row(label, key, min, max, enabled) {
+        if (flexDsp[key] === undefined) return;
+        var r = document.createElement('label');
+        r.className = 'dsp-row';
+        var name = document.createElement('span');
+        name.textContent = label;
+        var input = document.createElement('input');
+        input.type = 'range'; input.min = min; input.max = max; input.step = 1;
+        input.value = flexDsp[key]; input.dataset.key = key; input.disabled = !enabled;
+        var val = document.createElement('b');
+        val.textContent = flexDsp[key];
+        dspSlider(input, function (v, final) { val.textContent = v; flexDsp[key] = v; sendFlexDsp(key, 0, v, final); });
+        r.appendChild(name); r.appendChild(input); r.appendChild(val);
+        wrap.appendChild(r);
+    }
+    row('NB LEVEL', 'nbLevel', 0, 100, !!nbOn);
+    row('NR LEVEL', 'nrLevel', 0, 100, !!nrOn);
+    row('ANF LEVEL', 'anfLevel', 0, 100, !!anfOn);
+    row('APF LEVEL', 'apfLevel', 0, 100, !!flexDsp.apf);
+    row('WNB LEVEL', 'wnbLevel', 0, 100, !!flexDsp.wnb);
+    // Tracking notches: frequency, width, depth, kept across restarts, remove.
+    (flexDsp.tnfs || []).slice().sort(function (a, b) { return a.freq - b.freq; }).forEach(function (t) {
+        var r = document.createElement('div');
+        r.className = 'tnf-row';
+        var f = document.createElement('span');
+        f.className = 'tnf-freq';
+        f.textContent = (t.freq / 1e6).toFixed(4) + ' MHz';
+        r.appendChild(f);
+        var w = document.createElement('button');
+        w.className = 'dup-btn'; w.textContent = (t.width || 100) + ' Hz';
+        w.title = 'Width: tap to step 50 / 100 / 200 / 500 Hz';
+        w.onclick = function () {
+            var steps = [50, 100, 200, 500], cur = t.width || 100, n = steps[0];
+            for (var i = 0; i < steps.length; i++) if (steps[i] > cur) { n = steps[i]; break; }
+            sendFlexDsp('tnfWidth', t.id, n, true); t.width = n; w.textContent = n + ' Hz';
+        };
+        r.appendChild(w);
+        var d = document.createElement('button');
+        d.className = 'dup-btn'; d.textContent = 'DEPTH ' + (t.depth || 1);
+        d.onclick = function () {
+            var n = ((t.depth || 1) % 3) + 1;
+            sendFlexDsp('tnfDepth', t.id, n, true); t.depth = n; d.textContent = 'DEPTH ' + n;
+        };
+        r.appendChild(d);
+        var p = document.createElement('button');
+        p.className = 'dup-btn' + (t.permanent ? ' active' : ''); p.textContent = 'KEEP';
+        p.title = 'Keep this notch in the radio after a restart';
+        p.onclick = function () {
+            t.permanent = !t.permanent;
+            sendFlexDsp('tnfPermanent', t.id, t.permanent ? 1 : 0, true);
+            p.classList.toggle('active', !!t.permanent);
+        };
+        r.appendChild(p);
+        var x = document.createElement('button');
+        x.className = 'dup-btn'; x.textContent = '\u2715'; x.title = 'Remove';
+        x.onclick = function () { sendFlexDsp('tnfRemove', t.id, 0, true); r.remove(); };
+        r.appendChild(x);
+        wrap.appendChild(r);
+    });
+    var note = document.createElement('div');
+    note.className = 'audio-dev-note';
+    note.textContent = 'Levels apply while NB / NR / ANF are on. APF peaks the CW note. WNB is the panadapter\'s wideband blanker. '
+        + '+ NOTCH puts a tracking notch on the VFO frequency; TNF turns all notches on or off.';
+    wrap.appendChild(note);
+    body.appendChild(wrap);
+}
+
+// NEURAL NR (Flex, server-side WDSP NNR as in AetherSDR's AetherRX > NNR).
+// Values are fixed-point on the wire: alpha x100, knee x10, tau x100, max gain x10.
+var NNR_ADV = [
+    { key: 'nnrAlpha',   label: 'ALPHA',    min: 0,  max: 400,  def: 100, fmt: function (v) { return (v / 100).toFixed(2); } },
+    { key: 'nnrKnee',    label: 'KNEE dB',  min: 0,  max: 400,  def: 100, fmt: function (v) { return (v / 10).toFixed(1); } },
+    { key: 'nnrTau',     label: 'TAU s',    min: 5,  max: 3000, def: 200, fmt: function (v) { return (v / 100).toFixed(2); } },
+    { key: 'nnrMaxGain', label: 'MAX GAIN', min: 0,  max: 240,  def: 120, fmt: function (v) { return (v / 10).toFixed(1); } },
+    { key: 'nnrAttack',  label: 'ATTACK ms', min: 0, max: 500,  def: 0,   fmt: String },
+    { key: 'nnrRelease', label: 'RELEASE ms', min: 0, max: 500, def: 0,   fmt: String }
+];
+var nnrGainHist = [];
+function toggleNnr() {
+    if (!flexDsp) return;
+    flexDsp.nnr = flexDsp.nnr ? 0 : 1;
+    sendFlexDsp('nnr', 0, flexDsp.nnr, true);
+    if (document.body.classList.contains('ae-desktop')) renderApplets();
+    if (document.getElementById('nnrOverlay').classList.contains('visible')) renderNnrOverlay();
+}
+function onNnrGain(msg) {
+    nnrGainHist.push(msg.active ? msg.gain : null);
+    if (nnrGainHist.length > 150) nnrGainHist.shift();
+    drawNnrGain();
+}
+function drawNnrGain() {
+    var c = document.getElementById('nnrGainCanvas');
+    if (!c || !c.clientWidth) return;
+    var dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+    if (c.width !== Math.round(w * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+    var g = c.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    g.strokeStyle = 'rgba(255,255,255,0.12)';
+    g.beginPath(); g.moveTo(0, 2); g.lineTo(w, 2); g.stroke();
+    g.strokeStyle = '#2ecc55'; g.lineWidth = 1.5; g.beginPath();
+    var started = false;
+    for (var i = 0; i < nnrGainHist.length; i++) {
+        var v = nnrGainHist[i];
+        var x = w - (nnrGainHist.length - 1 - i) * (w / 149);
+        if (v === null) { started = false; continue; }
+        var y = 2 + (1 - v) * (h - 4);
+        if (!started) { g.moveTo(x, y); started = true; } else g.lineTo(x, y);
+    }
+    g.stroke();
+}
+function renderNnrOverlay() {
+    var body = document.getElementById('nnrBody');
+    if (!body || !flexDsp || flexDsp.nnr === undefined) return;
+    if (body.querySelector('input[data-dragging="1"]')) return;
+    body.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'flex-dsp';
+    var grid = document.createElement('div');
+    grid.className = 'overlay-grid';
+    grid.appendChild(makeFuncBtn('NNR', flexDsp.nnr ? 'ON' : 'OFF', !!flexDsp.nnr, toggleNnr));
+    ['STANDARD', 'PREMIUM'].forEach(function (name, m) {
+        grid.appendChild(makeFuncBtn(name, 'MODEL', flexDsp.nnrModel === m, function () {
+            flexDsp.nnrModel = m; sendFlexDsp('nnrModel', 0, m, true); renderNnrOverlay();
+        }));
+    });
+    grid.appendChild(makeFuncBtn('\u21BA', 'DEFAULTS', false, function () { sendFlexDsp('nnrReset', 0, 1, true); }));
+    grid.appendChild(dspBackButton());
+    wrap.appendChild(grid);
+
+    var note = document.createElement('div');
+    note.className = 'audio-dev-note';
+    note.textContent = 'Neural noise reduction trained on off-air HF noise (WDSP NNR, as in AetherSDR). Voice modes only: '
+        + 'it treats a steady carrier as noise and removes it. Runs on the server for everyone listening; Premium uses more of the server\'s CPU.';
+    wrap.appendChild(note);
+
+    function row(label, key, min, max, fmt) {
+        var r = document.createElement('label');
+        r.className = 'dsp-row';
+        var name = document.createElement('span');
+        name.textContent = label;
+        var input = document.createElement('input');
+        input.type = 'range'; input.min = min; input.max = max; input.step = 1;
+        input.value = flexDsp[key]; input.dataset.key = key;
+        var val = document.createElement('b');
+        val.textContent = fmt(flexDsp[key]);
+        dspSlider(input, function (v, final) { val.textContent = fmt(v); flexDsp[key] = v; sendFlexDsp(key, 0, v, final); });
+        r.appendChild(name); r.appendChild(input); r.appendChild(val);
+        wrap.appendChild(r);
+    }
+    row('STRENGTH', 'nnrStrength', 0, 100, String);
+    var adv = document.createElement('div');
+    adv.className = 'nnr-adv-title';
+    adv.textContent = 'ADVANCED \u2014 WDSP LEAVES THESE UNDOCUMENTED';
+    wrap.appendChild(adv);
+    NNR_ADV.forEach(function (a) { row(a.label, a.key, a.min, a.max, a.fmt); });
+
+    var st = document.createElement('div');
+    st.className = 'nnr-status';
+    var dot = document.createElement('i');
+    dot.className = 'nnr-dot' + (flexDsp.nnr && flexDsp.nnrActive ? ' on' : flexDsp.nnr ? ' wait' : '');
+    st.appendChild(dot);
+    var m = document.createElement('span');
+    m.innerHTML = '<span class="nnr-k">METHOD</span> <b>' + (flexDsp.nnr
+        ? 'NNR \u00b7 ' + (flexDsp.nnrModelInUse ? 'Premium' : 'Standard') + ' \u00b7 floor ' + flexDsp.nnrStrength
+          + (flexDsp.nnrActive ? (flexDsp.nnrDelayMs ? ' \u00b7 ' + flexDsp.nnrDelayMs + ' ms' : '') : ' \u00b7 waits for a voice mode')
+        : 'off') + '</b>';
+    st.appendChild(m);
+    var gk = document.createElement('span');
+    gk.className = 'nnr-k'; gk.textContent = 'NR GAIN';
+    st.appendChild(gk);
+    var cv = document.createElement('canvas');
+    cv.id = 'nnrGainCanvas';
+    st.appendChild(cv);
+    wrap.appendChild(st);
+    body.appendChild(wrap);
+    drawNnrGain();
+}
+
+// Flex band keys: the radio's own band memory (frequency, mode, filter,
+// antennas per band, shared with SmartSDR), as SmartSDR's band buttons do.
+var FLEX_BAND_KEYS = { '1.8': 160, '160m': 160, '3.5': 80, '80m': 80, '5': 60, '60m': 60, '7': 40, '40m': 40,
+    '10': 30, '30m': 30, '14': 20, '20m': 20, '18': 17, '17m': 17, '21': 15, '15m': 15, '24': 12, '12m': 12,
+    '28': 10, '10m': 10, '50': 6, '6m': 6 };
+function flexBandKey(lbl) {
+    if (!isFlexRig || !flexDsp) return 0;
+    var k = String(lbl || '').trim();
+    return FLEX_BAND_KEYS[k] || FLEX_BAND_KEYS[k.replace(/m$/i, '') ] || FLEX_BAND_KEYS[k.toLowerCase()] || 0;
 }
 
 var isFlexRig = false;
@@ -5612,6 +5994,8 @@ function setPanel(name) {
     else if (name === 'flexant') { renderFlexAntOverlay(); document.getElementById('flexAntOverlay').classList.add('visible'); }
     else if (name === 'eq') { renderEqOverlay(); document.getElementById('eqOverlay').classList.add('visible'); }
     else if (name === 'proc') { renderProcOverlay(); document.getElementById('procOverlay').classList.add('visible'); }
+    else if (name === 'rxdsp') { renderRxDspOverlay(); document.getElementById('rxDspOverlay').classList.add('visible'); }
+    else if (name === 'nnr') { renderNnrOverlay(); document.getElementById('nnrOverlay').classList.add('visible'); }
     else if (name === 'amp') { renderAmpOverlay(); document.getElementById('ampOverlay').classList.add('visible'); }
     else if (name === 'flexmem') {
         var mb = document.getElementById('flexMemOvBody'); mb.innerHTML = '';
@@ -5988,10 +6372,16 @@ function renderApplets() {
     fil.appendChild(aeBtn(hasFilterSettings && currentFilterWidth > 0 ? formatBW(currentFilterWidth) : 'WIDTH', false,
         function() { if (typeof openFilterModal === 'function') openFilterModal(); else setPanel('func'); }));
     rx.appendChild(fil);
-    var dsp = document.createElement('div'); dsp.className = 'ae-grid ae-grid-3';
+    var hasNnr = !!(flexDsp && flexDsp.nnr !== undefined);
+    var dsp = document.createElement('div'); dsp.className = 'ae-grid ' + (hasNnr ? 'ae-grid-4' : 'ae-grid-3');
     dsp.appendChild(aeBtn('NB', nbOn, function() { send({ cmd: 'setNoiseBlanker', value: !nbOn }); }, 'ae-toggle'));
     dsp.appendChild(aeBtn('NR', nrOn, function() { send({ cmd: 'setNoiseReduction', value: !nrOn }); }, 'ae-toggle'));
     dsp.appendChild(aeBtn('ANF', anfOn, function() { send({ cmd: 'setAutoNotch', value: !anfOn }); }, 'ae-toggle'));
+    if (hasNnr) {
+        var nb = aeBtn('NNR', !!flexDsp.nnr, toggleNnr, 'ae-toggle' + (flexDsp.nnr && !flexDsp.nnrActive ? ' ae-dim' : ''));
+        nb.title = flexDsp.nnr && !flexDsp.nnrActive ? 'Neural NR: waits for a voice mode' : 'Neural noise reduction (DSP\u2026 > NNR for its settings)';
+        dsp.appendChild(nb);
+    }
     rx.appendChild(dsp);
     var fe = document.createElement('div'); fe.className = 'ae-grid ae-grid-2';
     var pa = getPreampAttState();
@@ -6002,6 +6392,12 @@ function renderApplets() {
         fe.appendChild(aeBtn('ANT ' + antennaName(currentAntenna), false, cycleAntenna));
     }
     rx.appendChild(fe);
+    // AGC, and on a Flex the receive DSP panel (levels, APF, WNB, TNF)
+    var rx2 = document.createElement('div'); rx2.className = 'ae-grid ae-grid-2';
+    if (currentAgc !== null) rx2.appendChild(aeBtn('AGC ' + agcLabel(currentAgc), currentAgc !== 0, cycleAgc));
+    if (flexDsp && typeof renderRxDspOverlay === 'function')
+        rx2.appendChild(aeBtn('DSP\u2026', false, function() { setPanel('rxdsp'); }));
+    if (rx2.children.length) rx.appendChild(rx2);
     // TX: speech processor (Flex), tuner, audio
     if (flexDsp) {
         var pr = document.createElement('div'); pr.className = 'ae-grid ae-grid-4';
@@ -6011,11 +6407,32 @@ function renderApplets() {
         });
         tx.appendChild(pr);
     }
-    var tk = document.createElement('div'); tk.className = 'ae-grid ae-grid-3';
+    var tuneCarrier = !!(flexDsp && flexDsp.tune !== undefined);
+    var tk = document.createElement('div'); tk.className = 'ae-grid ' + (tuneCarrier ? 'ae-grid-4' : 'ae-grid-3');
+    if (tuneCarrier) tk.appendChild(aeBtn('TUNE', !!flexDsp.tune, toggleTuneCarrier, flexDsp.tune ? 'ae-tuning' : ''));
     if (hasTuner) tk.appendChild(aeBtn(tunerState === 2 ? 'TUNING' : 'ATU ' + (tunerState ? 'ON' : 'OFF'), tunerState > 0, handleTunerPress));
     tk.appendChild(aeBtn('AUDIO', false, function() { setPanel('audiomiс'); }));
     if (flexDsp) tk.appendChild(aeBtn('PROC…', false, function() { setPanel('proc'); }));
     tx.appendChild(tk);
+    // AM carrier level, in AM / SAM.
+    if (flexDsp && flexDsp.amCarrier !== undefined && /^(AM|SAM)$/.test(currentMode || '')) {
+        var am = document.createElement('div'); am.className = 'ae-txbw';
+        var aml = document.createElement('span'); aml.textContent = 'AM CARRIER';
+        am.appendChild(aml);
+        var amg = document.createElement('span'); amg.className = 'ae-txbw-step';
+        var amv = document.createElement('b'); amv.textContent = flexDsp.amCarrier + '%';
+        var amStep = function (d) {
+            var v = Math.max(0, Math.min(100, flexDsp.amCarrier + d));
+            if (v === flexDsp.amCarrier) return;
+            flexDsp.amCarrier = v; amv.textContent = v + '%';
+            sendFlexDsp('amCarrier', 0, v, true);
+        };
+        amg.appendChild(aeBtn('\u25C0', false, function () { amStep(-5); }));
+        amg.appendChild(amv);
+        amg.appendChild(aeBtn('\u25B6', false, function () { amStep(5); }));
+        am.appendChild(amg);
+        tx.appendChild(am);
+    }
     // TX bandwidth (SmartSDR's Phone applet Low Cut / High Cut), 50 Hz steps.
     if (flexDsp && flexDsp.txLo !== undefined) {
         var bw = document.createElement('div'); bw.className = 'ae-txbw';
@@ -6159,7 +6576,10 @@ function aeDesktopButtons(isCW) {
     });
     out.push({ spacer: true, grow: true });
     out.push({ label: 'FT8', cls: 'ae-wide', active: digiBarVisible, action: function() { toggleDigiBar(); } });
-    if (hasTuner) out.push({ label: 'TUNE', cls: 'ae-wide', active: tunerState === 2, action: handleTunerPress });
+    // A Flex: TUNE is the tune carrier (as in SmartSDR); the ATU is in the TX applet.
+    if (flexDsp && flexDsp.tune !== undefined)
+        out.push({ label: 'TUNE', cls: 'ae-wide' + (flexDsp.tune ? ' ae-tuning' : ''), active: !!flexDsp.tune, action: toggleTuneCarrier });
+    else if (hasTuner) out.push({ label: 'TUNE', cls: 'ae-wide', active: tunerState === 2, action: handleTunerPress });
     out.push({ label: 'FUNC', cls: 'ae-wide', active: currentPanel === 'func', action: function() { setPanel(currentPanel === 'func' ? 'default' : 'func'); } });
     out.push({ label: isCW ? 'KEY' : 'MOX', txActive: isTransmitting, cls: (isCW ? 'key-btn' : 'ptt-btn') + ' ae-mox',
                disabled: currentPanel !== 'default', action: currentPanel !== 'default' ? null : (isCW ? toggleCWBar : function() { handlePTTPress(); }) });
@@ -6279,6 +6699,8 @@ function populateBands(bands) {
 
 // A band key, from the BAND overlay or the desktop band bar.
 function pressBand(f, lbl, bsr) {
+    var fbk = flexBandKey(lbl);
+    if (fbk) { sendFlexDsp('band', 0, fbk, true); return; }
     if (bsr) {
         // The rig's BAND key: recall the band's last-used stacking register
         // (freq + mode + filter); pressing the band you are already on steps
@@ -6399,6 +6821,9 @@ function renderFuncOverlay() {
         }
     }
 
+    if (currentAgc !== null)
+        grid.appendChild(makeFuncBtn('AGC', agcLabel(currentAgc), currentAgc !== 0, cycleAgc));
+
     // ANF
     grid.appendChild(makeFuncBtn('NOTCH', anfOn ? 'ON' : 'OFF', anfOn, function() {
         send({ cmd: 'setAutoNotch', value: !anfOn });
@@ -6436,6 +6861,11 @@ function renderFuncOverlay() {
             (flexDsp.txEq.on ? 'TX' : '') || 'OFF', eqOn, function() { setPanel('eq'); }));
         grid.appendChild(makeFuncBtn('PROC', flexDsp.proc ? ['NOR', 'DX', 'DX+'][flexDsp.procLevel] || 'ON' : 'OFF',
             !!flexDsp.proc, function() { setPanel('proc'); }));
+        if (flexDsp.nnr !== undefined)
+            grid.appendChild(makeFuncBtn('NNR', flexDsp.nnr ? (flexDsp.nnrModel ? 'PREMIUM' : 'STANDARD') : 'OFF', !!flexDsp.nnr,
+                function() { setPanel('nnr'); }));
+        grid.appendChild(makeFuncBtn('RX DSP', (flexDsp.tnfs && flexDsp.tnfs.length ? flexDsp.tnfs.length + ' TNF' : 'LEVELS'),
+            !!(flexDsp.apf || flexDsp.wnb), function() { setPanel('rxdsp'); }));
     }
 
     // FIL opens the FILTER window (FIL1/2/3, width, twin PBT, shape) the way
@@ -8324,7 +8754,7 @@ function togglePower() {
             if (powerOnNeedsRemoteJack) {
                 note.textContent = 'The ' + (rigModelName || 'radio') + ' only accepts the power-on '
                     + 'command on its [REMOTE] jack, and its USB port goes dead in standby. '
-                    + 'Unless wfweb is wired to [REMOTE], you will not be able to switch the radio '
+                    + 'Unless FlexWeb is wired to [REMOTE], you will not be able to switch the radio '
                     + 'back on from here \u2014 you will have to press POWER on the radio itself.';
                 note.classList.add('visible');
             } else {
@@ -9282,7 +9712,7 @@ function spectCountsPerDb() { return spectAmpMax / SPECT_DB_SPAN; }
 // SmartSDR-style rainbow and the rest), picked under SPAN > Colour and kept
 // in localStorage wfPalette.
 var WF_PALETTES = {
-    wfweb:     { name: 'WFWEB',  stops: [[0.00, [1, 3, 18]], [0.20, [8, 18, 76]], [0.50, [28, 84, 216]], [0.72, [63, 184, 232]], [0.88, [150, 214, 240]], [1.00, [242, 250, 255]]] },
+    wfweb:     { name: 'FLEXWEB',  stops: [[0.00, [1, 3, 18]], [0.20, [8, 18, 76]], [0.50, [28, 84, 216]], [0.72, [63, 184, 232]], [0.88, [150, 214, 240]], [1.00, [242, 250, 255]]] },
     rainbow:   { name: 'RAINBOW', stops: [[0.00, [0, 0, 0]], [0.15, [0, 0, 128]], [0.30, [0, 64, 255]], [0.45, [0, 200, 255]], [0.60, [0, 220, 0]], [0.80, [255, 255, 0]], [1.00, [255, 0, 0]]] },
     purple:    { name: 'PURPLE', stops: [[0.00, [0, 0, 0]], [0.15, [0, 0, 255]], [0.30, [0, 255, 0]], [0.45, [255, 255, 0]], [0.60, [255, 0, 0]], [0.75, [128, 0, 128]], [1.00, [255, 255, 255]]] },
     bluegreen: { name: 'BLUE-GRN', stops: [[0.00, [0, 0, 0]], [0.25, [0, 30, 120]], [0.50, [0, 100, 180]], [0.75, [0, 200, 130]], [1.00, [220, 255, 220]]] },
@@ -14034,7 +14464,7 @@ function saveAdifFile(text, suffix) {
     var myCall = ((document.getElementById('digiMyCall') || {}).value || '').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'LOG';
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type: 'application/x-adif' }));
-    a.download = 'wfweb_' + myCall + '_' + ts + suffix + '.adi';
+    a.download = 'FlexWeb_' + myCall + '_' + ts + suffix + '.adi';
     a.click();
     URL.revokeObjectURL(a.href);
 }
@@ -14508,7 +14938,7 @@ function initDigiHandlers() {
 // ============================================================
 // INIT
 // ============================================================
-console.log('=== WFWEB starting (server version available after rigInfo) ===');
+console.log('=== FlexWeb starting (server version available after rigInfo) ===');
 
 setMobileViewportHeight();
 buildColorTable();
@@ -14544,7 +14974,8 @@ Recorder.init({
             tx: isTransmitting,
             meterNeedle: needleActive(),
             rig: rigTagName || rigModelName,
-            call: getMyCall()
+            call: getMyCall(),
+            side: recorderSidebar()
         };
     },
     getCanvases: function() {

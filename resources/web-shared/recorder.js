@@ -21,7 +21,8 @@ var DEFAULT_RATE = 48000;
 var MIC_RATE = 48000;            // micAudioCtx is fixed at 48 kHz in both builds
 var MP3_KBPS = 64;
 var VIDEO = { w: 1280, h: 720, fps: 15, bps: 2000000 };
-var HEADER_H = 132;              // status header height inside the video frame
+var HEADER_H = 132;
+var SIDE_W = 270;                 // sidebar column when the page supplies one (st.side)              // status header height inside the video frame
 var METER_MAX_W = 600;           // widest the copied meter may be drawn
 // Shown in every video frame; a page can name itself (FlexWeb does).
 var CREDIT = (typeof window !== 'undefined' && window.wfRecorderCredit) || { name: 'wfweb', url: 'wfweb.k1fm.us' };
@@ -1146,7 +1147,20 @@ function drawFrame(r) {
 
     // Body. The FT8, JS8 and packet panels replace the scope, as they do on
     // the page; CW and FreeDV add a panel under it; otherwise the scope fills
-    // the frame. The page keeps these modes mutually exclusive.
+    // the frame. The page keeps these modes mutually exclusive. With a
+    // sidebar (st.side: the page's RX / TX / amplifier values) the body is
+    // drawn narrower and the sidebar takes the right-hand column.
+    var side = (st.side && st.side.length) ? SIDE_W : 0;
+    VIDEO.w = W - side;
+    try {
+        drawBody(r, g, cv, st, H);
+    } finally {
+        VIDEO.w = W;
+    }
+    if (side) drawSidebar(r, st.side, W - side, HEADER_H, side, H - HEADER_H);
+}
+
+function drawBody(r, g, cv, st, H) {
     var view;
     if ((view = ft8View())) return drawFt8Body(r, view);
     if ((view = js8View())) return drawJs8Body(r, view);
@@ -1158,6 +1172,57 @@ function drawFrame(r) {
     else if (fdv) drawFreedvPanel(r, fdv, H - panelH, st);
 }
 
+// The page's sidebar in the video: sections of label / value rows. A row
+// [label, value, fraction] also draws a bar (0..1, e.g. the mic level);
+// colour 'warn' / 'hot' tints the value.
+function drawSidebar(r, sections, x, y, w, h) {
+    var g = r.g, T = r.theme;
+    g.fillStyle = T.bar; g.fillRect(x, y, w, h);
+    g.fillStyle = 'rgba(255,255,255,0.08)'; g.fillRect(x, y, 1, h);
+    var cy = y + 8, pad = 12;
+    g.textBaseline = 'middle';
+    for (var i = 0; i < sections.length && cy < y + h - 20; i++) {
+        var sec = sections[i];
+        g.textAlign = 'left';
+        g.font = 'bold 13px ' + T.mono;
+        g.fillStyle = T.dim;
+        g.fillText(sec.title || '', x + pad, cy + 9);
+        cy += 22;
+        var rows = sec.rows || [];
+        for (var j = 0; j < rows.length && cy < y + h - 12; j++) {
+            var row = rows[j];
+            g.textAlign = 'left';
+            g.font = '13px ' + T.mono;
+            g.fillStyle = T.dim;
+            g.fillText(row[0], x + pad, cy + 8);
+            var hasBar = typeof row[2] === 'number';
+            if (hasBar) {
+                var bx = x + 84, bw = w - 84 - 58, f = Math.max(0, Math.min(1, row[2]));
+                g.fillStyle = 'rgba(255,255,255,0.08)'; g.fillRect(bx, cy + 4, bw, 8);
+                g.fillStyle = row[3] === 'hot' ? '#e53935' : row[3] === 'warn' ? '#f5b400' : '#2ecc55';
+                g.fillRect(bx, cy + 4, Math.round(bw * f), 8);
+            }
+            g.textAlign = 'right';
+            g.font = 'bold 13px ' + T.mono;
+            g.fillStyle = row[3] === 'hot' ? '#ff6b6b' : row[3] === 'warn' ? '#ffcc33' : T.text;
+            g.fillText(String(row[1] === undefined || row[1] === null ? '' : row[1]), x + w - pad, cy + 8);
+            cy += 18;
+        }
+        cy += 8;
+    }
+}
+
+function videoTheme() {
+    return {
+        bg: '#05070c',                       // the scope's own background
+        bar: cssVar('--bg-bar', '#111'),
+        text: cssVar('--text', '#e0e0e0'),
+        dim: cssVar('--text-dim', '#aaa'),
+        warn: cssVar('--state-warn', '#ee0'),
+        mono: cssVar('--font-mono', 'monospace')
+    };
+}
+
 function startVideo(r) {
     var type = videoType();
     if (!type) return Promise.reject(new Error('This browser cannot record video'));
@@ -1166,14 +1231,7 @@ function startVideo(r) {
         var c = document.createElement('canvas');
         c.width = VIDEO.w; c.height = VIDEO.h;
         r.g = c.getContext('2d');
-        r.theme = {
-            bg: '#05070c',                       // the scope's own background
-            bar: cssVar('--bg-bar', '#111'),
-            text: cssVar('--text', '#e0e0e0'),
-            dim: cssVar('--text-dim', '#aaa'),
-            warn: cssVar('--state-warn', '#ee0'),
-            mono: cssVar('--font-mono', 'monospace')
-        };
+        r.theme = videoTheme();
         r.ext = videoExt(type);
         r.useSprite = digitSprite.complete && digitSprite.naturalWidth > 0;
         drawFrame(r);
@@ -1411,7 +1469,17 @@ global.Recorder = {
     feedTxPcm: feedTxPcm,
     start: start,
     stop: stop,
-    isRecording: function () { return !!rec; }
+    isRecording: function () { return !!rec; },
+    // One video frame into a 1280x720 canvas, as recorded (tests, previews).
+    renderFrame: function (c) {
+        return loadDigits().then(function () {
+            c.width = VIDEO.w; c.height = VIDEO.h;
+            var r = { g: c.getContext('2d'), theme: videoTheme(),
+                      useSprite: digitSprite.complete && digitSprite.naturalWidth > 0 };
+            drawFrame(r);
+            return c;
+        });
+    }
 };
 
 })(window);

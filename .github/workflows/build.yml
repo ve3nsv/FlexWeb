@@ -134,13 +134,13 @@ jobs:
             *) DEV_SUFFIX="-dev-${BRANCH_SAFE}" ;;
           esac
           mv deb-build/wfweb_${VERSION}_${{ matrix.deb_arch }}.deb \
-             wfweb_${VERSION}${DEV_SUFFIX}-ubuntu2404_${{ matrix.deb_arch }}.deb
+             FlexWeb_${VERSION}${DEV_SUFFIX}-ubuntu2404_${{ matrix.deb_arch }}.deb
 
       - name: Upload deb artifact
         uses: actions/upload-artifact@v7
         with:
           name: wfweb-${{ matrix.arch }}-ubuntu2404-deb
-          path: wfweb_*-ubuntu2404_${{ matrix.deb_arch }}.deb
+          path: FlexWeb_*-ubuntu2404_${{ matrix.deb_arch }}.deb
           retention-days: 30
 
   build-linux-debian12:
@@ -270,13 +270,13 @@ jobs:
             *) DEV_SUFFIX="-dev-${BRANCH_SAFE}" ;;
           esac
           mv deb-build/wfweb_${VERSION}_${{ matrix.deb_arch }}.deb \
-             wfweb_${VERSION}${DEV_SUFFIX}-debian12_${{ matrix.deb_arch }}.deb
+             FlexWeb_${VERSION}${DEV_SUFFIX}-debian12_${{ matrix.deb_arch }}.deb
 
       - name: Upload deb artifact
         uses: actions/upload-artifact@v7
         with:
           name: wfweb-${{ matrix.arch }}-debian12-deb
-          path: wfweb_*-debian12_${{ matrix.deb_arch }}.deb
+          path: FlexWeb_*-debian12_${{ matrix.deb_arch }}.deb
           retention-days: 30
 
   build-linux-debian13:
@@ -406,13 +406,13 @@ jobs:
             *) DEV_SUFFIX="-dev-${BRANCH_SAFE}" ;;
           esac
           mv deb-build/wfweb_${VERSION}_${{ matrix.deb_arch }}.deb \
-             wfweb_${VERSION}${DEV_SUFFIX}-debian13_${{ matrix.deb_arch }}.deb
+             FlexWeb_${VERSION}${DEV_SUFFIX}-debian13_${{ matrix.deb_arch }}.deb
 
       - name: Upload deb artifact
         uses: actions/upload-artifact@v7
         with:
           name: wfweb-${{ matrix.arch }}-debian13-deb
-          path: wfweb_*-debian13_${{ matrix.deb_arch }}.deb
+          path: FlexWeb_*-debian13_${{ matrix.deb_arch }}.deb
           retention-days: 30
 
   build-linux-appimage:
@@ -532,7 +532,7 @@ jobs:
 
           export LD_LIBRARY_PATH=$(pwd)/resources/radae_nopy/build/src
           export LDAI_RUNTIME_FILE=$(pwd)/appimage-runtime
-          export LDAI_OUTPUT=wfweb_${VERSION}${DEV_SUFFIX}-${{ matrix.arch }}.AppImage
+          export LDAI_OUTPUT=FlexWeb_${VERSION}${DEV_SUFFIX}-${{ matrix.arch }}.AppImage
           PATH=$(pwd):$PATH ./linuxdeploy-${{ matrix.arch }}.AppImage \
             --appdir AppDir \
             --desktop-file wfweb.desktop \
@@ -568,11 +568,11 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: 1
           WFWEB_NO_AUTOCONNECT: 1
         run: |
-          ./wfweb_*.AppImage --version
+          ./FlexWeb_*.AppImage --version
           # Boot the bundle headless: it must find its own rig files and bring
           # up HTTPS with the bundled Qt and the host's OpenSSL 3.
           # timeout signals the whole process group (runtime + wrapped app) on kill
-          HOME=$(mktemp -d) timeout 60 ./wfweb_*.AppImage -d -p 18080 > smoke.log 2>&1 &
+          HOME=$(mktemp -d) timeout 60 ./FlexWeb_*.AppImage -d -p 18080 > smoke.log 2>&1 &
           PID=$!
           ok=0
           for i in $(seq 1 30); do
@@ -587,7 +587,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: wfweb-${{ matrix.arch }}-appimage
-          path: wfweb_*-${{ matrix.arch }}.AppImage
+          path: FlexWeb_*-${{ matrix.arch }}.AppImage
           retention-days: 30
 
   build-macos:
@@ -641,18 +641,18 @@ jobs:
             refs/tags/v*) DEV_SUFFIX="" ;;
             *) DEV_SUFFIX="-dev-${BRANCH_SAFE}" ;;
           esac
-          mkdir -p wfweb-macos-arm64
-          cp wfweb wfweb-macos-arm64/
-          cp -r rigs wfweb-macos-arm64/
-          cp LICENSE THIRD_PARTY_LICENSES wfweb-macos-arm64/
+          mkdir -p FlexWeb-macos-arm64
+          cp wfweb FlexWeb-macos-arm64/
+          cp -r rigs FlexWeb-macos-arm64/
+          cp LICENSE THIRD_PARTY_LICENSES FlexWeb-macos-arm64/
           # RADE is compiled directly into the binary on macOS (no dylibs needed)
-          zip -r wfweb${DEV_SUFFIX}-macos-arm64.zip wfweb-macos-arm64
+          zip -r FlexWeb${DEV_SUFFIX}-macos-arm64.zip FlexWeb-macos-arm64
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: wfweb-macos-arm64
-          path: wfweb*-macos-arm64.zip
+          path: FlexWeb*-macos-arm64.zip
           retention-days: 30
 
   build-windows:
@@ -859,13 +859,16 @@ jobs:
         run: |
           $branchSafe = "${{ github.ref_name }}" -replace '[^a-zA-Z0-9-]', '-'
           $devSuffix = if ("${{ github.ref }}" -like "refs/tags/v*") { "" } else { "-dev-$branchSafe" }
-          Compress-Archive -Path wfweb-release -DestinationPath "wfweb${devSuffix}-windows-x86_64.zip"
+          # The download and the folder inside it are named FlexWeb; the
+          # programs keep their names (wfweb.exe, wfweb-launcher.exe).
+          Rename-Item wfweb-release FlexWeb
+          Compress-Archive -Path FlexWeb -DestinationPath "FlexWeb${devSuffix}-windows-x86_64.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: wfweb-windows-x86_64
-          path: wfweb*-windows-x86_64.zip
+          path: FlexWeb*-windows-x86_64.zip
           retention-days: 30
 
   release:
@@ -895,7 +898,7 @@ jobs:
             wfweb-arm64-debian13-deb/*.deb
             wfweb-x86_64-appimage/*.AppImage
             wfweb-aarch64-appimage/*.AppImage
-            wfweb-macos-arm64/wfweb*-macos-arm64.zip
-            wfweb-windows-x86_64/wfweb*-windows-x86_64.zip
+            wfweb-macos-arm64/FlexWeb*-macos-arm64.zip
+            wfweb-windows-x86_64/FlexWeb*-windows-x86_64.zip
           generate_release_notes: ${{ startsWith(github.ref, 'refs/tags/v') }}
           overwrite: true
