@@ -423,6 +423,38 @@ def test_opus_to_browser(flex):
         sock.close()
 
 
+def test_preamp_steps(flex):
+    """P.AMP/ATT on a Flex uses the radio's own steps (rfgain_info): the page
+    gets the range, a step lands on the pan, and the REST preamp/attenuator
+    map onto valid values."""
+    radio, rest = flex
+    from test_web_login import _Reader, _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    reader = _Reader(sock, buf)
+    try:
+        got = None
+        for text in reader.frames(6.0):
+            m = json.loads(text)
+            if m.get("type") == "flexDsp" and m.get("rfgStep") == 8 and m.get("rfgLow") == -8:
+                got = m
+                break
+        assert got and got["rfgHigh"] == 32, got
+        _ws_send(sock, {"cmd": "flexDsp", "key": "panRfGain", "index": 0, "value": 16})
+        assert _wait(lambda: radio.pan.get("rfgain") == "16", timeout=5), radio.pan
+        _ws_send(sock, {"cmd": "flexDsp", "key": "panRfGain", "index": 0, "value": 13})   # snaps
+        assert _wait(lambda: radio.pan.get("rfgain") == "16", timeout=2)
+        _ws_send(sock, {"cmd": "setAttenuator", "value": 1})
+        assert _wait(lambda: radio.pan.get("rfgain") == "-8", timeout=5), radio.pan
+        _ws_send(sock, {"cmd": "setPreamp", "value": 1})
+        assert _wait(lambda: radio.pan.get("rfgain") == "8", timeout=5), radio.pan
+        _ws_send(sock, {"cmd": "setPreamp", "value": 0})
+        assert _wait(lambda: radio.pan.get("rfgain") == "0", timeout=5), radio.pan
+    finally:
+        sock.close()
+
+
 def test_vfo_b_and_split(flex):
     """VFO B is a second (muted) slice; selecting it points tuning at it,
     SPLIT makes it the TX slice, A=B and swap work on the two slices."""

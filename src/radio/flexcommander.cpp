@@ -804,9 +804,36 @@ void flexCommander::adoptOrCreateSlice()
     });
 }
 
+int flexCommander::snapRfGain(int dB) const
+{
+    const int step = rfgStep > 0 ? rfgStep : 1;
+    const int v = qBound(rfgLow, dB, rfgHigh);
+    return rfgLow + int(std::lround(double(v - rfgLow) / step)) * step;
+}
+
+void flexCommander::setPanRfGain(int dB)
+{
+    panRfGain = snapRfGain(dB);
+    if (!panId.isEmpty())
+        sendCmd(QString("display pan set %1 rfgain=%2").arg(panId).arg(panRfGain));
+    reportCurrent(funcPreamp);
+    reportCurrent(funcAttenuator);
+    publishDsp();
+}
+
 void flexCommander::adoptPan(const QString& id)
 {
     panId = id;
+    // The preamp steps differ by model: ask the radio for this pan's range.
+    sendCmd(QString("display pan rfgain_info %1").arg(id), [this](quint32 code, const QString& body) {
+        const QStringList v = body.split(',');
+        if (code != 0 || v.size() < 3) return;
+        const int lo = v[0].trimmed().toInt(), hi = v[1].trimmed().toInt(), st = v[2].trimmed().toInt();
+        if (st <= 0 || hi <= lo) return;
+        rfgLow = lo; rfgHigh = hi; rfgStep = st;
+        qInfo(logRig()) << "Flex: preamp range" << lo << "to" << hi << "dB, step" << st;
+        publishDsp();
+    });
     panStreamId = panId.mid(2).toUInt(nullptr, 16);
     panConfigured = false;
     fft.reset();
@@ -1101,6 +1128,7 @@ void flexCommander::handlePanStatus(const QString& id, const QMap<QString, QStri
         panRfGain = kvs.value("rfgain").toInt();
         reportCurrent(funcPreamp);
         reportCurrent(funcAttenuator);
+        publishDsp();
     }
     if (kvs.contains("bandwidth"))
         reportCurrent(funcScopeSpan);
@@ -1594,7 +1622,8 @@ bool flexCommander::reportCurrent(funcs func)
     case funcPreamp:
         // Preamp slots 0/1/2/3 = pan rfgain 0/+10/+20/+30 dB (the radio
         // snaps to the nearest step its front end has).
-        report(funcPreamp, QVariant::fromValue<uchar>(uchar(panRfGain > 0 ? qBound(1, (panRfGain + 5) / 10, 3) : 0)));
+        report(funcPreamp, QVariant::fromValue<uchar>(uchar(panRfGain > 0
+            ? qBound(1, int(std::lround(double(panRfGain) / (rfgStep > 0 ? rfgStep : 10))), 3) : 0)));
         return true;
     case funcAttenuator:
         report(funcAttenuator, QVariant::fromValue<uchar>(uchar(panRfGain < 0 ? 1 : 0)));
@@ -1874,18 +1903,14 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         return;
     }
     case funcPreamp:
-        if (!panId.isEmpty())
-            sendCmd(QString("display pan set %1 rfgain=%2").arg(panId).arg(qBound(0, value.toInt(), 3) * 10));
-        panRfGain = qBound(0, value.toInt(), 3) * 10;
-        reportCurrent(funcPreamp);
-        reportCurrent(funcAttenuator);
+        // Preamp 1..3 = the radio's first steps above 0 dB (the top one at
+        // most); the page on a Flex walks every step itself (flexDsp rfg).
+        setPanRfGain(qBound(0, value.toInt(), 3) * rfgStep);
         return;
     case funcAttenuator:
-        if (!panId.isEmpty())
-            sendCmd(QString("display pan set %1 rfgain=%2").arg(panId).arg(value.toInt() ? -10 : 0));
-        panRfGain = value.toInt() ? -10 : 0;
-        reportCurrent(funcPreamp);
-        reportCurrent(funcAttenuator);
+        // The attenuator is the bottom of the range (-8 dB on a FLEX-6400);
+        // a radio with none (low >= 0) just goes to 0 dB.
+        setPanRfGain(value.toInt() ? qMin(0, rfgLow) : 0);
         return;
     case funcScopeSpan: {
         const centerSpanData s = value.value<centerSpanData>();
@@ -2380,6 +2405,10 @@ void flexCommander::publishDsp()
             st["toneMode"] = fmToneMode;
             st["toneTenths"] = int(std::lround(fmToneHz * 10));
             if (keyDelayMs >= 0) st["keyDelayMs"] = keyDelayMs;
+            st["rfg"] = panRfGain;
+            st["rfgLow"] = rfgLow;
+            st["rfgHigh"] = rfgHigh;
+            st["rfgStep"] = rfgStep;
             emit flexDspState(st);
         });
     }
@@ -2447,6 +2476,9 @@ void flexCommander::setFlexDsp(QString key, int index, int value)
         if (value < 0 || value >= list.size()) return;
         if (key == "rxAnt") setSliceAntennas(list.at(value), QString());
         else setSliceAntennas(QString(), list.at(value));
+    } else if (key == "panRfGain") {
+        setPanRfGain(value);
+        return;
     } else if (key == "txLo" || key == "txHi") {
         // The radio keeps at least 50 Hz between the edges; so do we.
         if (key == "txLo") txFilterLo = qBound(0, value, txFilterHi - 50);

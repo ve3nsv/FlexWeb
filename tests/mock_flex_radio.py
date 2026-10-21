@@ -314,6 +314,12 @@ class MockFlexRadio:
                              min_dbm="-125.00", max_dbm="-40.00",
                              rfgain=0, client_handle=f"0x{self.handle:08X}")
             return 0, PAN_ID
+        if cmd.startswith("display pan rfgain_info"):
+            return 0, "-8,32,8"           # a FLEX-6400's range
+        if cmd.startswith("display pan set") and "rfgain=" in cmd:
+            g = int(cmd.split("rfgain=")[1].split()[0])
+            if g < -8 or g > 32 or g % 8:
+                return 0x50000016, ""     # the radio refuses an off-step value
         if cmd.startswith("display pan set"):
             kv = dict(w.split("=", 1) for w in words[4:] if "=" in w)
             mapped = {("x_pixels" if k == "xpixels" else "y_pixels" if k == "ypixels" else k): v

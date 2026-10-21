@@ -2816,7 +2816,7 @@ try {
                 <span class="gain-val rx-vol-val">100%</span>
             </div>
             <div class="gain-row">
-                <span class="gain-label">RF</span>
+                <span class="gain-label" id="rfGainLabel">RF</span>
                 <div class="gain-bar-bg"><div class="gain-bar-fill" id="rfGainFill" style="width:50%"></div>
                     <input type="range" id="rfGainSlider" min="0" max="255" value="128"></div>
                 <span class="gain-val" id="rfGainVal">50%</span>
@@ -2835,7 +2835,7 @@ try {
                 <span class="gain-val" id="rfPowerVal">50%</span>
             </div>
             <div class="gain-row tx">
-                <span class="gain-label">USB MIC</span>
+                <span class="gain-label" id="micGainLabel">USB MIC</span>
                 <div class="gain-bar-bg"><div class="gain-bar-fill" id="micGainFill" style="width:50%"></div>
                     <input type="range" id="micGainSlider" min="0" max="255" value="128"></div>
                 <span class="gain-val" id="micGainVal">50%</span>
@@ -3623,6 +3623,8 @@ function handleMessage(msg) {
             break;
         case 'flexDsp':
             flexDsp = msg;
+            updatePreampAttIndicator();
+            if (isFlexRig) updateRfGainIndicator(0);
             flexFmSync(msg);
             if (document.getElementById('eqOverlay').classList.contains('visible')) renderEqOverlay();
             if (document.getElementById('procOverlay').classList.contains('visible')) renderProcOverlay();
@@ -4552,6 +4554,7 @@ function updatePreampAttIndicator() {
     var el = document.getElementById('preampAttIndicator');
     if (!el) return;
     var state = getPreampAttState();
+    if (flexRfgOn() && state.active) state = { label: flexRfgLabel(flexDsp.rfg) + ' dB', active: true };
     if (state.active) {
         el.textContent = state.label;
         el.style.display = '';
@@ -4566,7 +4569,9 @@ function updateRfGainIndicator(val) {
     var el = document.getElementById('rfGainIndicator');
     if (!el) return;
     var pct = Math.round(val / 255 * 100);
-    if (pct >= 100) {
+    // On a Flex the RF slider is the AGC threshold (SmartSDR's AGC-T), where
+    // 50 % is a normal setting, not a gain backed off: no warning.
+    if (pct >= 100 || isFlexRig) {
         el.style.display = 'none';
         return;
     }
@@ -5235,6 +5240,12 @@ var isFlexRig = false;
 function setDigiDriveCaps(manufacturer) {
     var flex = manufacturer === 'FlexRadio';
     isFlexRig = flex;
+    // On a Flex the RF slider is the slice's AGC threshold and USB MIC is
+    // the level of this browser's microphone into the radio: say so.
+    var rl = document.getElementById('rfGainLabel'), ml = document.getElementById('micGainLabel');
+    if (rl) { rl.textContent = flex ? 'AGC-T' : 'RF'; rl.title = flex ? 'AGC threshold (SmartSDR AGC-T)' : ''; }
+    if (ml) { ml.textContent = flex ? 'MIC' : 'USB MIC'; ml.title = flex ? 'Level of the browser microphone sent to the radio (75 % = unchanged)' : ''; }
+    if (flex) updateRfGainIndicator(0);
     var max = flex ? 1.0 : 0.5;
     if (max === ALC_MAX_GAIN) return;
     ALC_MAX_GAIN = max;
@@ -6806,7 +6817,17 @@ function preampLabel(num) {
     return preampsHere().length > 2 ? 'P.AMP' + num : 'P.AMP';
 }
 
+// FlexRadio: the panadapter's RF gain is one setting from the attenuator end
+// of its range to the top preamp step (FLEX-6400: -8..+32 dB in 8 dB steps,
+// from "display pan rfgain_info"); the button walks the radio's real steps.
+function flexRfgOn() { return !!(flexDsp && flexDsp.rfgStep > 0 && flexDsp.rfg !== undefined); }
+function flexRfgLabel(dB) { return dB > 0 ? 'P.AMP +' + dB : dB < 0 ? 'ATT ' + dB : 'OFF'; }
+
 function getPreampAttState() {
+    if (flexRfgOn()) {
+        var g = flexDsp.rfg;
+        return { label: g === 0 ? 'OFF' : (g > 0 ? '+' : '') + g + ' dB', active: g !== 0 };
+    }
     // "ATT" is what the radio itself shows — the dB level belongs on the FUNC
     // attenuator slider (multi-step rigs), not on the button or the indicator.
     if (currentAttenuator > 0) {
@@ -6819,6 +6840,19 @@ function getPreampAttState() {
 }
 
 function cyclePreampAtt() {
+    if (flexRfgOn()) {
+        // OFF -> each preamp step up to the top -> the attenuator steps -> OFF.
+        var g = flexDsp.rfg, st = flexDsp.rfgStep;
+        var next = g + st;
+        if (g >= 0 && next > flexDsp.rfgHigh) next = flexDsp.rfgLow < 0 ? flexDsp.rfgLow : 0;
+        if (g < 0 && next > 0) next = 0;
+        flexDsp.rfg = next;
+        sendFlexDsp('panRfGain', 0, next, true);
+        updatePreampAttIndicator();
+        if (currentPanel === 'func') renderFuncOverlay();
+        if (typeof renderApplets === 'function' && document.body.classList.contains('ae-desktop')) renderApplets();
+        return;
+    }
     // One button walks OFF → each ATT step → each PRE step → OFF, driven by
     // the rig's real caps (both lists carry a num:0 "off" entry at index 0).
     // Attenuator hardcoding the old "20 dB" step broke on rigs whose steps

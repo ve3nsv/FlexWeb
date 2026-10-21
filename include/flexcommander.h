@@ -285,6 +285,11 @@ private:
     int panXPixels = 0;
     int panYPixels = 0;
     int panRfGain = 0;
+    // The panadapter's preamp/attenuator range ("display pan rfgain_info"):
+    // FLEX-6400 -8..32 in 8 dB steps; other models differ.
+    int rfgLow = -8, rfgHigh = 32, rfgStep = 8;
+    int snapRfGain(int dB) const;
+    void setPanRfGain(int dB);
     int scopeFps = 20;
     bool panConfigured = false;
     bool recenterPending = false;
