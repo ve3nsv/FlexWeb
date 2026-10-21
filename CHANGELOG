@@ -65,6 +65,24 @@ FlexRadio:
   recalled, saved from the current slice, renamed and deleted.
 - FM repeaters: DUP-/DUP+/simplex, offset and CTCSS TX tone set the
   slice's repeater offset and FM tone (the DUP and TONE tiles).
+- Clean receive path for data modes and FM: JS8 and FT8/FT4 stay on USB
+  (also after a page reload), FreeDV follows the band (LSB below 10 MHz, USB
+  from 10 MHz, freedv.org) and puts the mode back when turned off. While
+  JS8, FT8/FT4, any FreeDV mode or FM / NFM / DFM is on, NB, NR, ANF and on a
+  Flex NNR, APF, WNB and tracking notches in the passband are switched off,
+  FM and FreeDV also turn the speech processor off, and data modes / FreeDV
+  get a 3 kHz filter; everything that was changed is put back afterwards.
+  NNR no longer runs in FM.
+- AetherSDR-style scope on a Flex (FUNC > DRAG: AETHER, the default with
+  the AetherSDR look): the panadapter stays where you put it and only
+  scrolls when the VFO nears an edge; drag the band to pan, the passband to
+  drag the VFO, a passband edge to set low / high cut, the frequency scale
+  to zoom; a click tunes. The passband is drawn from the radio's real filter
+  edges. VFO and BAND keep the earlier drag styles.
+- RADE from the FreeDV project's rade_c (github.com/freedv/rade_c, the new
+  home of radae_nopy), 2026-10-07: includes the V1 receiver's phase
+  renormalisation against long-run drift and the Windows / macOS build
+  fixes. FlexWeb stays on RADE V1 (V2 is not for on-air use yet).
 - RF2K-S tuner indicator, as in the AetherSDR RF-KIT applet: a chip in the
   amplifier applet's header and a tile in the amplifier panel - green TUNER
   AUTO / MANUAL while the tuner is in line, amber while tuning, red TUNER

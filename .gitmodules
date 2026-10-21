@@ -3,4 +3,4 @@
 	url = https://github.com/e04/ft8ts.git
 [submodule "radae_nopy"]
 	path = resources/radae_nopy
-	url = https://github.com/peterbmarks/radae_nopy.git
+	url = https://github.com/freedv/rade_c.git

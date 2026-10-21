@@ -204,6 +204,10 @@ private:
     // shifts a copy of the base filter by up to half its width; the slice
     // filter is their overlap (the page draws the same model).
     int pbtIn = 128, pbtOut = 128;
+    // AetherSDR-style scope: the panadapter stays where the user put it and
+    // only scrolls when the VFO nears an edge (scope "fixed glass" for the
+    // page); off = wfweb's CENTER mode, re-centred on every tune.
+    bool panFree = false;
     int filterBaseW = 0;                 // width before PBT (0 = filterHi - filterLo)
     int sentLo = 0, sentHi = 0;          // the last edges wfweb set
     void applyFilter();

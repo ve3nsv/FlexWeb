@@ -192,12 +192,13 @@ INCLUDEPATH += $$RADAE_DIR/src
 OPUS_SRC = $$RADAE_BUILD/build_opus-prefix/src/build_opus
 INCLUDEPATH += $$OPUS_SRC/dnn $$OPUS_SRC/celt $$OPUS_SRC/include $$OPUS_SRC
 macx|win32 {
-    # macOS/Windows: compile rade sources directly into the binary (static link)
+    # macOS/Windows: compile rade sources directly into the binary (static link).
+    # freedv/rade_c: rade_api.c needs the V2 sources too (FlexWeb uses V1 only).
     macx:  DEFINES += IS_BUILDING_RADE_API=1
     win32: DEFINES += RADE_STATIC=1
     DEFINES += RADE_PYTHON_FREE=1
     SOURCES += \
-        $$RADAE_DIR/src/rade_api_nopy.c \
+        $$RADAE_DIR/src/rade_api.c \
         $$RADAE_DIR/src/rade_enc.c \
         $$RADAE_DIR/src/rade_dec.c \
         $$RADAE_DIR/src/rade_enc_data.c \
@@ -207,7 +208,16 @@ macx|win32 {
         $$RADAE_DIR/src/rade_bpf.c \
         $$RADAE_DIR/src/rade_acq.c \
         $$RADAE_DIR/src/rade_tx.c \
-        $$RADAE_DIR/src/rade_rx.c
+        $$RADAE_DIR/src/rade_rx.c \
+        $$RADAE_DIR/src/rade_enc_v2.c \
+        $$RADAE_DIR/src/rade_dec_v2.c \
+        $$RADAE_DIR/src/rade_sync.c \
+        $$RADAE_DIR/src/rade_enc_v2_data.c \
+        $$RADAE_DIR/src/rade_dec_v2_data.c \
+        $$RADAE_DIR/src/rade_sync_data.c \
+        $$RADAE_DIR/src/rade_v2_ofdm.c \
+        $$RADAE_DIR/src/rade_tx_v2.c \
+        $$RADAE_DIR/src/rade_rx_v2.c
 } else {
     # Linux: link shared library
     LIBS += -L$$RADAE_BUILD/src -lrade

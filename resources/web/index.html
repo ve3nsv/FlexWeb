@@ -4652,6 +4652,113 @@ function updateRfGainIndicator(val) {
     el.style.display = '';
 }
 
+// ---- Clean receive path for data modes and FM ---------------------------
+// JS8 and FT8/FT4 run on USB, FreeDV on the band's sideband (LSB below 10 MHz,
+// USB from 10 MHz up: freedv.org/getting-started). While one of them, or FM /
+// NFM / DFM, is on, the noise tools are switched off (NB, NR, ANF and on a
+// Flex NNR, APF, WNB and any tracking notch in the passband); FM and FreeDV
+// also turn the speech processor off, and data modes / FreeDV get a 3 kHz
+// filter. What was changed is remembered (also across a page reload) and put
+// back when the mode ends. The panels' own VFO snapshot puts the mode back
+// for JS8 / FT8; FreeDV's mode is put back here.
+var MODE_CLEAN_KEY = 'wfModeClean';
+var modeClean = null;      // { profile, saved: {...}, sidebandFrom }
+try { modeClean = JSON.parse(localStorage.getItem(MODE_CLEAN_KEY) || 'null'); } catch (e) { modeClean = null; }
+function modeCleanSave() {
+    try {
+        if (modeClean) localStorage.setItem(MODE_CLEAN_KEY, JSON.stringify(modeClean));
+        else localStorage.removeItem(MODE_CLEAN_KEY);
+    } catch (e) {}
+}
+function modeCleanProfile() {
+    var js8 = typeof window.js8MessengerVisible === 'function' && window.js8MessengerVisible();
+    if (digiBarVisible || js8) return 'digi';
+    if (freedvEnabled) return 'fdv';
+    if (/^(FM|NFM|DFM|WFM)$/.test(currentMode || '')) return 'fm';
+    return null;
+}
+function freedvSideband() { return currentFreq >= 10000000 ? 'USB' : 'LSB'; }
+function modeCleanTnfInPassband() {
+    if (!flexDsp || !flexDsp.tnfs || !flexDsp.tnfs.length || !(currentFreq > 0)) return false;
+    var lsb = /^(LSB|DIGL|CW-R)$/.test(currentMode || '');
+    var lo = lsb ? currentFreq - 3000 : currentFreq, hi = lsb ? currentFreq : currentFreq + 3000;
+    return flexDsp.tnfs.some(function (t) { return t.freq >= lo && t.freq <= hi; });
+}
+function modeCleanApply(profile) {
+    // Called once when a profile starts (or after a reload with it running).
+    var saved = (modeClean && modeClean.saved) || {};
+    function off(key, isOn, cmd, flex) {
+        if (!isOn) return;
+        if (saved[key] === undefined) saved[key] = 1;
+        if (flex) sendFlexDsp(key, 0, 0, true); else send({ cmd: cmd, value: false });
+    }
+    off('nb', nbOn, 'setNoiseBlanker');
+    off('nr', nrOn, 'setNoiseReduction');
+    off('anf', anfOn, 'setAutoNotch');
+    if (flexDsp) {
+        off('nnr', !!flexDsp.nnr, null, true);
+        off('apf', !!flexDsp.apf, null, true);
+        off('wnb', !!flexDsp.wnb, null, true);
+        if (flexDsp.tnfEnabled && modeCleanTnfInPassband()) off('tnfEnabled', true, null, true);
+        if (profile !== 'digi' && flexDsp.proc) {
+            if (saved.proc === undefined) { saved.proc = 1; saved.procLevel = flexDsp.procLevel; }
+            sendFlexDsp('proc', 0, 0, true);
+        }
+    }
+    if (profile !== 'fm' && saved.filterWidth === undefined && currentFilterWidth > 0 && currentFilterWidth !== 3000) {
+        saved.filterWidth = currentFilterWidth;
+        saved.filter = currentFilter;
+        // After the panel's own mode change has landed (a Flex preset width
+        // would otherwise replace it).
+        setTimeout(function () { if (modeCleanProfile() === profile) send({ cmd: 'setFilterWidth', value: 3000 }); }, 700);
+    }
+    modeClean = { profile: profile, saved: saved, sidebandFrom: modeClean && modeClean.sidebandFrom };
+    modeCleanSave();
+}
+function modeCleanRestore() {
+    var sv = (modeClean && modeClean.saved) || {};
+    if (sv.nb) send({ cmd: 'setNoiseBlanker', value: true });
+    if (sv.nr) send({ cmd: 'setNoiseReduction', value: true });
+    if (sv.anf) send({ cmd: 'setAutoNotch', value: true });
+    ['nnr', 'apf', 'wnb', 'tnfEnabled'].forEach(function (k) { if (sv[k] && flexDsp) sendFlexDsp(k, 0, 1, true); });
+    if (sv.proc && flexDsp) {
+        sendFlexDsp('proc', 0, 1, true);
+        if (sv.procLevel !== undefined) sendFlexDsp('procLevel', 0, sv.procLevel, true);
+    }
+    var wasFdv = modeClean && modeClean.profile === 'fdv';
+    if (modeClean && modeClean.sidebandFrom && wasFdv) {
+        var back = modeClean.sidebandFrom;
+        setTimeout(function () { send({ cmd: 'setMode', value: back }); }, 0);
+    }
+    // FreeDV's filter comes back here; JS8 / FT8 put mode + filter back themselves.
+    if (sv.filterWidth && wasFdv)
+        setTimeout(function () { send({ cmd: 'setFilterWidth', value: sv.filterWidth }); }, 400);
+    modeClean = null;
+    modeCleanSave();
+}
+var modeCleanLastSide = '';
+function modeCleanCheck() {
+    if (!ws || ws.readyState !== WebSocket.OPEN || !currentMode || currentMode === '---' || !(currentFreq > 0)) return;
+    var p = modeCleanProfile();
+    var cur = modeClean ? modeClean.profile : null;
+    if (p !== cur) {
+        if (cur && !p) modeCleanRestore();
+        else if (p) modeCleanApply(p);          // start, or one profile handing over to another
+    }
+    if (!p) return;
+    // Sideband: data modes stay on USB; FreeDV follows the band.
+    var want = p === 'digi' ? 'USB' : p === 'fdv' ? freedvSideband() : null;
+    if (want && currentMode !== want && /^(USB|LSB|DIGU|DIGL|USB-D|LSB-D|AM|FM|NFM|CW|CW-R|RTTY|RTTY-R|SAM|DFM)$/.test(currentMode)) {
+        if (modeCleanLastSide === want + currentMode) return;   // one request per change; the reply settles it
+        modeCleanLastSide = want + currentMode;
+        if (p === 'fdv' && modeClean && !modeClean.sidebandFrom) { modeClean.sidebandFrom = currentMode; modeCleanSave(); }
+        send({ cmd: 'setMode', value: want });
+    } else {
+        modeCleanLastSide = '';
+    }
+}
+setInterval(modeCleanCheck, 500);
+
 // FreeDV Reporter message (server-side; the field saves on Enter or blur).
 function setReporterMessageField(text) {
     var el = document.getElementById('digiReporterMsg');
@@ -6880,11 +6987,11 @@ function renderFuncOverlay() {
         setLook(!aeClassic);
         renderFuncOverlay();
     }));
-    var dg = makeFuncBtn('DRAG', scopeDragVfo() ? 'VFO' : 'BAND', false, function() {
+    var dg = makeFuncBtn('DRAG', scopeDragStyle().toUpperCase(), false, function() {
         toggleScopeDrag();
         renderFuncOverlay();
     });
-    dg.title = 'Scope drag: VFO = drag right to tune up (like SmartSDR); BAND = pull the band like a map (drag left to tune up).';
+    dg.title = 'Scope drag: AETHER = AetherSDR panadapter (drag the band to pan, the passband to tune, its edges to set the filter, the scale to zoom); VFO = drag right to tune up; BAND = pull the band like a map.';
     grid.appendChild(dg);
 
     // Meter face: follow the radio, or force the tile bar / the needle
@@ -10509,7 +10616,9 @@ function drawSpectrum() {
         var spanHz = (spectEndFreq - spectStartFreq) * 1e6;
         var bwPx = (currentFilterWidth / spanHz) * w;
         var pbLeft, pbRight;
-        if (currentMode === 'USB' || currentMode === 'RTTY') {
+        if (flexPassbandKnown()) {
+            pbLeft = cx + flexDsp.rxLo / spanHz * w; pbRight = cx + flexDsp.rxHi / spanHz * w;
+        } else if (currentMode === 'USB' || currentMode === 'RTTY') {
             pbLeft = cx; pbRight = cx + bwPx;
         } else if (currentMode === 'LSB') {
             pbLeft = cx - bwPx; pbRight = cx;
@@ -10642,7 +10751,9 @@ function drawWaterfall() {
         var spanHz = (spectEndFreq - spectStartFreq) * 1e6;
         var bwPx = (currentFilterWidth / spanHz) * w;
         var pbL, pbR;
-        if (currentMode === 'USB' || currentMode === 'RTTY') {
+        if (flexPassbandKnown()) {
+            pbL = cx + flexDsp.rxLo / spanHz * w; pbR = cx + flexDsp.rxHi / spanHz * w;
+        } else if (currentMode === 'USB' || currentMode === 'RTTY') {
             pbL = cx; pbR = cx + bwPx;
         } else if (currentMode === 'LSB') {
             pbL = cx - bwPx; pbR = cx;
@@ -10696,13 +10807,21 @@ function scopeSetVisualPan(px) {
 // way under the centred marker). BAND: grab the band and pull it like a map
 // (drag left = up), wfweb's original behaviour. Default VFO with the
 // AetherSDR look, BAND with CLASSIC.
-function scopeDragVfo() {
+// 'aether' (Flex + AetherSDR look: AetherSDR's panadapter, see aeScopeDown),
+// 'vfo' or 'band'. Default: aether on a Flex with the AetherSDR look, vfo
+// with the AetherSDR look elsewhere, band with CLASSIC.
+function scopeDragStyle() {
     var v = null;
     try { v = localStorage.getItem('wfScopeDrag'); } catch (e) {}
-    return v ? v === 'vfo' : !aeClassic;
+    if (v === 'aether' && !(isFlexRig && !aeClassic)) v = 'vfo';
+    if (v) return v;
+    return aeClassic ? 'band' : isFlexRig ? 'aether' : 'vfo';
 }
+function scopeDragVfo() { return scopeDragStyle() !== 'band'; }
 function toggleScopeDrag() {
-    try { localStorage.setItem('wfScopeDrag', scopeDragVfo() ? 'band' : 'vfo'); } catch (e) {}
+    var order = (isFlexRig && !aeClassic) ? ['aether', 'vfo', 'band'] : ['vfo', 'band'];
+    var i = order.indexOf(scopeDragStyle());
+    try { localStorage.setItem('wfScopeDrag', order[(i + 1) % order.length]); } catch (e) {}
 }
 
 function scopeFreqFromDragDeltaX(deltaX) {
@@ -10761,6 +10880,129 @@ function scopeDragTuneFreq(clientX, deltaX, release) {
     if (f > 0) scopeDragFreq = f;
     return f;
 }
+
+// ---- AetherSDR-style scope (Flex, AetherSDR look, FUNC > DRAG: AETHER) ----
+// Like AetherSDR's panadapter (SpectrumWidget): drag an empty part of the
+// spectrum or waterfall to pan the view (the VFO stays; a click tunes), drag
+// inside the passband to drag the VFO, drag a passband edge to move that edge
+// (low / high cut), drag the frequency scale at the bottom of the spectrum to
+// zoom. The radio's panadapter only scrolls by itself when the VFO nears an
+// edge (flexCommander panFree). These handlers run first (capture on
+// #scopeArea) and keep the page's own drag code out of the way.
+function flexPassbandKnown() {
+    return !!(flexDsp && typeof flexDsp.rxLo === 'number' && typeof flexDsp.rxHi === 'number' && flexDsp.rxHi > flexDsp.rxLo);
+}
+function aeScopeOn() {
+    return !aeClassic && isFlexRig && !!flexDsp && flexDsp.panFree === true && scopeMode === 1
+        && spectStartFreq > 0 && spectEndFreq > spectStartFreq;
+}
+var aeScope = null;      // the drag in progress
+var aeScopeSendAt = 0;
+function aeScopeGeom(canvas, clientX, clientY) {
+    var r = canvas.getBoundingClientRect();
+    var x = clientX - r.left, y = clientY - r.top;
+    var spanHz = (spectEndFreq - spectStartFreq) * 1e6;
+    var hzPerPx = spanHz / r.width;
+    var freqAt = function (px) { return spectStartFreq * 1e6 + px * hzPerPx; };
+    var vfoX = (currentFreq - spectStartFreq * 1e6) / hzPerPx;
+    var lo = flexPassbandKnown() ? flexDsp.rxLo : 0, hi = flexPassbandKnown() ? flexDsp.rxHi : 0;
+    return { r: r, x: x, y: y, hzPerPx: hzPerPx, freqAt: freqAt, pbL: vfoX + lo / hzPerPx, pbR: vfoX + hi / hzPerPx,
+             onScale: canvas.id === 'spectrumCanvas' && y > r.height - 18 };
+}
+function aeScopeZone(canvas, g) {
+    if (g.onScale) return 'zoom';
+    var grab = 8;
+    if (flexPassbandKnown() && !/^(FM|NFM|DFM|WFM)$/.test(currentMode || '')) {
+        if (Math.abs(g.x - g.pbL) <= grab) return 'lo';
+        if (Math.abs(g.x - g.pbR) <= grab) return 'hi';
+    }
+    if (g.x > Math.min(g.pbL, g.pbR) && g.x < Math.max(g.pbL, g.pbR)) return 'vfo';
+    return 'pan';
+}
+function aeScopeThrottle(fn, final) {
+    var now = Date.now();
+    if (!final && now - aeScopeSendAt < 60) return;
+    aeScopeSendAt = now;
+    fn();
+}
+function aeScopeDown(e) {
+    if (!aeScopeOn() || (typeof e.button === 'number' && e.button !== 0)) return;
+    var c = e.target;
+    if (c.id !== 'spectrumCanvas' && c.id !== 'waterfallCanvas') return;
+    e.preventDefault(); e.stopPropagation();
+    var g = aeScopeGeom(c, e.clientX, e.clientY);
+    aeScope = { canvas: c, zone: aeScopeZone(c, g), x0: e.clientX, moved: false, id: e.pointerId,
+                center0: (spectStartFreq + spectEndFreq) / 2 * 1e6, span0: (spectEndFreq - spectStartFreq) * 1e6,
+                hzPerPx: g.hzPerPx, grabHz: g.freqAt(g.x) - currentFreq };
+    try { c.setPointerCapture(e.pointerId); } catch (err) {}
+}
+function aeScopeMove(e) {
+    var c = e.target;
+    if (!aeScope) {
+        // Hover: show what a drag would do.
+        if (aeScopeOn() && (c.id === 'spectrumCanvas' || c.id === 'waterfallCanvas')) {
+            var z = aeScopeZone(c, aeScopeGeom(c, e.clientX, e.clientY));
+            c.style.cursor = z === 'lo' || z === 'hi' || z === 'zoom' ? 'ew-resize' : z === 'vfo' ? 'grab' : 'crosshair';
+        } else if (c.style && c.style.cursor) c.style.cursor = '';
+        return;
+    }
+    if (e.pointerId !== aeScope.id) return;
+    e.preventDefault(); e.stopPropagation();
+    var dx = e.clientX - aeScope.x0;
+    if (!aeScope.moved && Math.abs(dx) < 4) return;
+    aeScope.moved = true;
+    aeScopeApply(e, false);
+}
+function aeScopeApply(e, final) {
+    var a = aeScope, dx = e.clientX - a.x0;
+    var g = aeScopeGeom(a.canvas, e.clientX, e.clientY);
+    if (a.zone === 'pan') {
+        var center = Math.round(a.center0 - dx * a.hzPerPx);
+        aeScopeThrottle(function () { sendFlexDsp('panCenter', 0, center, true); }, final);
+    } else if (a.zone === 'vfo') {
+        var f = Math.round((g.freqAt(g.x) - a.grabHz) / 10) * 10;
+        if (f > 0) aeScopeThrottle(function () { send({ cmd: 'setFrequency', value: f }); }, final);
+    } else if (a.zone === 'lo' || a.zone === 'hi') {
+        var off = Math.round((g.freqAt(g.x) - currentFreq) / 10) * 10;
+        var key = a.zone === 'lo' ? 'filterLo' : 'filterHi';
+        if (a.zone === 'lo') off = Math.min(off, flexDsp.rxHi - 50); else off = Math.max(off, flexDsp.rxLo + 50);
+        flexDsp[a.zone === 'lo' ? 'rxLo' : 'rxHi'] = off;      // draw it now; the radio confirms
+        aeScopeThrottle(function () { sendFlexDsp(key, 0, off, true); }, final);
+    } else if (a.zone === 'zoom') {
+        var bw = Math.round(Math.max(5000, Math.min(14000000, a.span0 * Math.pow(2, -dx / 150))));
+        aeScopeThrottle(function () { sendFlexDsp('panBandwidth', 0, bw, true); }, final);
+    }
+}
+function aeScopeUp(e) {
+    if (!aeScope || e.pointerId !== aeScope.id) return;
+    e.preventDefault(); e.stopPropagation();
+    var a = aeScope;
+    if (a.moved) aeScopeApply(e, true);
+    else if (a.zone === 'pan') {
+        // A click on the band tunes there.
+        var g = aeScopeGeom(a.canvas, e.clientX, e.clientY);
+        var f = Math.round(g.freqAt(g.x) / 100) * 100;
+        if (f > 0) send({ cmd: 'setFrequency', value: f });
+    }
+    try { a.canvas.releasePointerCapture(e.pointerId); } catch (err) {}
+    aeScope = null;
+}
+(function () {
+    var area = document.getElementById('scopeArea');
+    if (!area) return;
+    area.addEventListener('pointerdown', aeScopeDown, true);
+    area.addEventListener('pointermove', aeScopeMove, true);
+    area.addEventListener('pointerup', aeScopeUp, true);
+    area.addEventListener('pointercancel', function (e) { if (aeScope && e.pointerId === aeScope.id) { aeScope = null; e.stopPropagation(); } }, true);
+})();
+// Turn the radio's free pan on / off to match FUNC > DRAG (AETHER on a Flex
+// with the AetherSDR look).
+function aeScopeWanted() { return !aeClassic && isFlexRig && scopeDragStyle() === 'aether'; }
+setInterval(function () {
+    if (!flexDsp || flexDsp.panFree === undefined || !ws || ws.readyState !== WebSocket.OPEN) return;
+    var want = aeScopeWanted();
+    if (want !== flexDsp.panFree) { flexDsp.panFree = want; sendFlexDsp('panFree', 0, want ? 1 : 0, true); }
+}, 1000);
 
 function scopeClick(e) {
     var freqHz = scopeFreqFromClientX(e.target, e.clientX);

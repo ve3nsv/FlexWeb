@@ -861,6 +861,20 @@ void flexCommander::recenterPan()
     // are coalesced, so a spinning knob sends at most one move per 50 ms.
     if (panId.isEmpty() || !freqHz)
         return;
+    if (panFree && panBandwidthMHz > 0.0) {
+        // Free pan: move only when the VFO comes within 10 % of an edge (or
+        // leaves the screen), and then just enough to park it there.
+        const double f = freqHz / 1e6, half = panBandwidthMHz / 2.0, margin = panBandwidthMHz * 0.1;
+        const double lo = panCenterMHz - half + margin, hi = panCenterMHz + half - margin;
+        double c = panCenterMHz;
+        if (f < lo) c = f + half - margin;
+        else if (f > hi) c = f - half + margin;
+        else return;
+        if (std::fabs(f - panCenterMHz) > panBandwidthMHz) c = f;   // a jump: centre it
+        panCenterMHz = c;
+        sendCmd(QString("display pan set %1 center=%2").arg(panId).arg(panCenterMHz, 0, 'f', 6));
+        return;
+    }
     if (std::fabs(panCenterMHz - freqHz / 1e6) < 1e-6)
         return;
     if (recenterPending)
@@ -1053,7 +1067,9 @@ void flexCommander::takeExtra(const QMap<QString, QString>& kvs, const char* con
 
 bool flexCommander::nnrModeOk() const
 {
-    static const QStringList voice = {"USB", "LSB", "AM", "SAM", "FM", "NFM", "DFM"};
+    // SSB and AM only: FM gets a clean path (the page turns noise tools off
+    // there), and a speech model would remove CW / data carriers.
+    static const QStringList voice = {"USB", "LSB", "AM", "SAM"};
     return voice.contains(mode);
 }
 
@@ -1238,6 +1254,7 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
     if (kvs.contains("filter_lo") || kvs.contains("filter_hi")) {
         if (kvs.contains("filter_lo")) filterLo = kvs.value("filter_lo").toInt();
         if (kvs.contains("filter_hi")) filterHi = kvs.value("filter_hi").toInt();
+        publishDsp();
         if (filterLo != sentLo || filterHi != sentHi) {
             // Changed by the radio or another client: that is the new base,
             // centred (wfweb's own PBT does not apply to it).
@@ -1511,7 +1528,7 @@ void flexCommander::handleFft(const QByteArray& d, const vitaPacket& p)
     scopeData sd;
     sd.valid = true;
     sd.receiver = 0;
-    sd.mode = 0;            // center mode: the pan follows the slice
+    sd.mode = panFree ? 1 : 0;   // free pan = fixed glass; else center mode
     sd.fixedEdge = 0;
     sd.oor = false;
     sd.startFreq = panCenterMHz - panBandwidthMHz / 2.0;
@@ -1952,7 +1969,7 @@ bool flexCommander::reportCurrent(funcs func)
         return true;
     }
     case funcScopeMode:
-        report(funcScopeMode, QVariant::fromValue<uchar>(0));
+        report(funcScopeMode, QVariant::fromValue<uchar>(panFree ? 1 : 0));
         return true;
     case funcScopeOnOff:
     case funcScopeDataOutput:
@@ -2693,6 +2710,9 @@ void flexCommander::publishDsp()
             st["rfgLow"] = rfgLow;
             st["rfgHigh"] = rfgHigh;
             st["rfgStep"] = rfgStep;
+            st["rxLo"] = filterLo;
+            st["rxHi"] = filterHi;
+            st["panFree"] = panFree;
             for (auto it = extra.constBegin(); it != extra.constEnd(); ++it)
                 st[it.key()] = it.value();
             st["nnr"] = nnrCfg.on;
@@ -2786,6 +2806,38 @@ void flexCommander::setFlexDsp(QString key, int index, int value)
         return;
     } else if (setNnr(key, value)) {
         return;
+    } else if (key == "panFree") {
+        panFree = value != 0;
+        reportCurrent(funcScopeMode);
+        if (!panFree) recenterPan();
+    } else if (key == "panCenter") {
+        // value: centre in Hz (the page's drag of an empty part of the scope)
+        if (panId.isEmpty() || value <= 0) return;
+        panCenterMHz = value / 1e6;
+        sendCmd(QString("display pan set %1 center=%2").arg(panId).arg(panCenterMHz, 0, 'f', 6));
+        return;
+    } else if (key == "panBandwidth") {
+        // value: span in Hz (the page's drag of the frequency scale)
+        if (panId.isEmpty() || value <= 0) return;
+        sendCmd(QString("display pan set %1 bandwidth=%2").arg(panId).arg(qBound(1000, value, 14000000) / 1e6, 0, 'f', 6));
+        return;
+    } else if (key == "filterLo" || key == "filterHi") {
+        // One filter edge dragged on the scope: offset from the VFO in Hz.
+        if (sliceId < 0 || modeHasFixedFilter(mode)) return;
+        int lo = filterLo, hi = filterHi;
+        if (key == "filterLo") lo = qBound(-12000, value, hi - 50);
+        else hi = qBound(lo + 50, value, 12000);
+        sendCmd(QString("filt %1 %2 %3").arg(sliceId).arg(lo).arg(hi));
+        if (sliceB >= 0) sendCmd(QString("filt %1 %2 %3").arg(sliceB).arg(lo).arg(hi));
+        filterLo = sentLo = lo;
+        filterHi = sentHi = hi;
+        filterBaseW = hi - lo;
+        pbtIn = pbtOut = 128;
+        filterNum = filterNumForWidth(mode, filterBaseW);
+        reportCurrent(funcFilterWidth);
+        reportCurrent(funcPBTInner);
+        reportCurrent(funcPBTOuter);
+        reportCurrent(funcSelectedMode);
     } else if (key == "txLo" || key == "txHi") {
         // The radio keeps at least 50 Hz between the edges; so do we.
         if (key == "txLo") txFilterLo = qBound(0, value, txFilterHi - 50);

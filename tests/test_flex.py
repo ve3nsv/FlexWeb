@@ -297,6 +297,57 @@ def test_nnr(flex):
         sock.close()
 
 
+def test_aether_scope(flex):
+    """AetherSDR-style scope: free pan (the panadapter stays put until the VFO
+    nears an edge, sweeps say fixed glass), the page can move its centre and
+    span, and drag one filter edge at a time."""
+    radio, rest = flex
+    from test_web_login import _Reader, _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    reader = _Reader(sock, buf)
+    PAN = "0x40000000"
+
+    def dsp(key, value):
+        _ws_send(sock, {"cmd": "flexDsp", "key": key, "index": 0, "value": value})
+
+    try:
+        requests.put(f"{rest}/mode", json={"mode": "USB", "filter": 1}, timeout=5)
+        requests.put(f"{rest}/frequency", json={"hz": 14_200_000}, timeout=5)
+        dsp("panFree", 1)
+        got = None
+        for text in reader.frames(6.0):
+            m = json.loads(text)
+            if m.get("type") == "flexDsp" and m.get("panFree") is True:
+                got = m
+                break
+        assert got and got["rxHi"] > got["rxLo"], got
+
+        dsp("panCenter", 14_230_000)
+        assert _wait(lambda: f"display pan set {PAN} center=14.230000" in radio.commands, timeout=5)
+        n = len(radio.commands)
+        # A small tune inside the view does not move the panadapter...
+        requests.put(f"{rest}/frequency", json={"hz": 14_205_000}, timeout=5)
+        assert _wait(lambda: "slice tune 0 14.205000" in radio.commands, timeout=5)
+        time.sleep(0.5)
+        assert not any(c.startswith(f"display pan set {PAN} center=") for c in radio.commands[n:]), radio.commands[n:]
+        # ...but one past the edge scrolls it.
+        requests.put(f"{rest}/frequency", json={"hz": 14_400_000}, timeout=5)
+        assert _wait(lambda: any(c.startswith(f"display pan set {PAN} center=") for c in radio.commands[n:]), timeout=5)
+
+        dsp("panBandwidth", 50_000)
+        assert _wait(lambda: f"display pan set {PAN} bandwidth=0.050000" in radio.commands, timeout=5)
+
+        dsp("filterLo", 300)
+        assert _wait(lambda: any(c.startswith("filt 0 300 ") for c in radio.commands), timeout=5)
+        dsp("filterHi", 2400)
+        assert _wait(lambda: "filt 0 300 2400" in radio.commands, timeout=5), radio.commands[-4:]
+    finally:
+        dsp("panFree", 0)
+        sock.close()
+
+
 def test_gains(flex):
     radio, rest = flex
     requests.put(f"{rest}/gains", json={"afGain": 128, "rfPower": 51}, timeout=5)
