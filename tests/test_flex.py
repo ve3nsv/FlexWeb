@@ -311,6 +311,45 @@ def test_fm_repeater(flex):
         sock.close()
 
 
+def test_time_ping_and_key_delay(flex):
+    """FT8 timing inputs: the server answers timePing with its (NTP-corrected)
+    time, and a keyed Flex reports its key-up delay to the page."""
+    radio, rest = flex
+    from test_web_login import _Reader, _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    reader = _Reader(sock, buf)
+    try:
+        t0 = time.time() * 1000
+        _ws_send(sock, {"cmd": "timePing", "t0": t0})
+        pong = None
+        for text in reader.frames(6.0):
+            m = json.loads(text)
+            if m.get("type") == "timePong":
+                pong = m
+                break
+        assert pong and pong["t0"] == t0
+        assert abs(pong["ts"] - time.time() * 1000) < 60_000   # NTP may correct the CI clock a little
+        assert "ntpOk" in pong
+
+        radio.key_delay = 0.2
+        try:
+            requests.put(f"{rest}/ptt", json={"transmitting": True}, timeout=5)
+            got = None
+            for text in reader.frames(8.0):
+                m = json.loads(text)
+                if m.get("type") == "flexDsp" and m.get("keyDelayMs") is not None:
+                    got = m["keyDelayMs"]
+                    break
+            assert got is not None and 150 <= got <= 1000, got
+        finally:
+            requests.put(f"{rest}/ptt", json={"transmitting": False}, timeout=5)
+            radio.key_delay = 0.0
+    finally:
+        sock.close()
+
+
 # ── --on-demand ─────────────────────────────────────────────────────────────
 
 def _open_browser_ws(port: int):
