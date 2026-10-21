@@ -25,6 +25,10 @@ and FM / NFM.
    is in FM, put back when it leaves FM. NNR currently counts FM as a voice
    mode (flexCommander::nnrModeOk) - take FM, NFM and DFM out of it. Only the
    filter settings change here, not the mode or the receive filter width.
+3b. Speech processor (PROC) off in FM, NFM (DFM on a Flex) and FreeDV RADE
+   (and classic FreeDV unless the user says otherwise): remember PROC on/off
+   and its level when the mode starts, turn it off, put it back when the mode
+   ends. Same remember/restore pattern as the noise filters.
 4. Scope that behaves like AetherSDR's panadapter (SpectrumWidget mouse handlers):
    - Drag an empty part of the spectrum or waterfall: pan the view (the
      panadapter's centre moves, the VFO stays); click / double-click tunes.
