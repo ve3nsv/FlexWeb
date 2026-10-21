@@ -120,3 +120,28 @@ and FM / NFM.
    move, and a reported centre that differs from ours is logged
    ("Flex: pan centre ... reported, scope had ..."). Verify on the radio;
    if it recurs, the log line tells which side was wrong.
+8. SSTV (user approved the mockup, 2026-10-21). Browser-side like FT8 / JS8,
+   both builds (resources/web-shared/sstv*.mjs), no server component.
+   - Panel: SSTV button in the bottom bar next to FT8; replaces the scope
+     like the FT8 / JS8 panels (closeOtherModes peer, saveVfoSnapshot /
+     restoreVfoSnapshot), clean receive path profile 'digi' (USB, noise
+     tools off, 3 kHz filter).
+   - RX: FM demod of the 1200-2300 Hz tone (Hilbert / quadrature
+     frequency estimate at 12 kHz), VIS detection (AUTO) or a fixed mode,
+     sync tracking per line, slant correction (fit of the sync pulses,
+     sound-card clock error), picture drawn line by line with progress.
+     Modes: Robot 36 / 72, Martin M1 / M2, Scottie S1 / S2 / DX,
+     PD 90 / 120.
+   - Tuning strip: narrow waterfall with 1200 sync, 1500 black, 2300 white
+     markers; SIGNAL tile with lock, SNR, frequency offset.
+   - Gallery: finished pictures as thumbnails (IndexedDB, per browser),
+     tap to view, save (PNG with time / freq / mode in the name), delete.
+   - TX: pick an image, crop / scale to the mode, text overlay (callsign,
+     grid, short message), mode choice, VIS + picture synthesis
+     (continuous phase), SEND with time on air, through streamDigiAudio and
+     the TX lock like FT8; STOP aborts.
+   - Recorder: sstvView() in recorder.js shows the picture building up.
+   - Phone: controls stack under the picture.
+   - Tests: node round trip encode -> decode for every mode, with noise,
+     a frequency offset and a 0.1 % clock error; decode of real off-air
+     recordings if available.
