@@ -3907,7 +3907,7 @@ function handleMessage(msg) {
             applyVfoFreqMessage(msg);
             if (msg.mode !== undefined) updateMode(msg.mode);
             if (msg.filter !== undefined) updateFilterBtn(msg.filter);
-            if (msg.sMeter !== undefined) updateSMeter(msg.sMeter);
+            if (msg.sMeter !== undefined) syncedSMeter(msg.sMeter);
             if (msg.powerMeter !== undefined) updatePowerMeter(msg.powerMeter);
             if (msg.swrMeter !== undefined) updateSwrMeter(msg.swrMeter);
             if (msg.alcMeter !== undefined) updateALCMeter(msg.alcMeter);
@@ -3949,10 +3949,7 @@ function handleMessage(msg) {
             break;
         case 'meters':
             if (msg.transmitting !== undefined) updateTxStatus(msg.transmitting);
-            if (msg.sMeter !== undefined) {
-                var sv = msg.sMeter;
-                if (isTransmitting || !scopeSyncDefer(function () { updateSMeter(sv); })) updateSMeter(sv);
-            }
+            if (msg.sMeter !== undefined) syncedSMeter(msg.sMeter);
             if (msg.powerMeter !== undefined) updatePowerMeter(msg.powerMeter);
             if (msg.swrMeter !== undefined) updateSwrMeter(msg.swrMeter);
             if (msg.alcMeter !== undefined) updateALCMeter(msg.alcMeter);
@@ -5022,6 +5019,13 @@ var ALC_SMOOTHED = 0;          // EMA-filtered ALC reading
 var ALC_EMA_ALPHA = 0.15;      // EMA smoothing factor (lower = smoother)
 
 function updateSMeter(val) { meterVal = val; if (!isTransmitting) drawMeter(); }
+// Every S-meter reading goes through scope sync, so it lines up with the
+// spectrum and the audio. The 'update' push (each new reading, ~10 Hz on a
+// Flex) used to bypass it while the periodic 'meters' message was delayed,
+// so the meter jumped between the live and the delayed value.
+function syncedSMeter(val) {
+    if (isTransmitting || !scopeSyncDefer(function () { updateSMeter(val); })) updateSMeter(val);
+}
 function updatePowerMeter(val) { powerVal = val; if (isTransmitting) drawMeter(); }
 function updateSwrMeter(val) { swrVal = val; if (isTransmitting) drawMeter(); }
 

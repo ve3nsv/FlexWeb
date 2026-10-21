@@ -104,3 +104,9 @@ and FM / NFM.
    wins), keep the 5 min safety release, keep the spacebar as hold-to-talk,
    and show the latched state clearly on the PTT button (red, "TX" / "MOX")
    so a tap-on is obvious.
+6. S-meter out of step with the synced scope (user, 2026-10-21) - fixed in
+   the tree: the 'update' push of each S-meter reading bypassed scope sync
+   while the periodic 'meters' message was delayed by the audio delay, so
+   the meter flipped between the live and the delayed value. Both now go
+   through syncedSMeter() (scopeSyncDefer). Verify on the radio: meter,
+   scope and audio move together; SYNC SCOPE OFF makes all three live.
