@@ -4650,7 +4650,8 @@ function recorderSidebar() {
     var out = [];
     var rx = [['AF', t('afGainVal')], [isFlexRig ? 'AGC-T' : 'RF', t('rfGainVal')], ['SQL', t('squelchVal')],
               ['FILTER', filterFuncState()],
-              ['NB/NR/ANF', [nbOn ? 'NB' : '', nrOn ? 'NR' : '', anfOn ? 'ANF' : ''].filter(Boolean).join(' ') || 'OFF'],
+              ['NOISE', [nbOn ? 'NB' : '', nrOn ? 'NR' : '', anfOn ? 'ANF' : '',
+                         flexDsp && flexDsp.nnr ? 'NNR' + (flexDsp.nnrActive ? '' : '(wait)') : ''].filter(Boolean).join(' ') || 'OFF'],
               ['P.AMP/ATT', getPreampAttState().label]];
     if (currentAgc !== null) rx.push(['AGC', agcLabel(currentAgc)]);
     if (flexDsp && flexDsp.rxAnt) rx.push(['ANT', flexDsp.rxAnt + (flexDsp.txAnt && flexDsp.txAnt !== flexDsp.rxAnt ? ' / TX ' + flexDsp.txAnt : '')]);

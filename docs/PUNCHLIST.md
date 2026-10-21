@@ -42,3 +42,5 @@ and FM / NFM.
    - Recording files were still named wfweb_<call>_…; now FlexWeb_<call>_….
    - The amplifier's name in the video sidebar kept leading spaces from the
      amp's custom name (indented "RF-POWER"); trimmed.
+   - The video sidebar's noise line left NNR out (it showed OFF with NNR on);
+     now "NOISE: NB NR ANF NNR".
