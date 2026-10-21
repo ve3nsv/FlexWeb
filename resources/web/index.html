@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>wfweb</title>
+<title>FlexWeb</title>
 <!-- Shared design tokens + component kit (.wf-*). Source of truth lives at
      resources/web-shared/theme.css; loaded before the inline styles so its
      CSS custom properties are available everywhere. -->
@@ -2301,7 +2301,7 @@ try {
 <!-- Startup Overlay -->
 <div id="startupOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%); z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; padding: 24px;">
     <div style="text-align: center; max-width: 640px;">
-        <div style="font-size: 48px; font-weight: bold; color: #0aa; margin-bottom: 8px; text-shadow: 0 0 20px rgba(0, 170, 170, 0.5);">wfweb</div>
+        <div style="font-size: 48px; font-weight: bold; color: #0aa; margin-bottom: 8px; text-shadow: 0 0 20px rgba(0, 170, 170, 0.5);">FlexWeb</div>
         <div id="splashTagline" style="font-size: 14px; color: #888; margin-bottom: 28px;">Remote Control &amp; Web Interface</div>
 
         <button id="startBtn" style="padding: 20px 60px; font-size: 24px; font-weight: bold; color: #000; background: linear-gradient(135deg, #0aa 0%, #088 100%); border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 15px rgba(0, 170, 170, 0.4); transition: all 0.3s ease;" onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 6px 20px rgba(0, 170, 170, 0.6)';" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 4px 15px rgba(0, 170, 170, 0.4)';">
@@ -2311,19 +2311,19 @@ try {
         <div id="splashError"  style="margin-top: 16px; min-height: 18px; font-size: 12px; color: #f88;"></div>
 
         <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 32px;">
-            <a href="https://github.com/adecarolis/wfweb" target="_blank" rel="noopener"
+            <a href="https://github.com/ve3nsv/FlexWeb" target="_blank" rel="noopener"
                style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; color: #888; text-decoration: none; font-size: 12px; border: 1px solid #333; border-radius: 6px; transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;"
                onmouseover="this.style.color='#0cf'; this.style.borderColor='#0cf'; this.style.background='rgba(0,170,170,0.06)';"
                onmouseout="this.style.color='#888'; this.style.borderColor='#333'; this.style.background='transparent';">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
                 Source &amp; documentation
             </a>
-            <a href="mailto:wfweb@k1fm.us"
+            <a href="https://github.com/ve3nsv/FlexWeb/issues" target="_blank" rel="noopener"
                style="display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; color: #888; text-decoration: none; font-size: 12px; border: 1px solid #333; border-radius: 6px; transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;"
                onmouseover="this.style.color='#0cf'; this.style.borderColor='#0cf'; this.style.background='rgba(0,170,170,0.06)';"
                onmouseout="this.style.color='#888'; this.style.borderColor='#333'; this.style.background='transparent';">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/></svg>
-                Bugs &amp; feature requests &mdash; wfweb@k1fm.us
+                Bugs &amp; feature requests
             </a>
         </div>
     </div>
@@ -2335,7 +2335,7 @@ try {
 <div id="powerOffOverlay">
     <div style="text-align: center;">
         <div style="font-size: 56px; color: #555; margin-bottom: 16px; text-shadow: 0 0 30px rgba(85,85,85,0.3);">&#x23FB;</div>
-        <div style="font-size: 36px; font-weight: bold; color: #0aa; margin-bottom: 6px; text-shadow: 0 0 20px rgba(0,170,170,0.4);">wfweb</div>
+        <div style="font-size: 36px; font-weight: bold; color: #0aa; margin-bottom: 6px; text-shadow: 0 0 20px rgba(0,170,170,0.4);">FlexWeb</div>
         <div id="powerOffModel" style="font-size: 14px; color: #888; margin-bottom: 24px;"></div>
         <div id="powerOffMsg" style="font-size: 16px; color: #777; margin-bottom: 28px;">Radio is powered off</div>
         <div id="powerOffBtns" style="display: flex; gap: 12px; justify-content: center; align-items: center; flex-wrap: wrap; min-height: 52px;">
@@ -3036,7 +3036,7 @@ function updateRigTag() {
         el.textContent = label;
         el.title = (rigTagName && rigModelName) ? rigModelName : 'Rig';
     }
-    document.title = label ? label + ' \u2013 wfweb' : 'wfweb';
+    document.title = label ? label + ' \u2013 FlexWeb' : 'FlexWeb';
 }
 // Rigs that only accept the CI-V power-on command on a connector wfweb may not
 // be using (the IC-7600's [REMOTE] jack — its USB dies in standby).  Server
@@ -5626,7 +5626,28 @@ function renderBottomBar() {
         if (b.action) el.onclick = b.action;
         bar.appendChild(el);
     }
+    aeFitBottomBar(bar);
 }
+
+// AetherSDR desktop bar: when the window is too narrow for every key, drop
+// the quick mode keys from the right (MODE… still has them all), then
+// tighten the padding, so FUNC and MOX never scroll out of sight.
+function aeFitBottomBar(bar) {
+    if (!document.body.classList.contains('ae-desktop')) return;
+    bar.classList.remove('ae-tight');
+    var over = function () { return bar.scrollWidth > bar.clientWidth + 1; };
+    if (!over()) return;
+    var modes = Array.prototype.filter.call(bar.querySelectorAll('.ae-mode'),
+        function (el) { return el.textContent.indexOf('MODE') !== 0; });
+    for (var i = modes.length - 1; i >= 0 && over(); i--)
+        if (!modes[i].classList.contains('active')) modes[i].style.display = 'none';
+    if (over()) bar.classList.add('ae-tight');
+}
+var aeFitTimer = null;
+window.addEventListener('resize', function () {
+    clearTimeout(aeFitTimer);
+    aeFitTimer = setTimeout(function () { if (typeof renderBottomBar === 'function') renderBottomBar(); }, 150);
+});
 
 function getBottomButtons() {
     var isCW = (currentMode === 'CW' || currentMode === 'CW-R');
@@ -5967,6 +5988,32 @@ function renderApplets() {
     tk.appendChild(aeBtn('AUDIO', false, function() { setPanel('audiomiс'); }));
     if (flexDsp) tk.appendChild(aeBtn('PROC…', false, function() { setPanel('proc'); }));
     tx.appendChild(tk);
+    // TX bandwidth (SmartSDR's Phone applet Low Cut / High Cut), 50 Hz steps.
+    if (flexDsp && flexDsp.txLo !== undefined) {
+        var bw = document.createElement('div'); bw.className = 'ae-txbw';
+        var lab = document.createElement('span'); lab.textContent = 'TX';
+        bw.appendChild(lab);
+        [['txLo', 'Low cut', 0, 2000], ['txHi', 'High cut', 1000, 10000]].forEach(function (e) {
+            var key = e[0], g = document.createElement('span');
+            g.className = 'ae-txbw-step'; g.title = 'TX ' + e[1] + ' (Hz)';
+            var step = function (d) {
+                var v = Math.max(e[2], Math.min(e[3], (flexDsp[key] || 0) + d));
+                if (key === 'txLo') v = Math.min(v, flexDsp.txHi - 50);
+                else v = Math.max(v, flexDsp.txLo + 50);
+                if (v === flexDsp[key]) return;
+                flexDsp[key] = v; val.textContent = v;
+                sendFlexDsp(key, 0, v, true);
+            };
+            var dn = aeBtn('\u25C0', false, function () { step(-50); });
+            var up = aeBtn('\u25B6', false, function () { step(50); });
+            dn.setAttribute('aria-label', 'TX ' + e[1] + ' down');
+            up.setAttribute('aria-label', 'TX ' + e[1] + ' up');
+            var val = document.createElement('b'); val.textContent = flexDsp[key];
+            g.appendChild(dn); g.appendChild(val); g.appendChild(up);
+            bw.appendChild(g);
+        });
+        tx.appendChild(bw);
+    }
     // EQ: the radio's equaliser at a glance; the panel edits it
     var eq = document.getElementById('aeEq');
     if (flexDsp) {

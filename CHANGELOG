@@ -98,6 +98,14 @@ AetherSDR look (aether-look branch):
 - FUNC > AUDIO > SYNC SCOPE holds the spectrum, waterfall and S meter back by the audio
   delay so what you see matches what you hear; SYNC TRIM adjusts it.
 - The dB level labels keep clear of the span zoom keys.
+- TX bandwidth: the TX applet has Low cut / High cut steppers (50 Hz) for
+  the radio's transmit filter, as in SmartSDR's Phone applet.
+- The FreeDV readout no longer covers the span zoom keys; the bottom bar
+  drops quick mode keys (MODE… keeps them all) rather than scrolling FUNC
+  and MOX out of sight on narrower windows; on phones the TALK / TX labels
+  no longer push the page wider than the screen.
+- The start page, tab title and links say FlexWeb and point at the
+  FlexWeb repository and its issues.
 
 FlexRadio:
 - FlexRadio FLEX-6000 / FLEX-8000 / Aurora SDRs are supported over the

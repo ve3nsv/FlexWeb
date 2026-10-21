@@ -227,6 +227,9 @@ body.ae-desktop .softBtn.ae-wide { padding: 0 16px; }
 body.ae-desktop .softBtn.ae-mox { padding: 0 26px; font-size: 13px; letter-spacing: 1px; }
 body.ae-desktop .ae-gap { flex: 0 0 10px; }
 body.ae-desktop .ae-gap.ae-grow { flex: 1 0 10px; }
+body.ae-desktop #bottomBar.ae-tight .softBtn { padding: 0 7px; }
+body.ae-desktop #bottomBar.ae-tight .softBtn.ae-mox { padding: 0 14px; }
+body.ae-desktop #bottomBar.ae-tight .ae-gap { flex-basis: 4px; }
 
 /* the applet sidebar */
 body.ae-desktop #applets {
@@ -278,6 +281,10 @@ body.ae-desktop #applets {
 
 /* ---- Phone -------------------------------------------------------------- */
 body.ae-phone #radio { grid-template-rows: 40px auto 18px 1fr auto; }
+/* Nothing in the top bar may widen the page: the TALK / TX labels shrink. */
+body.ae-phone #radio { grid-template-columns: minmax(0, 1fr); }
+body.ae-phone #topBar { min-width: 0; overflow: hidden; }
+body.ae-phone #talkLabel, body.ae-phone #txByLabel { flex: 0 1 auto; min-width: 24px; }
 body.ae-phone.meter-needle #radio { grid-template-rows: 40px auto 18px 1fr auto; }
 body.ae-phone #meterFreqRow { flex-direction: column; align-items: stretch; padding: 8px 12px; gap: 6px; }
 body.ae-phone #freqSection { order: 0; flex-direction: row; align-items: center; justify-content: flex-start; gap: 10px; flex-wrap: wrap; }
@@ -301,3 +308,11 @@ body.ae-desktop .softBtn.ae-band { text-transform: none; }
 .ae-amp-tuner b { color: var(--ae-text); font-weight: 600; }
 .ae-amp-tuner b.ae-warn { color: #ffb84d; animation: aeTunerBlink 0.8s ease-in-out infinite; }
 @keyframes aeTunerBlink { 50% { opacity: 0.45; } }
+
+/* TX applet: TX bandwidth steppers (Low cut / High cut). */
+.ae-txbw { display: flex; align-items: center; gap: 8px; padding: 6px 12px 0; }
+.ae-txbw > span:first-child { font: 600 11px var(--font-ui); letter-spacing: 1px; color: var(--ae-text-dim); }
+.ae-txbw-step { flex: 1 1 0; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.ae-txbw-step .ae-key { flex: 0 0 28px; padding: 0; height: 28px; }
+.ae-txbw-step b { flex: 1 1 auto; text-align: center; font: 500 13px var(--font-mono); color: var(--ae-text-hi);
+    background: var(--ae-ground); border: 1px solid var(--ae-line); border-radius: 3px; padding: 4px 0; }
