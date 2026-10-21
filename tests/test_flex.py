@@ -302,7 +302,8 @@ def test_fm_repeater(flex):
         seen = None
         for text in reader.frames(6.0):
             m = json.loads(text)
-            if m.get("type") == "flexDsp" and m.get("rptDir") == "simplex":
+            if m.get("type") == "flexDsp" and m.get("rptDir") == "simplex" \
+                    and m.get("rptOffsetHz") == 5_000_000:
                 seen = m
                 break
         assert seen and seen["rptOffsetHz"] == 5_000_000 and seen["toneMode"] == "off" \
@@ -333,16 +334,25 @@ def test_time_ping_and_key_delay(flex):
         assert abs(pong["ts"] - time.time() * 1000) < 60_000   # NTP may correct the CI clock a little
         assert "ntpOk" in pong
 
+        # The delay is smoothed (3/4 old + 1/4 new) and earlier tests keyed
+        # with no delay, so key a few times and watch it climb toward 200 ms.
         radio.key_delay = 0.2
         try:
-            requests.put(f"{rest}/ptt", json={"transmitting": True}, timeout=5)
-            got = None
-            for text in reader.frames(8.0):
-                m = json.loads(text)
-                if m.get("type") == "flexDsp" and m.get("keyDelayMs") is not None:
-                    got = m["keyDelayMs"]
+            seen = []
+            for _ in range(8):
+                requests.put(f"{rest}/ptt", json={"transmitting": True}, timeout=5)
+                for text in reader.frames(4.0):
+                    m = json.loads(text)
+                    v = m.get("keyDelayMs") if m.get("type") == "flexDsp" else None
+                    if v is not None and (not seen or v != seen[-1]):
+                        seen.append(v)
+                        if v > 0:
+                            break
+                requests.put(f"{rest}/ptt", json={"transmitting": False}, timeout=5)
+                time.sleep(0.3)
+                if seen and seen[-1] >= 120:
                     break
-            assert got is not None and 150 <= got <= 1000, got
+            assert seen and 120 <= seen[-1] <= 1000, seen
         finally:
             requests.put(f"{rest}/ptt", json={"transmitting": False}, timeout=5)
             radio.key_delay = 0.0
