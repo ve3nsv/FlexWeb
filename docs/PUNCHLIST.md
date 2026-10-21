@@ -163,3 +163,11 @@ Status: items 1-8 implemented for build 57.
    other rigs). Also for VFO B / split TX when shown. Both looks (Aether and
    CLASSIC); hidden while the VFO is on screen. Recorder video shows it too
    (it draws the scope canvases, so draw it on the spectrum canvas overlay).
+2. Keep the scope visible with the SSTV panel open (user, 2026-10-21).
+   Today body.sstv-open hides #spectrumCanvas / #waterfallCanvas and the
+   panel fills #scopeArea. Instead: the spectrum + waterfall stay on top
+   (about 35 % of the scope area, the scope's normal clicks / drags / passband
+   still work, so you can see and click SSTV signals near 14.230), the SSTV
+   panel sits under it. Phone: a short spectrum strip over the panel. The
+   recorder's SSTV view gets the scope strip as well. FT8 / JS8 unchanged
+   unless the user asks.
