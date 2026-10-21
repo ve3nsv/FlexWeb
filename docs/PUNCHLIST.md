@@ -97,3 +97,10 @@ and FM / NFM.
    couple of hundred Hz off. Round clicks (all drag styles, CLASSIC and
    AETHER) to the nearest 1 kHz. Dragging (VFO drag, pan, filter edges)
    keeps its fine resolution.
+5. PTT latching like AetherSDR's MOX (user, 2026-10-21): latching already
+   exists as FUNC > PTT: HOLD / LATCH (pttLatchMode, wfPttMode, 5 min safety
+   release) but defaults to HOLD, so the user didn't find it. Make LATCH the
+   default with the AetherSDR look on a Flex (a saved wfPttMode choice still
+   wins), keep the 5 min safety release, keep the spacebar as hold-to-talk,
+   and show the latched state clearly on the PTT button (red, "TX" / "MOX")
+   so a tap-on is obvious.
