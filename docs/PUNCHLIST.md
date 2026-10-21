@@ -82,3 +82,12 @@ and FM / NFM.
    audioGainNode). Place it beside VOL only (GAIN panel and AUDIO / TX
    overlay, wherever the VOL slider is) - user confirmed, no extra button
    elsewhere.
+3. Tuning STEP setting (user, 2026-10-21): today the wheel (scope and
+   frequency display, scopeWheel / freqDisplay wheel) and the arrow keys
+   always use tuneStep = 1000 and tuneUp/tuneDown round to a whole kHz.
+   Add a STEP control like AetherSDR / SmartSDR: 10, 50, 100, 500 Hz,
+   1, 5, 10 kHz, saved in localStorage (wfTuneStep). The wheel and Up/Down
+   keys tune by it and snap to a multiple of it (not to a kHz).
+   Shift/Ctrl stays the fast step (10x the step, at least 10 kHz). Show the
+   step near the frequency (tap to cycle) and in FUNC; the aeScope wheel
+   uses it too.
