@@ -91,3 +91,9 @@ and FM / NFM.
    Shift/Ctrl stays the fast step (10x the step, at least 10 kHz). Show the
    step near the frequency (tap to cycle) and in FUNC; the aeScope wheel
    uses it too.
+4. Click-to-tune lands on the nearest 1 kHz (user, 2026-10-21): a click on
+   the spectrum / waterfall now rounds to 100 Hz (scopeFreqAt ~10791,
+   ~10879, aeScope click ~10984), so clicking beside a signal ends up a
+   couple of hundred Hz off. Round clicks (all drag styles, CLASSIC and
+   AETHER) to the nearest 1 kHz. Dragging (VFO drag, pan, filter edges)
+   keeps its fine resolution.
