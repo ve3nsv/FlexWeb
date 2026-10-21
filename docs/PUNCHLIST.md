@@ -19,14 +19,13 @@ and FM / NFM.
    enough for the mode (about 3 kHz). Remember each setting when the mode starts
    and put it back when it ends (saveVfoSnapshot / restoreVfoSnapshot pattern;
    the handoff between panels must not restore in between).
-   - Classic FreeDV (700D / 700E / 1600): same treatment unless the user says
-     otherwise (mention it).
+   - Classic FreeDV (700D / 700E / 1600): same treatment (user confirmed).
 3. FM and NFM (and DFM on a Flex): the same noise filters off while the slice
    is in FM, put back when it leaves FM. NNR currently counts FM as a voice
    mode (flexCommander::nnrModeOk) - take FM, NFM and DFM out of it. Only the
    filter settings change here, not the mode or the receive filter width.
 3b. Speech processor (PROC) off in FM, NFM (DFM on a Flex) and FreeDV RADE
-   (and classic FreeDV unless the user says otherwise): remember PROC on/off
+   and every classic FreeDV mode (700D, 700E, 1600; user confirmed): remember PROC on/off
    and its level when the mode starts, turn it off, put it back when the mode
    ends. Same remember/restore pattern as the noise filters.
 4. Scope that behaves like AetherSDR's panadapter (SpectrumWidget mouse handlers):
@@ -46,3 +45,17 @@ and FM / NFM.
    - Recording files were still named wfweb_<call>_…; now FlexWeb_<call>_….
    - The video sidebar (1.0.55) is removed again at the user's request: the
      recording is the header and a full-width scope, as before.
+6. Update RADE. FlexWeb's RADE (submodule resources/radae_nopy) is at 712f2f6
+   (2026-03-18). The project moved to github.com/freedv/rade_c (the old repo
+   now only holds a redirect); rade_c HEAD c8a3dc1 (2026-10-07) is 89 commits
+   newer and contains ours. Relevant for V1 (what FreeDV uses on air):
+   a2d77e8 "V1 rx: enable phase renormalization to prevent long-run drift",
+   plus Windows/macOS build fixes and API clean-ups (RadeAPIUse.md: removed
+   functions - adapt radeprocessor.cpp / wfweb.pro). Keep RADE V1: V2 is a
+   development waveform, "on-air use is not recommended" (rade_c README).
+   Point the submodule at freedv/rade_c, rebuild, run the FreeDV/RADE tests
+   (freedv-test skill) and the EOO callsign round trip.
+   codec2 (classic 700D/700E/1600): 1.2.0 is the latest release; Windows CI
+   builds drowe67/codec2 master, macOS uses Homebrew, Ubuntu 24.04 /
+   Debian 13 ship 1.2, Debian 12 ships 1.0 (distro package) - fine for 700D/
+   700E/1600, nothing to do.
