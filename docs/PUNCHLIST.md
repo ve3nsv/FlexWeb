@@ -191,5 +191,13 @@ Status: items 1-8 implemented for build 57.
    keeps working with nothing sent. Check: FreeDV / RADE TX start, packet,
    FT8 / JS8 (their own tagged stream, unaffected), TX LISTEN OPERATOR,
    the USB pre-TX buffer (100 ms) still fills before the device starts.
-   Optional later: Opus for TX audio too (~32 kbit/s, like AUDIO > QUALITY
-   OPUS for receive).
+5. Opus for the mic too (user, 2026-10-21): with AUDIO > QUALITY OPUS, the
+   browser also encodes TX mic audio with WebCodecs AudioEncoder (Opus,
+   48 kHz mono, ~32 kbit/s, 20 ms frames) and sends a new frame type; the
+   server decodes it with libopus (already linked for the receive Opus
+   path) back to 16-bit PCM and feeds the same TX path as 0x03 (TX lock,
+   modem-tag rule, intercom forwarding, FreeDV / RADE encoder, packet
+   gating all unchanged). FT8 / JS8 / SSTV / packet / TUNE modem audio stay
+   PCM (data modes must not go through a speech codec). Browsers without
+   AudioEncoder fall back to PCM. Check the start-of-TX latency and the
+   USB pre-TX buffer, and that the ON-AIR / OPERATOR listeners still hear it.
