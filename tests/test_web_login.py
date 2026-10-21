@@ -422,6 +422,48 @@ def test_intercom(server):
         b.close()
 
 
+def test_opus_tx_voice(server):
+    """AUDIO > QUALITY OPUS: the page sends its voice as 0x09 Opus frames; the
+    server decodes them and they take the same path as 0x03 PCM (here: on to
+    the OPERATOR listener while keyed)."""
+    if sys.platform == "darwin":
+        pytest.skip("audio routing test is timing-sensitive on the macOS runner")
+    base, port, _, radio = server
+    tok_tom = _login(base, "tom", PASSWORD).cookies["wfweb_session"]
+    tok_amy = _login(base, "amy", "amy-password").cookies["wfweb_session"]
+    st, a, abuf = _ws(port, tok_tom)
+    st2, b, bbuf = _ws(port, tok_amy)
+    assert " 101" in st and " 101" in st2
+    ra, rb = _Reader(a, abuf), _Reader(b, bbuf)
+    try:
+        info = _drain_until(ra, lambda m: m.get("type") == "rigInfo")
+        assert info and info.get("txOpus") is True
+        assert _drain_until(rb, lambda m: m.get("type") == "rigInfo")
+        for sock, r in ((a, ra), (b, rb)):
+            _ws_send(sock, {"cmd": "enableAudio", "value": True})
+            st_msg = _drain_until(r, lambda m: m.get("type") == "audioStatus")
+            assert st_msg, "no audioStatus"
+            if not st_msg.get("enabled"):
+                pytest.skip(f"browser audio unavailable here: {st_msg.get('reason')}")
+        _ws_send(b, {"cmd": "setTxListen", "mode": "op"})
+        _ws_send(a, {"cmd": "enableMic", "value": True})
+        time.sleep(0.5)
+        _ws_send(a, {"cmd": "setPTT", "value": True})
+        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 1"], timeout=5)
+        # A one-byte Opus packet: TOC 0xF8 (CELT fullband 20 ms, mono, one
+        # frame) with an empty frame - decodes to 960 samples of silence.
+        for i in range(25):
+            _ws_send(a, bytes([0x09, 0x00]) + struct.pack("<HH", i, 0) + bytes([0xF8]), opcode=2)
+            time.sleep(0.02)
+        intercom = sum(1 for op, p in rb.all(2.0) if op == 2 and len(p) > 6 and p[0] == 0x02 and p[1] == 1)
+        assert intercom >= 1, "decoded Opus voice never reached the listener"
+        _ws_send(a, {"cmd": "setPTT", "value": False})
+        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 0"], timeout=5)
+    finally:
+        a.close()
+        b.close()
+
+
 def test_intercom_talk(server):
     """TALK: amy's microphone (0x06) reaches tom as 0x07 with a talker id,
     never comes back to amy, never keys the radio, and both browsers are

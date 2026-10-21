@@ -154,6 +154,8 @@ Status: items 1-8 implemented for build 57.
 
 # Next batch
 
+Status: items 1-6 implemented for build 59.
+
 1. Off-screen VFO indicator like AetherSDR (user, 2026-10-21, screenshot:
    VFO 7.185 LSB, scope panned to 7.456-7.556). When the VFO (and its
    passband) is outside the scope, show a marker at that edge of the

@@ -331,6 +331,8 @@ private:
     // [0x05][0x00][seq_u16LE][rateDiv_u16LE][opus], instead of 0x02 PCM.
     QSet<QWebSocket *> opusClients;
     OpusEncoder *rxOpusEnc = nullptr;
+    // TX voice as Opus (0x09 frames), one decoder per browser.
+    QHash<QWebSocket *, OpusDecoder *> txOpusDec;
     int rxOpusRate = 0;
     QByteArray rxOpusPending;          // PCM waiting for a whole frame
     quint16 rxOpusSeq = 0;

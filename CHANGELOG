@@ -65,6 +65,26 @@ FlexRadio:
   recalled, saved from the current slice, renamed and deleted.
 - FM repeaters: DUP-/DUP+/simplex, offset and CTCSS TX tone set the
   slice's repeater offset and FM tone (the DUP and TONE tiles).
+- The microphone is sent only while this browser transmits (from the PTT /
+  MOX press until the release) or talks on the intercom; an open mic used to
+  stream ~1 Mbit/s all the time. The LVL meter still works (it is local).
+- With AUDIO > QUALITY OPUS the voice goes to the radio as Opus too
+  (~32 kbit/s instead of ~770 kbit/s of PCM). FT8, JS8, SSTV, packet and
+  TUNE stay PCM; a browser without WebCodecs sends PCM.
+- NNR pauses while transmitting, so the ON-AIR listeners hear the radio's
+  monitor of the transmission as it is.
+- A tab at the scope's edge points to the VFO when it is off screen (A,
+  frequency, mode, distance); tap it to bring the scope back.
+- SSTV keeps the spectrum and waterfall above its panel (and in recordings).
+- RF-KIT (RF2K-S): TUNE for amplifiers whose REST server has the tune
+  command (found by asking PUT /tuner {} on connect: 400 / 2xx yes, 405 no);
+  it starts the amp's autotune only from AUTO or MANUAL, shows TUNING from
+  the amp's own readback and never keys the radio (key TUNE first). The
+  sidebar shows reflected power, SWR on the amp's 1 / 1.5 / 2 / 3 / 5 scale
+  in orange from 1.5:1 and red from 2:1, and an error banner. Amp controls
+  (OPERATE / STANDBY, TUNE, antennas, error reset) need a signed-in web user
+  and nobody else holding the TX lock; with no web users the amp is
+  read-only. The server refuses them otherwise.
 - SSTV (MODE > SSTV, or the SSTV button by FT8): receive and send
   pictures in Robot 36 / 72, Martin M1 / M2, Scottie S1 / S2 / DX and
   PD 90 / 120. The mode comes from the VIS header (or a fixed mode), a

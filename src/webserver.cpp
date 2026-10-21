@@ -151,6 +151,8 @@ webServer::webServer(QObject *parent) :
 webServer::~webServer()
 {
     if (rxOpusEnc) { opus_encoder_destroy(rxOpusEnc); rxOpusEnc = nullptr; }
+    for (OpusDecoder *d : txOpusDec) opus_decoder_destroy(d);
+    txOpusDec.clear();
     wsjtxSendClose();
     // Restore DATA MOD OFF setting if mic was active.  ~servermain() waits
     // for the queue to dispatch this before it closes the rig port.
@@ -1902,6 +1904,7 @@ void webServer::onWsDisconnected()
         if (talkLastMs.remove(pClient)) QTimer::singleShot(0, this, [this]() { broadcastTalkers(); });
         talkerId.remove(pClient);
         opusClients.remove(pClient);
+        if (OpusDecoder *d = txOpusDec.take(pClient)) opus_decoder_destroy(d);
         wsClients.removeAll(pClient);
         browserCount_ = wsClients.size();
         pClient->deleteLater();
@@ -1920,6 +1923,30 @@ void webServer::onWsBinaryMessage(QByteArray message)
         QWebSocket *talker = qobject_cast<QWebSocket *>(sender());
         if (talker) onTalkFrame(talker, message.mid(6));
         return;
+    }
+    if (msgType == 0x09) {
+        // TX voice as Opus (the page's AUDIO > QUALITY OPUS): decode to
+        // 48 kHz mono int16 and carry on exactly as a 0x03 mic frame.
+        QWebSocket *src = qobject_cast<QWebSocket *>(sender());
+        if (!src) return;
+        OpusDecoder *dec = txOpusDec.value(src, nullptr);
+        if (!dec) {
+            int err = 0;
+            dec = opus_decoder_create(48000, 1, &err);
+            if (err != OPUS_OK || !dec) return;
+            txOpusDec.insert(src, dec);
+        }
+        QByteArray pcm(5760 * 2, 0);          // up to 120 ms at 48 kHz
+        const int n = opus_decode(dec, reinterpret_cast<const unsigned char *>(message.constData() + 6),
+                                  message.size() - 6, reinterpret_cast<opus_int16 *>(pcm.data()), 5760, 0);
+        if (n <= 0) return;
+        pcm.resize(n * 2);
+        QByteArray m(6, 0);
+        m[0] = 0x03; m[1] = 0x00;            // untagged: voice, not modem audio
+        m[2] = message[2]; m[3] = message[3];
+        m.append(pcm);
+        message = m;
+        msgType = 0x03;
     }
     if (msgType != 0x03) return; // Only handle TX audio (0x03)
 
@@ -4009,6 +4036,7 @@ void webServer::sendCurrentState(QWebSocket *client)
     // Web login: who this browser is signed in as ("" when login is off).
     info["webUser"] = wsUser.value(client);
     info["webLogin"] = webAuth::hasUsers();
+    info["txOpus"] = true;      // accepts 0x09 Opus voice frames (onWsBinaryMessage)
     // The browser adopts these on connect instead of pushing its own copy.
     info["stationCallsign"] = reporterCallsign;
     info["stationGrid"] = reporterGrid;

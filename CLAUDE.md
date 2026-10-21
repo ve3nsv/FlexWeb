@@ -206,6 +206,7 @@ Without a server, the browser does in JS / WASM what the Server does in Qt:
 |-----------|---------|--------|
 | RX (rig->browser) | `0x02` | `[0x02][0x00][seq_u16LE][rateDiv_u16LE][PCM_Int16LE...]` |
 | TX (browser->rig) | `0x03` | `[0x03][0x00][seq_u16LE][reserved_u16LE][PCM_Int16LE...]` |
+| TX voice, Opus (browser->server) | `0x09` | `[0x09][0x00][seq_u16LE][reserved_u16LE][opus packet]` - QUALITY OPUS; the server decodes to 48 kHz PCM and handles it as `0x03` (`txOpusDec`) |
 
 ### RX jitter buffer (`rx-jitter.js`)
 RX frames go from `handleAudioData` into `WfJitterBuffer`
@@ -404,7 +405,8 @@ queue->add(priorityImmediate, queueItem(funcMemoryContents, QVariant::fromValue<
   server is not involved and stores nothing.
 - The host page feeds PCM at three points, identical in both `index.html`:
   `Recorder.feedRx` in `handleAudioData`, `Recorder.feedTx` in `sendTxAudio`
-  (every 0x03 frame actually sent), `Recorder.feedTxPcm` on the 0x04 packet-TX
+  (every 0x03 frame actually sent; with Opus TX voice the page passes the
+  PCM it encoded), `Recorder.feedTxPcm` on the 0x04 packet-TX
   tee. New audio paths must pass through one of these to be recorded.
 - A mixer AudioWorklet in its own 48 kHz context builds one mono timeline.
   **TX replaces RX while TX audio is queued** — a rig with MONITOR on loops TX

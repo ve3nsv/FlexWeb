@@ -3770,6 +3770,7 @@ function handleMessage(msg) {
         case 'rigInfo':
             if (msg.webUser !== undefined) setWebUser(msg.webUser);
             if (msg.webLogin !== undefined) webLoginOn = !!msg.webLogin;
+            if (msg.txOpus !== undefined) serverTxOpus = !!msg.txOpus;
             if (msg.reporterMessage !== undefined) setReporterMessageField(msg.reporterMessage);
             if (msg.ampConfigured !== undefined) { ampConfigured = !!msg.ampConfigured; renderAmpIndicator(); }
             if (msg.version) {
@@ -9781,6 +9782,12 @@ function startMic() {
                 view.setUint8(0, talking ? 0x06 : 0x03); view.setUint8(1, 0x00);
                 view.setUint16(2, micSeq++ & 0xFFFF, true); view.setUint16(4, 0, true);
                 new Uint8Array(frame, 6).set(new Uint8Array(pcmBuffer));
+                // QUALITY OPUS: the voice goes to the radio as Opus (~32 kbit/s);
+                // the recorder still gets the PCM.
+                if (!talking && txOpusWanted() && txOpusEncode(pcmBuffer)) {
+                    Recorder.feedTx(frame, 48000);
+                    return;
+                }
                 sendTxAudio(frame);
             };
             micEnabled = true; micStarting = false;
@@ -9832,7 +9839,53 @@ function micVuDraw() {
     micVuLevel *= 0.85;
 }
 
+// TX voice as Opus (AUDIO > QUALITY OPUS, server says txOpus): the mic's
+// 48 kHz PCM is encoded in the browser with WebCodecs and sent as 0x09
+// frames; the server decodes it back to PCM for the same TX path. Only the
+// voice: FT8 / JS8 / SSTV / packet / TUNE keep their PCM streams (a speech
+// codec would damage a data signal). Any encoder error falls back to PCM
+// for the rest of the session.
+var serverTxOpus = false, txOpusEnc = null, txOpusFailed = false, txOpusTs = 0, txOpusSeq = 0;
+function txOpusWanted() {
+    return rxCodecWanted === 'opus' && serverTxOpus && !txOpusFailed && typeof window.AudioEncoder === 'function'
+        && typeof window.AudioData === 'function';
+}
+function txOpusClose() {
+    if (txOpusEnc) { try { txOpusEnc.close(); } catch (e) {} }
+    txOpusEnc = null; txOpusTs = 0;
+}
+function txOpusEncode(pcmBuffer) {
+    try {
+        if (!txOpusEnc) {
+            txOpusEnc = new AudioEncoder({
+                output: function (chunk) {
+                    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+                    var pkt = new Uint8Array(6 + chunk.byteLength);
+                    chunk.copyTo(pkt.subarray(6));
+                    pkt[0] = 0x09; pkt[1] = 0x00;
+                    var sq = txOpusSeq++ & 0xFFFF; pkt[2] = sq & 0xFF; pkt[3] = sq >> 8;
+                    ws.send(pkt.buffer);
+                },
+                error: function (err) { console.warn('[Mic] Opus encoder failed, back to PCM:', err); txOpusFailed = true; txOpusEnc = null; }
+            });
+            txOpusEnc.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 32000 });
+        }
+        var n = pcmBuffer.byteLength / 2;
+        var ad = new AudioData({ format: 's16', sampleRate: 48000, numberOfFrames: n, numberOfChannels: 1,
+                                 timestamp: txOpusTs, data: new Int16Array(pcmBuffer.slice(0)) });
+        txOpusTs += Math.round(n * 1e6 / 48000);
+        txOpusEnc.encode(ad);
+        ad.close();
+        return true;
+    } catch (err) {
+        console.warn('[Mic] Opus TX unavailable, sending PCM:', err);
+        txOpusFailed = true; txOpusClose();
+        return false;
+    }
+}
+
 function stopMic() {
+    txOpusClose();
     if (micEnabled) send({ cmd: 'enableMic', value: false });
     micEnabled = false; micStarting = false; micStartGen++;
     micDeviceLabel = ''; micDeviceWarn = '';
