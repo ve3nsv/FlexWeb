@@ -171,3 +171,10 @@ Status: items 1-8 implemented for build 57.
    panel sits under it. Phone: a short spectrum strip over the panel. The
    recorder's SSTV view gets the scope strip as well. FT8 / JS8 keep their
    full-panel layout (user confirmed).
+3. NNR off while transmitting (user, 2026-10-21): flexCommander::handleRxAudio
+   runs nnrFilter on the radio's audio stream regardless of TX, so the
+   ON-AIR TX LISTEN (radio monitor) goes through the noise-reduction model.
+   Bypass NNR while `transmitting` (pass the audio through unchanged, keep
+   the filter's state so RX resumes cleanly: reset() on unkey), and report
+   NR GAIN as inactive during TX. Test: test_nnr with xmit 1 -> samples pass
+   unchanged.
