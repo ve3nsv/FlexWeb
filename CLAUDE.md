@@ -411,7 +411,8 @@ queue->add(priorityImmediate, queueItem(funcMemoryContents, QVariant::fromValue<
 - A mixer AudioWorklet in its own 48 kHz context builds one mono timeline.
   **TX replaces RX while TX audio is queued** — a rig with MONITOR on loops TX
   back into the RX stream, and summing would record it twice. Mic frames are
-  only kept while `isTransmitting` (the mic streams whenever it is enabled).
+  only kept while `isTransmitting` (the mic is sent only while keying or
+  talking: `micSendWanted`).
 - Audio → MP3 via vendored `lamejs/lame.min.js` in a Blob worker. Video → a
   composited 1280×720 canvas (header + `meterCanvas` / `spectrumCanvas` /
   `waterfallCanvas`) through `MediaRecorder`; MP4 where supported, else WebM.
