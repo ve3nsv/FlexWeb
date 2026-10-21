@@ -324,6 +324,18 @@ private:
     bool autoMon = false;
     void updateAutoMon();
     void forwardOperatorAudio(const QByteArray &pcm, bool modemTagged);
+    // Time (FT8/JS8 timing): the server checks this computer's clock against
+    // an NTP server; browsers measure theirs against the server ("timePing").
+    QUdpSocket *ntpSocket = nullptr;
+    QTimer *ntpTimer = nullptr;
+    qint64 ntpSentMs = 0;
+    qint64 ntpOffsetMs = 0;       // NTP time - this computer's clock
+    bool ntpOk = false;
+    QString ntpServer = QStringLiteral("pool.ntp.org");
+    void startNtp();
+    void ntpQuery();
+    void ntpReadyRead();
+    QJsonObject timeStatusJson() const;
     bool restAuthorized(QTcpSocket *socket, const QByteArray &headers);
     void serveLoginPage(QTcpSocket *socket, int status, const QString &error);
     void handleLogin(QTcpSocket *socket, const QByteArray &body);

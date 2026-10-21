@@ -500,7 +500,8 @@ const JS8_PANEL_MARKUP = `
 
     function slotInfo() {
         var p = getSubmode(S.submode).slotSeconds;
-        var now = Date.now() / 1000;
+        // window.wfNow (server page): NTP-corrected time; plain clock elsewhere.
+        var now = (typeof window.wfNow === 'function' ? window.wfNow() : Date.now()) / 1000;
         var phase = now % p;
         return { slotIndex: Math.floor(now / p), slotPhase: phase, remaining: p - phase, period: p };
     }
@@ -534,7 +535,7 @@ const JS8_PANEL_MARKUP = `
 
     function tickTimer() {
         if (!S.visible) return;
-        var nowSec = Date.now() / 1000;
+        var nowSec = (typeof window.wfNow === 'function' ? window.wfNow() : Date.now()) / 1000;
 
         // Clock + progress bar — driven by the user's selected TX submode
         // so it shows the cadence of the speed they'll transmit at.

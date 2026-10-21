@@ -919,6 +919,11 @@ void flexCommander::handleStatus(const message& msg)
                     for (const QByteArray& pkt : txPending)
                         udp->writeDatagram(pkt, radioAddress, radioUdpPort);
                 }
+                if (txKeyTimer.isValid()) {
+                    const int ms = int(qMin<qint64>(txKeyTimer.elapsed(), 2000));
+                    keyDelayMs = keyDelayMs < 0 ? ms : (keyDelayMs * 3 + ms) / 4;
+                    publishDsp();
+                }
                 qInfo(logRig()).noquote() << QString("Flex: on the air %1 ms after xmit 1, sent %2 ms of held audio")
                     .arg(txKeyTimer.isValid() ? txKeyTimer.elapsed() : -1)
                     .arg(txPending.size() * DAX_TX_FRAMES * 1000 / DAX_RATE);
@@ -2293,6 +2298,7 @@ void flexCommander::publishDsp()
             st["rptOffsetHz"] = qint64(std::llround(rptOffsetMHz * 1e6));
             st["toneMode"] = fmToneMode;
             st["toneTenths"] = int(std::lround(fmToneHz * 10));
+            if (keyDelayMs >= 0) st["keyDelayMs"] = keyDelayMs;
             emit flexDspState(st);
         });
     }

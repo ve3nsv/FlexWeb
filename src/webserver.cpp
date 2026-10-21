@@ -20,6 +20,7 @@
 #include <QHostInfo>
 #include <QPointer>
 #include <QThreadPool>
+#include <QtEndian>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -487,6 +488,8 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
     else
         qWarning() << "Web login is off: anyone who can reach port" << httpPort
                    << "can use the radio. Add a user with  wfweb --add-user <name>  before port forwarding.";
+
+    startNtp();
 
     // Periodic status updates (meters, etc.) every 200ms
     statusTimer = new QTimer(this);
@@ -2800,6 +2803,14 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         } else {
             emit requestPowerOff();
         }
+    }
+    else if (type == "timePing") {
+        // Browser clock sync: echo its send time with ours (NTP-corrected).
+        QJsonObject p = timeStatusJson();
+        p["type"] = "timePong";
+        p["t0"] = cmd["t0"];
+        p["ts"] = double(QDateTime::currentMSecsSinceEpoch() + ntpOffsetMs);
+        sendJsonTo(client, p);
     }
     else if (type == "flexMemory") {
         // MEMORIES applet: {cmd:'flexMemory', action, id, name?, group?}.
@@ -8737,6 +8748,82 @@ void webServer::broadcastTxState()
         st["mine"] = c == pttClient;
         sendJsonTo(c, st);
     }
+}
+
+// ─── Time ────────────────────────────────────────────────────────────────
+// SNTP (RFC 4330) against pool.ntp.org every 15 minutes: the offset makes
+// FT8/JS8 slots right even when this computer's clock drifts. A failed
+// query keeps the last good offset (or none).
+
+void webServer::startNtp()
+{
+    const QString env = qEnvironmentVariable("WFWEB_NTP_SERVER");
+    if (!env.isEmpty()) ntpServer = env;
+    if (ntpServer.compare("off", Qt::CaseInsensitive) == 0) return;
+    ntpSocket = new QUdpSocket(this);
+    ntpSocket->bind(QHostAddress(QHostAddress::AnyIPv4), 0);
+    connect(ntpSocket, &QUdpSocket::readyRead, this, &webServer::ntpReadyRead);
+    ntpTimer = new QTimer(this);
+    ntpTimer->setInterval(15 * 60 * 1000);
+    connect(ntpTimer, &QTimer::timeout, this, &webServer::ntpQuery);
+    ntpTimer->start();
+    QTimer::singleShot(2000, this, &webServer::ntpQuery);
+}
+
+void webServer::ntpQuery()
+{
+    if (!ntpSocket) return;
+    QHostInfo::lookupHost(ntpServer, this, [this](const QHostInfo &info) {
+        if (!ntpSocket) return;
+        QHostAddress addr;
+        for (const QHostAddress &a : info.addresses())
+            if (a.protocol() == QAbstractSocket::IPv4Protocol) { addr = a; break; }
+        if (addr.isNull()) {
+            qWarning() << "Time: cannot resolve NTP server" << ntpServer;
+            return;
+        }
+        QByteArray pkt(48, 0);
+        pkt[0] = char(0x1B);            // LI 0, version 3, client
+        ntpSentMs = QDateTime::currentMSecsSinceEpoch();
+        ntpSocket->writeDatagram(pkt, addr, 123);
+    });
+}
+
+void webServer::ntpReadyRead()
+{
+    while (ntpSocket && ntpSocket->hasPendingDatagrams()) {
+        QByteArray d;
+        d.resize(int(ntpSocket->pendingDatagramSize()));
+        ntpSocket->readDatagram(d.data(), d.size());
+        const qint64 t4 = QDateTime::currentMSecsSinceEpoch();
+        if (d.size() < 48 || ntpSentMs == 0) continue;
+        auto ts = [&d](int off) {
+            const quint32 sec = qFromBigEndian<quint32>(reinterpret_cast<const uchar*>(d.constData()) + off);
+            const quint32 frac = qFromBigEndian<quint32>(reinterpret_cast<const uchar*>(d.constData()) + off + 4);
+            return (qint64(sec) - 2208988800LL) * 1000 + qint64((quint64(frac) * 1000) >> 32);
+        };
+        const qint64 t2 = ts(32), t3 = ts(40);
+        if (t3 <= 0) continue;
+        const qint64 rtt = (t4 - ntpSentMs) - (t3 - t2);
+        if (rtt < 0 || rtt > 2000) continue;
+        ntpOffsetMs = ((t2 - ntpSentMs) + (t3 - t4)) / 2;
+        ntpOk = true;
+        ntpSentMs = 0;
+        qInfo().noquote() << QString("Time: this computer's clock is %1 ms %2 NTP (%3, round trip %4 ms)")
+            .arg(qAbs(ntpOffsetMs)).arg(ntpOffsetMs > 0 ? "behind" : "ahead of").arg(ntpServer).arg(rtt);
+        QJsonObject o = timeStatusJson();
+        o["type"] = "timeStatus";
+        sendJsonToAll(o);
+    }
+}
+
+QJsonObject webServer::timeStatusJson() const
+{
+    QJsonObject o;
+    o["ntpOk"] = ntpOk;
+    o["ntpOffsetMs"] = double(ntpOffsetMs);
+    o["ntpServer"] = ntpServer;
+    return o;
 }
 
 void webServer::setRestLan(bool lan)

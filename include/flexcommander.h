@@ -218,6 +218,9 @@ private:
     double rptOffsetMHz = 0.0;
     QString fmToneMode = QStringLiteral("off");
     double fmToneHz = 0.0;
+    // Time from "xmit 1" to the radio on the air, smoothed: the FT8/JS8 page
+    // starts that much earlier (flexDsp keyDelayMs).
+    int keyDelayMs = -1;
     // Radio memories by index, as the radio reports them ("sub memories all").
     QMap<int, QMap<QString, QString>> memories;
     bool memPublishPending = false;

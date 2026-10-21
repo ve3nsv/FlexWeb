@@ -2270,6 +2270,12 @@ body.digi-open #bottomBar { grid-row: 5; }
 }
 .ae-mem-actions button.danger { background: #4a1010; border-color: #c33; color: #ffd0d0; }
 .ae-mem-empty { padding: 8px 2px; color: var(--ae-text-dim, #8ea8c0); font: 12px var(--font-ui, system-ui, sans-serif); }
+
+/* FT8 bar: clock / RX / TX timing line (tap: automatic correction on/off). */
+.digi-timing { background: none; border: 1px solid transparent; border-radius: 3px; padding: 1px 6px;
+    color: var(--ae-text-dim, #8ea8c0); font: 10px var(--font-mono, monospace); cursor: pointer; white-space: nowrap; }
+.digi-timing:hover { border-color: var(--ae-line, #2a3a4d); }
+.digi-timing.warn { color: #ffb84d; }
 </style>
 <!-- JS8 messenger panel styles — shared with the standalone build via
      resources/web-shared/js8-panel.css. -->
@@ -2602,6 +2608,7 @@ try {
                     <div id="digiProgressBar" class="digi-progress-fill"></div>
                 </div>
                 <span id="digiClock" class="digi-period-clock">15</span>
+                <button type="button" id="digiTiming" class="digi-timing" onclick="toggleDigiAutoTiming()">clock ?</button>
                 <span class="digi-mobile-break"></span>
                 <span class="digi-field-label">DX:</span>
                 <input type="text" id="digiDxCall" class="digi-callsign-input wf-field" maxlength="10" placeholder="DX" autocomplete="off">
@@ -3500,6 +3507,7 @@ function onTransportOpen() {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     send({ cmd: 'getStatus' });
     sendTxListen(true);
+    timePingBurst();
     // The station callsign is server state: rigInfo brings it and we adopt
     // it (see the rigInfo handler).  Pushing our saved copy here is exactly
     // what let a stale tab overwrite the call for everyone.
@@ -3591,6 +3599,12 @@ function handleMessage(msg) {
     // Forward to read-only consumer modules before main state-machine switch.
     if (window.Packet && window.Packet.onMessage) window.Packet.onMessage(msg);
     switch (msg.type) {
+        case 'timePong':
+            onTimePong(msg);
+            break;
+        case 'timeStatus':
+            onTimeStatus(msg);
+            break;
         case 'flexMemories':
             flexMemList = msg.list || [];
             flexMemRenderAll();
@@ -11035,9 +11049,89 @@ function processDigiAudioChunk(int16Chunk) {
     }
 }
 
-function getDigiSlotInfo() {
+// ---- FT8 / JS8 timing (item 14) ------------------------------------------
+// Clock: the server checks its own clock against NTP and answers "timePing"
+// with NTP time; this page keeps the offset of the best (lowest round trip)
+// of its recent pings, so slots follow true UTC whatever the device clock.
+// RX: the decode window starts late by the learned receive latency (radio +
+// network + server), learned from the DT of what is decoded: most stations
+// are on time, so their median DT is ours. TX: transmission starts early by
+// the radio's key-up time (Flex) plus half the round trip, so it reaches the
+// air on time. FUNC-free: tap the timing line in the FT8 bar to turn the
+// automatic RX/TX correction off and on.
+var wfClockOffsetMs = 0, wfClockRttMs = null, wfClockSamples = [], wfNtp = null;
+window.wfNow = function () { return Date.now() + wfClockOffsetMs; };
+var digiAutoTiming = true, digiRxLatencyMs = 0;
+try {
+    digiAutoTiming = localStorage.getItem('wfFt8AutoTiming') !== 'off';
+    digiRxLatencyMs = Math.max(-500, Math.min(2000, parseFloat(localStorage.getItem('wfFt8RxLatency')) || 0));
+} catch (e) {}
+
+function timePingBurst() {
+    for (var i = 0; i < 5; i++)
+        setTimeout(function () { send({ cmd: 'timePing', t0: Date.now() }); }, i * 250);
+}
+function onTimePong(msg) {
+    var t1 = Date.now(), rtt = t1 - msg.t0;
+    if (!(rtt >= 0 && rtt < 5000)) return;
+    wfClockSamples.push({ off: msg.ts - (msg.t0 + t1) / 2, rtt: rtt, at: t1 });
+    // The last 10 minutes; the quickest exchange is the most accurate.
+    wfClockSamples = wfClockSamples.filter(function (s) { return t1 - s.at < 600000; }).slice(-30);
+    var best = wfClockSamples.reduce(function (a, b) { return b.rtt < a.rtt ? b : a; });
+    wfClockOffsetMs = best.off;
+    wfClockRttMs = best.rtt;
+    onTimeStatus(msg);
+}
+function onTimeStatus(msg) {
+    if (msg.ntpOk !== undefined) wfNtp = { ok: !!msg.ntpOk, offsetMs: msg.ntpOffsetMs, server: msg.ntpServer };
+    updateDigiTiming();
+}
+setInterval(function () { if (ws && ws.readyState === WebSocket.OPEN) timePingBurst(); }, 60000);
+
+function digiTxLeadMs() {
+    if (!digiAutoTiming) return 0;
+    var key = (flexDsp && flexDsp.keyDelayMs > 0) ? flexDsp.keyDelayMs : 0;
+    return Math.max(0, Math.min(1500, key + (wfClockRttMs || 0) / 2));
+}
+function digiRxShiftMs() { return digiAutoTiming ? digiRxLatencyMs : 0; }
+
+// After each decode: nudge the receive latency by half the median DT of the
+// slot (3+ decodes), so it settles in a few slots and ignores odd stations.
+function digiLearnDt(results) {
+    if (!digiAutoTiming || !results || results.length < 3) return;
+    var dts = results.map(function (r) { return Number(r.dt) || 0; }).sort(function (a, b) { return a - b; });
+    var med = dts[Math.floor(dts.length / 2)];
+    if (Math.abs(med) < 0.05) return;
+    digiRxLatencyMs = Math.max(-500, Math.min(2000, digiRxLatencyMs + med * 500));
+    try { localStorage.setItem('wfFt8RxLatency', String(Math.round(digiRxLatencyMs))); } catch (e) {}
+    updateDigiTiming();
+}
+
+function updateDigiTiming() {
+    var el = document.getElementById('digiTiming');
+    if (!el) return;
+    var s = function (ms) { return (ms >= 0 ? '+' : '−') + (Math.abs(ms) / 1000).toFixed(2); };
+    // How far this device's clock is from true time (NTP via the server).
+    var clockTxt = (wfClockRttMs === null) ? 'clock ?' : 'clock ' + s(-wfClockOffsetMs) + (wfNtp && wfNtp.ok ? '' : ' (PC)');
+    el.textContent = digiAutoTiming
+        ? clockTxt + ' · RX ' + s(digiRxLatencyMs) + ' · TX ' + s(-digiTxLeadMs())
+        : clockTxt + ' · timing MANUAL';
+    el.classList.toggle('warn', Math.abs(wfClockOffsetMs) > 500 && !!(wfNtp && wfNtp.ok));
+    el.title = 'Clock: this device against true UTC (' + (wfNtp && wfNtp.ok ? 'NTP ' + wfNtp.server + ' via the server' : 'the server PC\'s clock; NTP not reached') +
+        '), already corrected. RX: decode window delay learned from the DT of decoded stations. ' +
+        'TX: how early transmission starts (radio key-up + network). Tap to switch the automatic RX/TX correction ' +
+        (digiAutoTiming ? 'off.' : 'on.');
+}
+function toggleDigiAutoTiming() {
+    digiAutoTiming = !digiAutoTiming;
+    try { localStorage.setItem('wfFt8AutoTiming', digiAutoTiming ? 'auto' : 'off'); } catch (e) {}
+    updateDigiTiming();
+}
+
+// shiftMs: + looks ahead (TX lead), - looks back (RX latency).
+function getDigiSlotInfo(shiftMs) {
     var period = digiPeriod();
-    var now = Date.now() / 1000.0;
+    var now = (window.wfNow() + (shiftMs || 0)) / 1000.0;
     var utcSec = now % 60;
     var slotPhase = utcSec % period;
     var remaining = period - slotPhase;
@@ -11049,9 +11143,11 @@ function startDigiPeriodTimer() {
     stopDigiPeriodTimer();
     resetDigiRxBuffer();
     lastDecodeSlotIndex = -1;
-    lastResetSlotIndex = getDigiSlotInfo().slotIndex; // don't re-reset the slot we just reset
+    lastResetSlotIndex = getDigiSlotInfo(-digiRxShiftMs()).slotIndex; // don't re-reset the slot we just reset
     digiPeriodTimer = setInterval(function() {
         var info = getDigiSlotInfo();
+        var rxInfo = getDigiSlotInfo(-digiRxShiftMs());
+        var txInfo = getDigiSlotInfo(digiTxLeadMs());
         var clockEl = document.getElementById('digiClock');
         if (clockEl) clockEl.textContent = Math.ceil(info.remaining).toString();
         var progressEl = document.getElementById('digiProgressBar');
@@ -11075,14 +11171,14 @@ function startDigiPeriodTimer() {
         // Reset buffer on the first timer tick of each new slot.
         // Using slot index (not a 0.5s window) means this still fires even when the
         // previous decode blocked the JS thread for 2-3 s and pushed us past the window.
-        if (info.slotIndex !== lastResetSlotIndex) {
-            lastResetSlotIndex = info.slotIndex;
+        if (rxInfo.slotIndex !== lastResetSlotIndex) {
+            lastResetSlotIndex = rxInfo.slotIndex;
             resetDigiRxBuffer();
         }
         // Trigger decode near end of each slot. Skip while TX is actively streaming
         // (we'd be capturing our own audio). Armed-but-not-active is fine to decode.
-        if (info.remaining < 0.5 && info.slotIndex !== lastDecodeSlotIndex) {
-            lastDecodeSlotIndex = info.slotIndex;
+        if (rxInfo.remaining < 0.5 && rxInfo.slotIndex !== lastDecodeSlotIndex) {
+            lastDecodeSlotIndex = rxInfo.slotIndex;
             if (digiRxEnabled && !digiTxActive) triggerDigiDecode();
         }
         // Fire TX within the first 4.5 s of each slot.
@@ -11095,17 +11191,17 @@ function startDigiPeriodTimer() {
         // Auto re-arm from onDone uses the narrow 4.5 s window to avoid firing again in the
         // same slot's decode tail (seconds 12-15 / 6-7.5 for FT4).
         var txPhaseLimit = digiTxUserInitiated ? 13 : 4.5;
-        if (info.slotPhase < txPhaseLimit && digiTxArmed && !digiTxActive && !digiDecodeInProgress &&
-            info.slotIndex !== digiSwitchAbortedSlot) {
-            var currentParity = info.slotIndex % 2;
+        if (txInfo.slotPhase < txPhaseLimit && digiTxArmed && !digiTxActive && !digiDecodeInProgress &&
+            txInfo.slotIndex !== digiSwitchAbortedSlot) {
+            var currentParity = txInfo.slotIndex % 2;
             if (digiTxSlotParity >= 0 && currentParity !== digiTxSlotParity) {
                 // Wrong parity slot — FT8 requires strict alternation with the DX station.
                 // Stay armed and wait for the correct (next) slot.
             } else {
-                console.log('[DIGI timer] slotPhase=' + info.slotPhase.toFixed(2) +
+                console.log('[DIGI timer] slotPhase=' + txInfo.slotPhase.toFixed(2) + ' lead=' + Math.round(digiTxLeadMs()) + 'ms' +
                             's parity=' + currentParity + ' armed=true queued=' + JSON.stringify(digiTxQueued) +
                             ' enabled=' + digiTxEnabled + ' state=' + digiQsoState);
-                executeDigiTx(info.slotPhase);
+                executeDigiTx(txInfo.slotPhase);
             }
         }
     }, 100);
@@ -11211,6 +11307,7 @@ function updateDigiStatus(text, cls) {
 // Shared result handler used by both the worker path and the sync fallback path.
 function onFt8DecodeResult(results, decodedSlotIndex) {
     digiDecodeInProgress = false; // unblock TX now that results are in
+    digiLearnDt(results);
     results.sort(function(a, b) { return b.snr - a.snr; }); // strongest signal first
     var now = new Date();
     var timeStr = now.toISOString().substr(11, 8); // HH:MM:SS
