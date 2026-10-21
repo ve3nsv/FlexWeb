@@ -275,6 +275,42 @@ def test_radio_memories(flex):
         sock.close()
 
 
+def test_fm_repeater(flex):
+    """FM repeater on the Flex: DUP offset/direction and CTCSS encode become
+    slice settings, and the radio's own values come back to the page."""
+    radio, rest = flex
+    from test_web_login import _Reader, _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    reader = _Reader(sock, buf)
+    try:
+        for key, value in (("rptOffset", 600000), ("rptDir", 2), ("toneValue", 1000), ("toneMode", 1)):
+            _ws_send(sock, {"cmd": "flexDsp", "key": key, "index": 0, "value": value})
+        assert _wait(lambda: radio.slice.get("repeater_offset_dir") == "up"
+                     and radio.slice.get("fm_repeater_offset_freq") == "0.600000"
+                     and radio.slice.get("tx_offset_freq") == "0.600000", timeout=5), radio.slice
+        assert _wait(lambda: radio.slice.get("fm_tone_mode") == "ctcss_tx"
+                     and radio.slice.get("fm_tone_value") == "100.0", timeout=5), radio.slice
+
+        _ws_send(sock, {"cmd": "flexDsp", "key": "rptDir", "index": 0, "value": 1})
+        assert _wait(lambda: radio.slice.get("tx_offset_freq") == "-0.600000", timeout=5), radio.slice
+
+        # The radio changes them itself (SmartSDR, a memory): the page hears it.
+        radio._slice_status(repeater_offset_dir="simplex", fm_repeater_offset_freq="5.000000",
+                            fm_tone_mode="off", fm_tone_value="88.5")
+        seen = None
+        for text in reader.frames(6.0):
+            m = json.loads(text)
+            if m.get("type") == "flexDsp" and m.get("rptDir") == "simplex":
+                seen = m
+                break
+        assert seen and seen["rptOffsetHz"] == 5_000_000 and seen["toneMode"] == "off" \
+            and seen["toneTenths"] == 885, seen
+    finally:
+        sock.close()
+
+
 # ── --on-demand ─────────────────────────────────────────────────────────────
 
 def _open_browser_ws(port: int):

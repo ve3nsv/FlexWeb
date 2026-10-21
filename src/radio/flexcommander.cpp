@@ -1041,6 +1041,14 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
     if (kvs.contains("ant_list")) { rxAntList = kvs.value("ant_list").split(',', Qt::SkipEmptyParts); publishDsp(); }
     if (kvs.contains("tx_ant_list")) { txAntList = kvs.value("tx_ant_list").split(',', Qt::SkipEmptyParts); publishDsp(); }
     if (kvs.contains("RF_frequency") || kvs.contains("freq") || kvs.contains("ant_list")) applyBandAntennas();
+    {
+        bool fm = false;
+        if (kvs.contains("repeater_offset_dir")) { rptDir = kvs.value("repeater_offset_dir").toLower(); fm = true; }
+        if (kvs.contains("fm_repeater_offset_freq")) { rptOffsetMHz = kvs.value("fm_repeater_offset_freq").toDouble(); fm = true; }
+        if (kvs.contains("fm_tone_mode")) { fmToneMode = kvs.value("fm_tone_mode").toLower(); fm = true; }
+        if (kvs.contains("fm_tone_value")) { fmToneHz = kvs.value("fm_tone_value").toDouble(); fm = true; }
+        if (fm) publishDsp();
+    }
     if (kvs.contains("rit_on")) { ritOn = truthy(kvs.value("rit_on")); reportCurrent(funcRitStatus); }
     if (kvs.contains("rit_freq")) { ritFreq = kvs.value("rit_freq").toInt(); reportCurrent(funcRitFreq); }
 }
@@ -2281,6 +2289,10 @@ void flexCommander::publishDsp()
             st["txAnt"] = txAnt;
             st["rxAntList"] = QJsonArray::fromStringList(rxAntList);
             st["txAntList"] = QJsonArray::fromStringList(txAntList);
+            st["rptDir"] = rptDir;
+            st["rptOffsetHz"] = qint64(std::llround(rptOffsetMHz * 1e6));
+            st["toneMode"] = fmToneMode;
+            st["toneTenths"] = int(std::lround(fmToneHz * 10));
             emit flexDspState(st);
         });
     }
@@ -2324,6 +2336,24 @@ void flexCommander::setFlexDsp(QString key, int index, int value)
     } else if (key == "micLevel") {
         micLevel = qBound(0, value, 100);
         sendCmd(QString("transmit set miclevel=%1").arg(micLevel));
+    } else if (key == "rptDir" || key == "rptOffset") {
+        // FM repeater: rptDir value 0 simplex, 1 down (DUP-), 2 up (DUP+);
+        // rptOffset value in Hz. The radio does not echo our own changes.
+        if (sliceId < 0) return;
+        if (key == "rptDir") rptDir = value == 1 ? "down" : value == 2 ? "up" : "simplex";
+        else rptOffsetMHz = qBound(0, value, 100000000) / 1e6;
+        const double tx = rptDir == "down" ? -rptOffsetMHz : rptDir == "up" ? rptOffsetMHz : 0.0;
+        sliceSet(QString("repeater_offset_dir=%1 fm_repeater_offset_freq=%2 tx_offset_freq=%3")
+                 .arg(rptDir).arg(rptOffsetMHz, 0, 'f', 6).arg(tx, 0, 'f', 6));
+        publishDsp();
+    } else if (key == "toneMode" || key == "toneValue") {
+        // CTCSS encode: toneMode value 0 off / 1 on; toneValue in tenths of
+        // a Hz (1000 = 100.0). Transmit only: the Flex has no tone squelch.
+        if (sliceId < 0) return;
+        if (key == "toneMode") fmToneMode = value ? "ctcss_tx" : "off";
+        else fmToneHz = qBound(670, value, 2541) / 10.0;
+        sliceSet(QString("fm_tone_mode=%1 fm_tone_value=%2").arg(fmToneMode).arg(fmToneHz > 0 ? fmToneHz : 67.0, 0, 'f', 1));
+        publishDsp();
     } else if (key == "rxAnt" || key == "txAnt") {
         // FUNC > ANT: value is an index into the slice's own list.
         const QStringList& list = key == "rxAnt" ? rxAntList : txAntList;

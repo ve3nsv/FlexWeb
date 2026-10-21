@@ -3597,6 +3597,7 @@ function handleMessage(msg) {
             break;
         case 'flexDsp':
             flexDsp = msg;
+            flexFmSync(msg);
             if (document.getElementById('eqOverlay').classList.contains('visible')) renderEqOverlay();
             if (document.getElementById('procOverlay').classList.contains('visible')) renderProcOverlay();
             if (document.getElementById('flexAntOverlay').classList.contains('visible')) renderFlexAntOverlay();
@@ -6842,6 +6843,28 @@ function getDuplexState() {
     if (currentDuplex !== 'DUP-' && currentDuplex !== 'DUP+') return { label: 'OFF', active: false };
     return { label: (currentDuplex === 'DUP-' ? '\u2212' : '+') + formatDupOffset(currentDupOffset), active: true };
 }
+// FlexRadio FM repeater (flexCommander, slice repeater_offset_dir /
+// fm_repeater_offset_freq / fm_tone_mode / fm_tone_value): the same DUP and
+// TONE windows as on an Icom, driven through flexDsp. CTCSS encode only: the
+// Flex has no tone squelch and no DCS.
+var FLEX_CTCSS = [670, 693, 719, 744, 770, 797, 825, 854, 885, 915, 948, 974, 1000, 1035, 1072, 1109,
+    1148, 1188, 1230, 1273, 1318, 1365, 1413, 1462, 1500, 1514, 1567, 1598, 1622, 1655, 1679, 1713,
+    1738, 1773, 1799, 1835, 1862, 1899, 1928, 1966, 1995, 2035, 2065, 2107, 2181, 2257, 2291, 2336,
+    2418, 2503, 2541];
+function flexFmSync(st) {
+    if (st.rptDir === undefined) return;
+    hasDuplex = true;
+    hasCTCSS = true; hasDTCS = false; hasToneSqlType = false;
+    canSetToneFreq = true; canSetTsqlFreq = false;
+    ctcssTones = FLEX_CTCSS;
+    currentDuplex = st.rptDir === 'down' ? 'DUP-' : st.rptDir === 'up' ? 'DUP+' : 'OFF';
+    currentDupOffset = st.rptOffsetHz || null;
+    currentToneMode = st.toneMode === 'ctcss_tx' ? 'TONE' : 'OFF';
+    currentToneFreq = st.toneTenths || null;
+    refreshDuplexUi();
+    refreshToneUi();
+}
+
 function setDuplexMode(mode) {
     // Engaging a shift with no offset would transmit on the receive frequency.
     // Seed the band's standard shift first so the button is never a no-op.
@@ -6850,13 +6873,15 @@ function setDuplexMode(mode) {
         if (d) setDupOffset(d);
     }
     currentDuplex = mode;
-    send({ cmd: 'setDuplex', value: mode });
+    if (flexDsp) sendFlexDsp('rptDir', 0, mode === 'DUP-' ? 1 : mode === 'DUP+' ? 2 : 0, true);
+    else send({ cmd: 'setDuplex', value: mode });
     refreshDuplexUi();
 }
 function setDupOffset(hz) {
     hz = Math.max(0, Math.round(hz / 100) * 100);  // rig resolution is 100 Hz
     currentDupOffset = hz;
-    send({ cmd: 'setDuplexOffset', value: hz });
+    if (flexDsp) sendFlexDsp('rptOffset', 0, hz, true);
+    else send({ cmd: 'setDuplexOffset', value: hz });
     refreshDuplexUi();
 }
 function updateDuplex(mode) {
@@ -7018,12 +7043,14 @@ function setToneMode(mode) {
     if (toneModeUsesTsql(mode) && !currentTsqlFreq && ctcssTones.length) setTsqlFreq(ctcssTones[0]);
     if (toneModeUsesDtcs(mode) && !currentDtcsCode && dtcsCodes.length) setDtcsCode(dtcsCodes[0]);
     currentToneMode = mode;
-    send({ cmd: 'setToneMode', value: mode });
+    if (flexDsp) sendFlexDsp('toneMode', 0, mode === 'TONE' ? 1 : 0, true);
+    else send({ cmd: 'setToneMode', value: mode });
     refreshToneUi();
 }
 function setToneFreq(reg) {
     currentToneFreq = reg;
-    send({ cmd: 'setToneFreq', value: reg });
+    if (flexDsp) sendFlexDsp('toneValue', 0, reg, true);
+    else send({ cmd: 'setToneFreq', value: reg });
     refreshToneUi();
 }
 function setTsqlFreq(reg) {
@@ -7074,7 +7101,7 @@ function closeToneModal() {
 
 function renderToneModal() {
     var modes = ['OFF'];
-    if (hasCTCSS) { modes.push('TONE'); modes.push('TSQL'); }
+    if (hasCTCSS) { modes.push('TONE'); if (!flexDsp) modes.push('TSQL'); }
     if (hasDTCS) modes.push('DTCS');
     // A combined mode set from the front panel gets listed too, so the window
     // shows what the rig is really doing instead of falling back to OFF.

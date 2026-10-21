@@ -212,6 +212,12 @@ private:
     // the XVTR port, leaving the band puts back the HF antennas it had.
     bool on2m = false;
     QString hfRxAnt, hfTxAnt;
+    // FM repeater (slice): offset direction "simplex"/"down"/"up", offset
+    // in MHz, CTCSS encode "off"/"ctcss_tx" and its tone in Hz.
+    QString rptDir = QStringLiteral("simplex");
+    double rptOffsetMHz = 0.0;
+    QString fmToneMode = QStringLiteral("off");
+    double fmToneHz = 0.0;
     // Radio memories by index, as the radio reports them ("sub memories all").
     QMap<int, QMap<QString, QString>> memories;
     bool memPublishPending = false;
