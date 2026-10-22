@@ -299,3 +299,31 @@ Status: implemented for build 60.
    its controls are greyed with "View only". Guest sessions end when the
    setting is turned off; the lockout / rate limit applies to the guest
    button as to logins. No per-user view-only role (option a not wanted).
+3. Yaesu FT-991A (user, 2026-10-22; user has the radio and will test).
+   USB: CP210x dual COM (Enhanced = CAT, Standard) + USB audio codec. New
+   rigs/FT-991A.rig adapted from FT-710.rig for yaesuCommander: MD codes
+   (1 LSB, 2 USB, 3 CW-U, 4 FM, 5 AM, 6 RTTY-L, 7 CW-L, 8 DATA-L, 9 RTTY-U,
+   A DATA-FM, B FM-N, C DATA-U, D AM-N, E C4FM), bands HF / 6 m / 2 m /
+   70 cm, RM meter scales, filters / widths, default CAT baud, no CAT scope.
+   Setup must point at the Enhanced COM port (say so in the launcher and
+   the docs). Tests against a mock FT-991A CAT (tests/mock_serial_radio.py
+   pattern) for frequency / mode / PTT / meters; then the user's radio.
+4. RTL-SDR scope (user, 2026-10-22; has a dongle and an SDR T/R switch
+   keyed from the radio, so the dongle is protected during TX). For radios
+   without a CAT scope (FT-991A first; also older Icoms, TS-590SG).
+   - Server connects to rtl_tcp (host:port, --rtlsdr / launcher field /
+     settings), so no USB driver in FlexWeb; the dongle can sit on another
+     machine. rtl_tcp protocol: 12-byte "RTL0" header, 5-byte commands
+     (freq, sample rate, gain mode / gain, ppm, direct sampling, AGC),
+     interleaved u8 IQ.
+   - FFT server-side (window, average, dB), fed as scopeData through the
+     existing scope path (like the Flex FFT), so the spectrum, waterfall,
+     passband, click / drag tuning and scope sync all work.
+   - Tuning follows the radio's VFO (centre or fixed span like the Flex free
+     pan); span up to ~2 MHz (2.048 / 2.4 MSPS), decimated for narrower
+     spans; IQ DC spike avoided by an offset tune; ppm correction; gain
+     AUTO or manual; HF via direct sampling (V3) or the V4 upconverter
+     (ask the user for the dongle model).
+   - Pause the dongle's display (hold the last frame) while the radio
+     transmits; never relied on for protection (the user's switch does it).
+   - Scope source selector: radio (CAT) / RTL-SDR / none.
