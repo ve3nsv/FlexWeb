@@ -384,3 +384,16 @@ Status: implemented for build 60.
 8. SDR scope status readout: source, tuner / device, sample rate, gain,
    overload, server CPU share and network rate of the scope source, in the
    scope bar / FUNC.
+9. SSTV band buttons + editable frequencies (user, 2026-10-22: the band
+   drop-down beside CLOSE looks like a status label and was not found).
+   - Replace #sstvBandSel with a row of band buttons in the SSTV panel's top
+     bar (80 / 40 / 20 / 15 / 10 by default, plus any the user adds), the
+     current band lit, its frequency and sideband in the tooltip and under
+     the label on wider screens; a click tunes there (sideband by band as
+     now).
+   - Editable list: add / change / remove entries (band label, frequency,
+     optional sideband override), e.g. 7.170 instead of 7.171, or 6 m / 2 m
+     for the FT-991A. Stored on the server (settings file [SSTV]
+     Frequencies, pushed in rigInfo like the CW macros) so every browser
+     sees the same list; RESET restores the defaults.
+   - Phone: the buttons wrap / scroll horizontally in the panel header.
