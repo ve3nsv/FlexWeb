@@ -242,3 +242,32 @@ Status: items 1-6 implemented for build 59.
       named users) the amp panel is read-only (user, 2026-10-21): the
       controls are disabled with "create a web user to control the amp"
       and the server refuses the commands.
+
+# Batch after build 59
+
+1. RF-KIT controls on the main screen like the amp's own (VNC) screen (user,
+   2026-10-21, screenshots of the RF-POWER applet, FUNC > AMP and the RF2K-S
+   VNC display: Tune & Store, Standby, Reset LED, Bypass).
+   a. Header chips work like the panel buttons: the OPERATE / STANDBY chip
+      toggles operate / standby (same gating as the panel: signed-in user,
+      no other TX lock, read-only without web users; a locked chip shows why
+      on hover / tap). The TUNER chip stays an indicator (AUTO / MANUAL /
+      TUNING / BYPASS / OFF), as in the panel - the amp's REST API has no
+      tuner-mode or bypass control. A tap on it opens the amp panel.
+   b. TUNE lit by state, like the VNC Tune & Store button: dark when it
+      cannot tune (tuner OFF / BYPASS, locked, amp offline); lit blue when
+      ready (AUTO / MANUAL, idle); amber and pulsing while the amp reports
+      TUNING; a short green flash when the tune ends and the tuner reports
+      a stored network (L / C changed or status "Adjustment ok"), red flash
+      if the amp reports an error. Same in the sidebar and FUNC > AMP;
+      "key TUNE first" stays as the hint while the radio is not keyed.
+   c. RESET like the amp's Reset LED: green and inactive with no error, lit
+      red (and enabled) only while the amp reports an error. Today it always
+      reads "ERROR".
+   d. Check what /data "status" and /tuner return during and after a tune on
+      the real amp (the VNC shows "Segment-Size: 9 kHz / Adjustment ok!" while
+      FlexWeb's STATUS tile shows "-"), and show the tuner's own message and
+      segment size under the network line if the API has them.
+   e. Antenna names: the amp shows DOUBL / VERT / LOOP / ANT 4. Use them on
+      the ANT buttons and the ANT tile if /antennas returns names; otherwise
+      let the user name them in FlexWeb (stored on the server).
