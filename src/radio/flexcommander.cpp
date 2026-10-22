@@ -1014,6 +1014,14 @@ void flexCommander::handleStatus(const message& msg)
             if (tx != transmitting) {
                 transmitting = tx;
                 if (tx) { lastAlc = 0.0; txPeakWindow = 0.0f; }
+                // NNR pauses on the air (handleRxAudio): say so at once rather
+                // than on the next RX audio packet, which may be a while.
+                if (tx && nnrWasActive) {
+                    nnrWasActive = false;
+                    if (nnrF) nnrF->reset();
+                    emit flexNnrGain(1.0f, false);
+                    publishDsp();
+                }
                 report(funcTransceiverStatus, QVariant::fromValue<bool>(transmitting));
             }
         }
