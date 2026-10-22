@@ -311,19 +311,50 @@ Status: implemented for build 60.
 4. RTL-SDR scope (user, 2026-10-22; has a dongle and an SDR T/R switch
    keyed from the radio, so the dongle is protected during TX). For radios
    without a CAT scope (FT-991A first; also older Icoms, TS-590SG).
-   - Server connects to rtl_tcp (host:port, --rtlsdr / launcher field /
-     settings), so no USB driver in FlexWeb; the dongle can sit on another
-     machine. rtl_tcp protocol: 12-byte "RTL0" header, 5-byte commands
-     (freq, sample rate, gain mode / gain, ppm, direct sampling, AGC),
-     interleaved u8 IQ.
-   - FFT server-side (window, average, dB), fed as scopeData through the
-     existing scope path (like the Flex FFT), so the spectrum, waterfall,
-     passband, click / drag tuning and scope sync all work.
-   - Tuning follows the radio's VFO (centre or fixed span like the Flex free
-     pan); span up to ~2 MHz (2.048 / 2.4 MSPS), decimated for narrower
-     spans; IQ DC spike avoided by an offset tune; ppm correction; gain
-     AUTO or manual; HF via direct sampling (V3) or the V4 upconverter
-     (ask the user for the dongle model).
-   - Pause the dongle's display (hold the last frame) while the radio
-     transmits; never relied on for protection (the user's switch does it).
-   - Scope source selector: radio (CAT) / RTL-SDR / none.
+   - Two inputs, one pipeline after the IQ:
+     * built-in (default): the server opens the dongle with librtlsdr
+       (the RTL-SDR Blog fork: V4 R828D + HF upconverter, works with plain
+       dongles too). Windows needs the WinUSB driver once (Zadig), as for
+       rtl_tcp.
+     * remote rtl_tcp host:port (dongle on another machine, e.g. a Pi):
+       "RTL0" header (tuner type, gain count), 5-byte commands (freq, sample
+       rate, gain mode / gain index, ppm, direct sampling, AGC, bias-T),
+       interleaved u8 IQ.
+   - Every RTL2832U tuner: R820T / R820T2, R828D (V4), E4000, FC0012 /
+     FC0013, FC2580; gain steps from the tuner's own table (reported by
+     rtl_tcp / librtlsdr). HF: direct sampling (Q branch) below ~24 MHz on
+     V3-style dongles, the V4's upconverter on a V4. Bias-T option.
+   - Gain: AUTO (the highest gain that does not overload: watch the share of
+     samples at 0 / 255 and back off on a strong signal) or a manual step.
+   - Display: FFT server-side (window, average, dB) fed as scopeData through
+     the existing scope path (like the Flex FFT), with the same noise-floor
+     tracking that keeps the floor just above the bottom of the scope on any
+     band / gain; the scope's level / range controls still apply. Spectrum,
+     waterfall, passband, click / drag tuning, recordings, scope sync all
+     unchanged.
+   - Tuning follows the VFO with the Flex-style free pan (moves only near the
+     edge); offset tune against the DC spike; span up to ~2 MHz (2.048 /
+     2.4 MSPS), decimated for narrower spans; ppm correction (zero on WWV).
+   - Timing: the dongle path adds ~20-60 ms; SYNC SCOPE already delays the
+     scope to the audio, SYNC TRIM covers the rest. Hold the last frame while
+     the radio transmits (server knows at once); protection is the user's
+     switch.
+   - Scope source selector: radio (CAT) / SDR / none; settings in the
+     launcher (device or host:port, gain, ppm, bias-T, HF mode).
+   - Build the input as a "scope source" interface so item 5 plugs in.
+5. Airspy and SDRplay as scope sources (user, 2026-10-22), after item 4 on
+   the same interface:
+   - Local: SoapySDR (Boost licence) with its device modules - Airspy R2 /
+     Mini (libairspy), Airspy HF+ (libairspyhf), SDRplay RSP1A / RSPdx /
+     RSPduo (SoapySDRPlay3 over the SDRplay API v3, which is closed source:
+     the user installs SDRplay's API; FlexWeb cannot bundle it). Also picks
+     up HackRF, LimeSDR, and RTL again through one path.
+   - Remote: SpyServer client (Airspy / Airspy HF+ / RTL on another machine,
+     compressed FFT or IQ); SoapyRemote as the generic alternative.
+   - Their 12-14 bit ADCs give far more range than an RTL; higher sample
+     rates (up to 6-10 MSPS) are decimated to the span to keep CPU modest;
+     gain models differ per device (LNA / mixer / IF gains, Airspy
+     "linearity / sensitivity" presets, SDRplay IFGR / LNA state) - map them
+     to AUTO + manual.
+   - Windows build: SoapySDR + modules via vcpkg or the PothosSDR binaries;
+     the hardest part of this item. Testing needs the user's devices.
