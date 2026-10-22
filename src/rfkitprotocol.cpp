@@ -1,6 +1,6 @@
 // Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
 // support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
-// 6392afe), GPLv3. "Constitution principle" references are AetherSDR's
+// 94b0496), GPLv3. "Constitution principle" references are AetherSDR's
 // project rules.
 
 #include "rfkitprotocol.h"
@@ -177,6 +177,9 @@ TunerMode tunerModeFromValue(const QJsonValue& v)
     // take any AUTO_TUNING... name as "tuning".
     if (s.startsWith(QLatin1String("AUTO_TUNING"))) { return TunerMode::AutoTuning; }
     if (s == QLatin1String("AUTO"))        { return TunerMode::Auto; }
+    // A real RF2K-S reports a tuner that is switched off as the word OFF; the
+    // document's `false` is handled above and as the string "false".
+    if (s == QLatin1String("OFF"))         { return TunerMode::Off; }
     if (s == QLatin1String("false"))       { return TunerMode::Off; }
     return TunerMode::Unknown;
 }
@@ -435,6 +438,38 @@ TuneApi classifyTuneProbe(int httpStatus)
         return TuneApi::Unsupported;
     }
     return TuneApi::Unknown;
+}
+
+TunerPill tunerPill(const Tuner& tuner)
+{
+    switch (tuner.mode) {
+    case TunerMode::Auto:
+    case TunerMode::AutoTuning: return TunerPill::On;
+    case TunerMode::Manual:
+        return tuner.setup == TunerSetup::Bypass ? TunerPill::ManualBypass : TunerPill::Manual;
+    case TunerMode::Bypass:     return TunerPill::Bypass;
+    case TunerMode::Off:        return TunerPill::Off;
+    case TunerMode::Unknown:    break;
+    }
+    return TunerPill::Unknown;
+}
+
+QString tunerPillLabel(TunerPill pill)
+{
+    switch (pill) {
+    case TunerPill::On:           return QStringLiteral("TUNER ON");
+    case TunerPill::Manual:       return QStringLiteral("TUNER MANUAL");
+    case TunerPill::ManualBypass: return QStringLiteral("TUNER MANUAL BYPASS");
+    case TunerPill::Bypass:       return QStringLiteral("TUNER BYPASS");
+    case TunerPill::Off:          return QStringLiteral("TUNER OFF");
+    case TunerPill::Unknown:      break;
+    }
+    return QStringLiteral("TUNER —");
+}
+
+bool tunerPillInUse(TunerPill pill)
+{
+    return pill == TunerPill::On || pill == TunerPill::Manual;
 }
 
 bool tuneAllowed(const Tuner& tuner)

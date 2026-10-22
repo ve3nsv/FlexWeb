@@ -1,5 +1,5 @@
 // Ported unchanged (apart from includes) from VE3NSV's RF-KIT support for
-// AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune, 6392afe), GPLv3.
+// AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune, 94b0496), GPLv3.
 // "Constitution principle" references are AetherSDR's project rules.
 
 // Pure-codec tests for the RF-KIT REST/JSON protocol layer.
@@ -143,6 +143,41 @@ int main()
     report("an unknown tuner mode is Unknown rather than a rejection",
            parseTuner(R"({"mode":"WARP"})")->mode == TunerMode::Unknown);
     report("parseTuner rejects a document with no mode", !parseTuner(R"({"setup":"CL"})").has_value());
+    report("the word OFF (what a real RF2K-S sends for a switched-off tuner) decodes as Off",
+           parseTuner(R"({"mode": "OFF"})")->mode == TunerMode::Off);
+
+    // The four states a real RF2K-S gave for the header pill, plus OFF.
+    {
+        const auto pillOf = [](const char* json) { return tunerPill(*parseTuner(json)); };
+        report("AUTO reads as TUNER ON",
+               pillOf(R"({"mode": "AUTO", "setup": "CL", "L": {"value": 755, "unit": "nH"}, "C": {"value": 439, "unit": "pF"}})")
+                   == TunerPill::On);
+        report("MANUAL with a CL network reads as TUNER MANUAL",
+               pillOf(R"({"mode": "MANUAL", "setup": "CL", "L": {"value": 0, "unit": "nH"}, "C": {"value": 0, "unit": "pF"}})")
+                   == TunerPill::Manual);
+        report("MANUAL with the BYPASS setup reads as TUNER MANUAL BYPASS",
+               pillOf(R"({"mode": "MANUAL", "setup": "BYPASS", "tuned_frequency": {"value": 7188, "unit": "kHz"}})")
+                   == TunerPill::ManualBypass);
+        report("mode BYPASS (nothing else sent) reads as TUNER BYPASS",
+               pillOf(R"({"mode": "BYPASS"})") == TunerPill::Bypass);
+        report("mode OFF reads as TUNER OFF", pillOf(R"({"mode": "OFF"})") == TunerPill::Off);
+        report("a tune in progress still reads as TUNER ON",
+               pillOf(R"({"mode": "AUTO_TUNING_FROM_AUTO", "setup": "CL"})") == TunerPill::On);
+        report("an unknown mode gives the neutral pill", pillOf(R"({"mode": "WARP"})") == TunerPill::Unknown);
+        report("pill labels are the amplifier's own wording",
+               tunerPillLabel(TunerPill::On) == "TUNER ON" && tunerPillLabel(TunerPill::Manual) == "TUNER MANUAL"
+                   && tunerPillLabel(TunerPill::ManualBypass) == "TUNER MANUAL BYPASS"
+                   && tunerPillLabel(TunerPill::Bypass) == "TUNER BYPASS"
+                   && tunerPillLabel(TunerPill::Off) == "TUNER OFF");
+        report("green only when the tuner is in use (On, Manual)",
+               tunerPillInUse(TunerPill::On) && tunerPillInUse(TunerPill::Manual)
+                   && !tunerPillInUse(TunerPill::ManualBypass) && !tunerPillInUse(TunerPill::Bypass)
+                   && !tunerPillInUse(TunerPill::Off) && !tunerPillInUse(TunerPill::Unknown));
+        report("a tune is allowed in manual bypass but not in BYPASS or OFF",
+               tuneAllowed(*parseTuner(R"({"mode": "MANUAL", "setup": "BYPASS"})"))
+                   && !tuneAllowed(*parseTuner(R"({"mode": "BYPASS"})"))
+                   && !tuneAllowed(*parseTuner(R"({"mode": "OFF"})")));
+    }
     report("a tune in progress (AUTO_TUNING_FROM_AUTO) decodes as AutoTuning",
            parseTuner(R"({"mode":"AUTO_TUNING_FROM_AUTO","setup":"CL"})")->mode == TunerMode::AutoTuning);
     report("plain AUTO_TUNING still decodes as AutoTuning",

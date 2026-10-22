@@ -692,6 +692,7 @@ private:
     QString rfkitTarget_;
     QJsonObject ampJson_;
     bool ampControlAllowed(QWebSocket *client);
+    bool ampFault_ = false;          // the amp reports a fault: RESET acts
     QJsonObject flexDspJson_;
     QJsonArray flexMemoriesJson_;
     bool haveFlexMemories_ = false;   // last flexDsp snapshot, replayed to new browsers

@@ -245,6 +245,8 @@ Status: items 1-6 implemented for build 59.
 
 # Batch after build 59
 
+Status: implemented for build 60.
+
 1. RF-KIT to AetherSDR rfkit-tune 94b0496 (user's hand-off
    rfkit-tune-handoff.md, verified on the RF2K-S, firmware G200C267; user's
    decisions 2026-10-22).

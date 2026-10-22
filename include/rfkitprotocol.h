@@ -2,7 +2,7 @@
 
 // Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
 // support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
-// 6392afe), GPLv3. "Constitution principle" references are AetherSDR's
+// 94b0496), GPLv3. "Constitution principle" references are AetherSDR's
 // project rules.
 
 
@@ -244,6 +244,17 @@ QByteArray buildTunerProbeBody();
 // exists; 404, 405 and 501 mean it does not; anything else (409, 5xx...) says
 // nothing either way and stays Unknown.
 TuneApi classifyTuneProbe(int httpStatus);
+// What the header pill says about the tuner, from the mode and setup the
+// amplifier reports. A real RF2K-S gives AUTO, MANUAL (setup CL or LC, or
+// BYPASS when the network is bypassed), BYPASS and OFF; AUTO_TUNING_* counts as
+// On because the tuner is working.
+enum class TunerPill { Unknown, On, Manual, ManualBypass, Bypass, Off };
+TunerPill tunerPill(const Tuner& tuner);
+QString tunerPillLabel(TunerPill pill);
+// True when the tuner is in the signal path (On, Manual); the pill is green
+// then, red for Bypass, ManualBypass and Off.
+bool tunerPillInUse(TunerPill pill);
+
 // A tune is worth asking for only with the tuner in the signal path and idle:
 // automatic or manual mode. Off, bypassed, already tuning, or not yet read are
 // refused.

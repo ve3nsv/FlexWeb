@@ -65,6 +65,16 @@ FlexRadio:
   recalled, saved from the current slice, renamed and deleted.
 - FM repeaters: DUP-/DUP+/simplex, offset and CTCSS TX tone set the
   slice's repeater offset and FM tone (the DUP and TONE tiles).
+- RF-KIT, as AetherSDR's rfkit-tune (94b0496, tested on an RF2K-S): the
+  header shows the amp name, a status-only tuner badge (TUNER ON / MANUAL
+  green; MANUAL BYPASS / BYPASS / OFF red - "OFF" from the amp is now read)
+  and CONNECTED. OPERATE / STANDBY, TUNE and RESET sit on one row in the
+  sidebar and the amp panel, ANT 1-4 and EXT on the next. TUNE is lit blue
+  when the amp can tune (AUTO or MANUAL), dark when it cannot, amber while
+  the amp reports tuning. RESET is red while the amp reports an error (any
+  /data status text such as High SWR, or the interface error; shown in the
+  banner) and green otherwise; one click, no confirmation, and the server
+  sends it only while there is an error.
 - The microphone is sent only while this browser transmits (from the PTT /
   MOX press until the release) or talks on the intercom; an open mic used to
   stream ~1 Mbit/s all the time. The LVL meter still works (it is local).

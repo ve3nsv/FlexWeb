@@ -2849,7 +2849,8 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         }
     }
     else if (type == "ampErrorReset") {
-        if (rfkit_) rfkit_->resetError();
+        // Only while the amp reports a fault (RESET is red then).
+        if (rfkit_ && ampFault_) rfkit_->resetError();
     }
     else if (type == "stopCW") {
         // Send empty string to stop CW transmission
@@ -7422,6 +7423,7 @@ void webServer::configureRfkit(const QString &target)
         ampJson_["connected"] = false;
         ampJson_["target"] = rfkitTarget_;
         ampJson_["error"] = why;
+        ampFault_ = false;
         sendJsonToAll(ampJson_);
     });
     connect(rfkit_, &RfkitConnection::statusUpdated, this, [this](const Rfkit::Status &st) {
@@ -7454,6 +7456,13 @@ void webServer::configureRfkit(const QString &target)
             o["status"] = st.data->status;
         }
         if (st.tuner) {
+            // The header badge (AetherSDR's TunerPill): TUNER ON / MANUAL in
+            // use (green), MANUAL BYPASS / BYPASS / OFF (red).
+            const Rfkit::TunerPill pill = Rfkit::tunerPill(*st.tuner);
+            o["tunerPill"] = Rfkit::tunerPillLabel(pill);
+            o["tunerInUse"] = Rfkit::tunerPillInUse(pill);
+            o["tunerKnown"] = pill != Rfkit::TunerPill::Unknown;
+            o["tuneAllowed"] = Rfkit::tuneAllowed(*st.tuner);
             o["tuner"] = Rfkit::tunerModeLabel(st.tuner->mode);
             o["tunerSetup"] = Rfkit::tunerSetupLabel(st.tuner->setup);
             // The stored network for this frequency, in the amp's own units.
@@ -7465,10 +7474,15 @@ void webServer::configureRfkit(const QString &target)
             if (st.tuner->tunedFrequency) o["tunerFreq"] = iv(st.tuner->tunedFrequency);
             if (st.tuner->segmentSize) o["tunerSegment"] = iv(st.tuner->segmentSize);
         }
-        if (st.interfaceState) {
+        if (st.interfaceState)
             o["iface"] = Rfkit::interfaceLabel(st.interfaceState->active);
-            o["ampError"] = st.interfaceState->error;
-        }
+        // The amp's fault: any non-empty /data status (the manual's eight
+        // messages: High SWR, Overheating, ...; idle is "") or the
+        // interface's error. RESET is red, and acts, only while there is one.
+        QString fault = st.data ? st.data->status.trimmed() : QString();
+        if (fault.isEmpty() && st.interfaceState) fault = st.interfaceState->error.trimmed();
+        o["ampError"] = fault;
+        ampFault_ = !fault.isEmpty();
         if (st.antennas) {
             QJsonArray ants;
             for (const Rfkit::AntennaWithState &a : *st.antennas) {
