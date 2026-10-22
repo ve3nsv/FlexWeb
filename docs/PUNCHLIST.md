@@ -245,29 +245,35 @@ Status: items 1-6 implemented for build 59.
 
 # Batch after build 59
 
-1. RF-KIT controls on the main screen like the amp's own (VNC) screen (user,
-   2026-10-21, screenshots of the RF-POWER applet, FUNC > AMP and the RF2K-S
-   VNC display: Tune & Store, Standby, Reset LED, Bypass).
-   a. Header chips work like the panel buttons: the OPERATE / STANDBY chip
-      toggles operate / standby (same gating as the panel: signed-in user,
-      no other TX lock, read-only without web users; a locked chip shows why
-      on hover / tap). The TUNER chip stays an indicator (AUTO / MANUAL /
-      TUNING / BYPASS / OFF), as in the panel - the amp's REST API has no
-      tuner-mode or bypass control. A tap on it opens the amp panel.
-   b. TUNE lit by state, like the VNC Tune & Store button: dark when it
-      cannot tune (tuner OFF / BYPASS, locked, amp offline); lit blue when
-      ready (AUTO / MANUAL, idle); amber and pulsing while the amp reports
-      TUNING; a short green flash when the tune ends and the tuner reports
-      a stored network (L / C changed or status "Adjustment ok"), red flash
-      if the amp reports an error. Same in the sidebar and FUNC > AMP;
-      "key TUNE first" stays as the hint while the radio is not keyed.
-   c. RESET like the amp's Reset LED: green and inactive with no error, lit
-      red (and enabled) only while the amp reports an error. Today it always
-      reads "ERROR".
-   d. Check what /data "status" and /tuner return during and after a tune on
-      the real amp (the VNC shows "Segment-Size: 9 kHz / Adjustment ok!" while
-      FlexWeb's STATUS tile shows "-"), and show the tuner's own message and
-      segment size under the network line if the API has them.
-   e. Antenna names: the amp shows DOUBL / VERT / LOOP / ANT 4. Use them on
-      the ANT buttons and the ANT tile if /antennas returns names; otherwise
-      let the user name them in FlexWeb (stored on the server).
+1. RF-KIT to AetherSDR rfkit-tune 94b0496 (user's hand-off
+   rfkit-tune-handoff.md, verified on the RF2K-S, firmware G200C267; user's
+   decisions 2026-10-22).
+   a. Port RfkitProtocol from 94b0496: "OFF" parses as Off; TunerPill /
+      tunerPillLabel / tunerPillInUse; protocol test. Server publishes the
+      pill (label + in-use) with the amp status.
+   b. Tuner badge (status only): TUNER ON (AUTO and AUTO_TUNING*), TUNER
+      MANUAL (green); TUNER MANUAL BYPASS (MANUAL with setup BYPASS), TUNER
+      BYPASS, TUNER OFF (red); "TUNER -" neutral. Replaces TUNER AUTO /
+      MANUAL / TUNING wording.
+   c. Header: [amp name, shortened with "..." and full name on hover] [tuner
+      badge] [CONNECTED badge]. Badges are status only (not clickable). The
+      OPERATE / STANDBY state moves to the OPERATE button.
+   d. Sidebar gets the controls: row 1 OPERATE (green OPERATE / amber
+      STANDBY), TUNE, RESET at equal widths; row 2 ANT 1-4 and EXT (EXT an
+      indicator, never switched). Same gating as now (signed-in user, no
+      other TX lock, read-only without web users). FUNC > AMP panel uses the
+      same two rows.
+   e. TUNE: shown only when the probe found support; lit (blue) when ready -
+      tuner mode AUTO or MANUAL (MANUAL BYPASS included), idle, not locked;
+      dark otherwise; amber while /tuner reports AUTO_TUNING*. No result
+      flash: a failed tune is not reported by the amp. "Key TUNE first" hint
+      stays while the radio is not keyed.
+   f. RESET: red when the amp reports an error, green when clear. Error =
+      non-empty trimmed /data status OR non-empty /operational-interface
+      error (the manual's eight messages; any non-empty status counts).
+      Banner shows that text. One click, no confirmation; POST /error/reset
+      only while red. Works during TX; the amp ends in STANDBY.
+   g. Antennas stay ANT 1-4 (the amp's names are not in the API).
+   Dropped from the earlier plan: tapping the STANDBY badge, a green / red
+   flash after a tune, showing "Adjustment ok" (not in the API), antenna
+   names.
