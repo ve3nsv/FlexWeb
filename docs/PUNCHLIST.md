@@ -397,3 +397,31 @@ Status: implemented for build 60.
      Frequencies, pushed in rigInfo like the CW macros) so every browser
      sees the same list; RESET restores the defaults.
    - Phone: the buttons wrap / scroll horizontally in the panel header.
+10. SSTV templates (user, 2026-10-22): CQ / Reply / 73 picture templates
+    with QSSTV-style fields - %m my call, %l locator, %f / %n my name,
+    %c their call, %o their name, %r RSV report (595 best), %t time,
+    %d date, %x / %y / %z comments - filled at send time; %m / %l from the
+    station settings, %c from the last received FSK ID (or typed), %r typed
+    with RSV steps. Pick a template per send; templates editable (text,
+    position, size, colour) and kept on the server with the SSTV settings.
+11. SSTV FSK ID (MMSSTV / QSSTV / PySSTV format: 1900 Hz = 1, 2100 Hz = 0,
+    22 ms per bit, 6-bit characters (ASCII - 0x20), framed 0x20 0x2A ...
+    0x01) after the picture: decode it (gallery entry and the RX status get
+    the sender's call, %c filled), and send ours after every picture
+    (option, on by default). Tests: encode / decode round trip and a PySSTV
+    add_fskid_text WAV.
+12. SSTV SNR fix (user's screenshot showed "SNR -157 dB"): the estimate uses
+    2500-2800 Hz as the noise reference, which a 2.7 kHz receive filter
+    removes. Measure the noise inside the passband instead (e.g. the bins
+    between the picture tones / a low percentile of 1100-2300 Hz over time,
+    or the sync-pulse tone's spread), clamp to a sensible range, and show
+    "-" when it cannot be estimated.
+13. SSTV: noise on the last lines of a picture (user's Scottie S1 from K3DCR,
+    14.230, 2026-10-22: the bottom rows are streaked). Analog SSTV has no
+    end marker - the mode's line count (from the VIS) ends the picture - so
+    find which of these it is: the sender stopped / faded before the last
+    lines; the FSK ID or the next transmission landing in the final line;
+    or our timing of the last line(s) (sync search window / fit at the end).
+    Fix: stop at the last line found with a sync and signal, leave lines
+    with no signal blank (black) instead of noise, trim a trailing FSK ID.
+    Ask the user for a REC recording of a picture that shows it.
