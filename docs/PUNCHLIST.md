@@ -279,3 +279,23 @@ Status: implemented for build 60.
    Dropped from the earlier plan: tapping the STANDBY badge, a green / red
    flash after a tune, showing "Adjustment ok" (not in the API), antenna
    names.
+
+# Next batch (after build 62)
+
+1. TUNE PWR slider in the TX applet (user, 2026-10-22): today it is only in
+   the PROC... overlay (renderProcOverlay opt('TUNE PWR', 'tunePower')). Add a
+   "TUNE" gain row under PWR / MIC / LVL / MON in #aeTxRows (0-100 %,
+   flexDsp key tunePower, same slider style, orange like PWR), and in the
+   classic GAIN panel's TX rows. Only when flexDsp.tunePower is known.
+2. View-only access at the login prompt (user, 2026-10-22). Design to
+   confirm with the user:
+   a. View-only users: a role per web user (--add-user NAME --view-only,
+      launcher Web users tab checkbox). They see everything (scope, meters,
+      audio, decoders) but every command that changes the radio, the amp or
+      server settings is refused by the server and the controls are greyed.
+   b. Optional guest button on the login page, "View only (no password)",
+      off by default, turned on by a server setting; same restrictions,
+      shown as "guest" in the top bar.
+   Server-side enforcement in handleCommand (allow-list of read-only
+   commands: audio on/off, codec, scope view settings, decoder panels'
+   local actions), REST and rigctld untouched (REST already local-only).
