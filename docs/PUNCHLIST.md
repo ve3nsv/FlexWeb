@@ -425,3 +425,11 @@ Status: implemented for build 60.
     Fix: stop at the last line found with a sync and signal, leave lines
     with no signal blank (black) instead of noise, trim a trailing FSK ID.
     Ask the user for a REC recording of a picture that shows it.
+14. SSTV "Receiving" banner (user, 2026-10-22: a picture arrived while a
+    saved one was open full size and seemed not to decode). While the
+    gallery viewer (#sstvView) is open and a new picture starts, show a
+    banner across the viewer - "Receiving Robot 36... line 12 / 240" with a
+    small live thumbnail - updating with progress; a tap closes the viewer
+    and shows the live picture. When the picture completes, the banner
+    reads "New picture received - tap to view". The viewer is not closed
+    automatically.
