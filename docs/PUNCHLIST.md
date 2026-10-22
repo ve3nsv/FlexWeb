@@ -287,15 +287,15 @@ Status: implemented for build 60.
    "TUNE" gain row under PWR / MIC / LVL / MON in #aeTxRows (0-100 %,
    flexDsp key tunePower, same slider style, orange like PWR), and in the
    classic GAIN panel's TX rows. Only when flexDsp.tunePower is known.
-2. View-only access at the login prompt (user, 2026-10-22). Design to
-   confirm with the user:
-   a. View-only users: a role per web user (--add-user NAME --view-only,
-      launcher Web users tab checkbox). They see everything (scope, meters,
-      audio, decoders) but every command that changes the radio, the amp or
-      server settings is refused by the server and the controls are greyed.
-   b. Optional guest button on the login page, "View only (no password)",
-      off by default, turned on by a server setting; same restrictions,
-      shown as "guest" in the top bar.
-   Server-side enforcement in handleCommand (allow-list of read-only
-   commands: audio on/off, codec, scope view settings, decoder panels'
-   local actions), REST and rigctld untouched (REST already local-only).
+2. Guest view-only button on the login page (user chose option b,
+   2026-10-22): "View only (no password)". Off by default; turned on by a
+   server setting (settings file [Web] GuestView=true, a --guest-view flag,
+   and a launcher checkbox). A guest gets a session like a user's, shown as
+   "guest" in the top bar, and sees everything (scope, meters, audio,
+   decoders) but every command that changes the radio, the amp or server
+   settings is refused by the server (allow-list of read-only commands in
+   handleCommand: audio on/off, codec, scope view settings, decoder panels'
+   local actions), never holds the TX lock, cannot TALK on the intercom, and
+   its controls are greyed with "View only". Guest sessions end when the
+   setting is turned off; the lockout / rate limit applies to the guest
+   button as to logins. No per-user view-only role (option a not wanted).
