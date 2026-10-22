@@ -358,3 +358,29 @@ Status: implemented for build 60.
      to AUTO + manual.
    - Windows build: SoapySDR + modules via vcpkg or the PothosSDR binaries;
      the hardest part of this item. Testing needs the user's devices.
+6. KiwiSDR as a scope source (user, 2026-10-22; Kiwi on the home LAN).
+   On the item-4 scope-source interface. The server connects as a
+   waterfall-only Kiwi client (WebSocket ws://host:8073/<ts>/W/F; SET auth
+   [password], SET zoom / start, SET maxdb / mindb, SET wf_speed, SET
+   wf_comp=0), receives the Kiwi's own 1024-bin waterfall lines and feeds
+   them through the existing scope path with the same noise-floor placement.
+   No IQ, ~20-30 KB/s, near-zero CPU. Follows the VFO (start / zoom); spans
+   snap to the Kiwi's zoom steps (30 MHz / 2^z: ~1.9 MHz, 940, 470, 235,
+   117, 59 kHz...). HF only (0-30 MHz): on 6 m / 2 m / 70 cm fall back to
+   the RTL-SDR or no scope. Uses one Kiwi channel; a refusal (all channels
+   busy, wrong password) shows in the scope status. Hold the display while
+   transmitting. Expected latency ~100-300 ms on the LAN (not measured):
+   item 7 lines it up with the audio.
+7. Automatic scope / S-meter / audio sync (user, 2026-10-22). Server stamps
+   audio packets and scope frames on arrival and subtracts the known
+   pipeline delays (dongle buffer, FFT averaging, sound-card buffer) for a
+   baseline; then measures the remaining offset by cross-correlating the
+   radio audio's loudness envelope with the scope's power inside the RX
+   passband (and the S-meter readings with the audio) over 10-20 s at
+   ~100 Hz, updating only on a clear peak (real signal, not noise). Applies
+   it as the scope-sync trim automatically ("Sync: auto -85 ms" shown),
+   keeps the last good value, SYNC TRIM overrides. For the SDR / Kiwi
+   sources and for the Flex's own scope and S-meter.
+8. SDR scope status readout: source, tuner / device, sample rate, gain,
+   overload, server CPU share and network rate of the scope source, in the
+   scope bar / FUNC.
