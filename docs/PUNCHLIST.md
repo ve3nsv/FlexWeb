@@ -404,6 +404,13 @@ Status: implemented for build 60.
     station settings, %c from the last received FSK ID (or typed), %r typed
     with RSV steps. Pick a template per send; templates editable (text,
     position, size, colour) and kept on the server with the SSTV settings.
+    Reply / QSL layout from the user's decode (2026-10-22, KE5RS / KF0YCR):
+    a header bar with boxes ("TNX" | "<their call> . <RSV>" | "73"), the
+    picture received from them as an inset on the left (proof of copy; a
+    field like %i = the selected / last gallery picture, cropped to fit),
+    and a text column on the right: "QSL", their call, their locator,
+    "RSV 595", a large "73". Built-in templates: CQ (own picture + "CQ de
+    %m %l"), Reply/QSL (as above), 73.
 11. SSTV FSK ID (MMSSTV / QSSTV / PySSTV format: 1900 Hz = 1, 2100 Hz = 0,
     22 ms per bit, 6-bit characters (ASCII - 0x20), framed 0x20 0x2A ...
     0x01) after the picture: decode it (gallery entry and the RX status get
