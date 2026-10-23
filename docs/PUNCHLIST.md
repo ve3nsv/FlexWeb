@@ -508,12 +508,18 @@ Status: implemented for build 60.
     b. Real meter lag (~150 ms on the page): the Flex LEVEL meter's own
        averaging and rate, the server's 100 ms meter flush hold, and the
        200 ms periodic 'meters' message that re-sends the cached S value.
-       Fix: send meter readings at once (no flush hold), stop re-sending a
-       stale cached sMeter, and add a fast S-meter derived from the
-       panadapter FFT power inside the passband, continuously calibrated
-       against the radio's LEVEL meter (radio value stays the reference;
-       the FFT only supplies timing). Then delay it by the same scope-sync
-       delay as the spectrum. Item 7 (auto sync check) measures the result.
+       Fix the AetherSDR way (user chose this, 2026-10-23; SMeterWidget,
+       MainWindow_ReceiveSync): send each LEVEL reading at once (no flush
+       hold), stop re-sending a stale cached sMeter, apply it through the
+       same scope-sync delay as the spectrum / waterfall, and animate the
+       needle / bar locally - attack ~45 ms, release ~180 ms, redrawn every
+       frame; peak marker falls 0.5 dB per 50 ms, reset every 10 s. The
+       radio's LEVEL stays the only source (dBFS-only radios: relative,
+       marked uncalibrated).
+    c. Optional, only if b is not enough on the radio: a fast S-meter from
+       the panadapter FFT power in the passband, calibrated continuously to
+       LEVEL (FUNC > METER > FAST). AetherSDR does not do this.
+    Item 7 (auto sync check) measures the result.
 19. CAT control / AetherSDR-style panadapter for all radio models (user,
     2026-10-23; hard, large). Today 16 isFlexRig gates in index.html keep
     the Aether scope (drag / free pan, off-screen VFO tab, filter-edge drag),
