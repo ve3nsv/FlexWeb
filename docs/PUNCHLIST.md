@@ -440,3 +440,20 @@ Status: implemented for build 60.
     and shows the live picture. When the picture completes, the banner
     reads "New picture received - tap to view". The viewer is not closed
     automatically.
+15. LOW PRIORITY - NetLogger NETS panel (user, 2026-10-22). Reference:
+    netlogger-mcp 0.2.0 (github.com/qso-graph/netlogger-mcp, GPL-3.0, KI7MT),
+    an MCP wrapper over NetLogger's public XML Data Service API 1.3
+    (https://www.netlogger.org/api/<Routine>.php: GetActiveNets,
+    GetCheckins ServerName+NetName, GetPastNets, GetPastNetCheckins
+    +NetID; no key). FlexWeb's server is the only client: limits per minute
+    GetActiveNets 1 / GetCheckins 3 / GetPastNets 1 / GetPastNetCheckins
+    10, checked before sending; cache 60 s / 20 s / 60 s / 1 h; on HTTP 429
+    stop all calls >= 60 s (Retry-After honoured, max 1 h); 15 s timeout;
+    body cap; strict XML parsing; User-Agent "FlexWeb/<ver> (<callsign>;
+    +https://github.com/ve3nsv/FlexWeb)"; >7 days of past nets needs a name
+    filter. Page: active nets (filter band / mode / name; tap to tune, mode,
+    FM offset / tone when the text gives them), "net on this frequency"
+    banner with the live check-in list and the pointer (station being
+    worked), own call highlighted when logged; past nets browser; optional
+    logbook entry for a net check-in. Read-only: NetLogger has no check-in
+    submission through this service.
