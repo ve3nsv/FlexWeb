@@ -487,16 +487,6 @@ Status: implemented for build 60.
        the tuner in line and no stored tuning (STANDBY, AUTO, carrier, Tune);
        the eight error messages and their causes; Reset leaves STANDBY.
     The user confirmed the ATU wording on 2026-10-23 (replaces TUNER ON).
-17. Server CPU on the page (user, 2026-10-23; easy). The server measures
-    its own process CPU (getrusage on Linux / macOS, GetProcessTimes on
-    Windows; % of one core and % of the machine) plus the machine's total
-    CPU (/proc/stat, host_statistics, GetSystemTimes), memory in use, and
-    optionally per-feature shares where cheap (NNR, SDR scope) - sampled
-    every 2 s, pushed as {type:'serverStats'} only to browsers that show it.
-    Page: a small "CPU 12%" chip in the top bar (amber over 70 %, red over
-    90 % of the machine), tap for details (FlexWeb process, whole machine,
-    cores, memory, uptime); FUNC > STATS toggles it. Also on the terminal
-    status page. Item 8 (SDR readout) reuses it.
 17. Server CPU on the page (user, 2026-10-23). The server measures, every
     2 s: FlexWeb's own process CPU (Linux / macOS getrusage or
     /proc/self/stat, Windows GetProcessTimes; as % of one core and of the
@@ -507,3 +497,52 @@ Status: implemented for build 60.
     whole machine, cores, memory; and, where cheap to count, the heavy parts
     (NNR, Opus encode, SDR scope once item 4 exists). Optional: hide the
     chip (FUNC). Easy.
+18. S-meter still lags (user, 2026-10-23; medium). Measured from the user's
+    recording (3.755 LSB): the spectrum is ~170 ms behind the recorded audio
+    and the meter another ~130-200 ms behind the spectrum, ~330 ms in all.
+    Two causes:
+    a. Recording only: recorder.js records RX audio as it arrives, but the
+       canvases it copies are delayed by scope sync (jitter buffer + output
+       latency). Fix: delay the recorded audio by the same scope-sync delay,
+       so the video matches what was heard.
+    b. Real meter lag (~150 ms on the page): the Flex LEVEL meter's own
+       averaging and rate, the server's 100 ms meter flush hold, and the
+       200 ms periodic 'meters' message that re-sends the cached S value.
+       Fix: send meter readings at once (no flush hold), stop re-sending a
+       stale cached sMeter, and add a fast S-meter derived from the
+       panadapter FFT power inside the passband, continuously calibrated
+       against the radio's LEVEL meter (radio value stays the reference;
+       the FFT only supplies timing). Then delay it by the same scope-sync
+       delay as the spectrum. Item 7 (auto sync check) measures the result.
+19. CAT control / AetherSDR-style panadapter for all radio models (user,
+    2026-10-23; hard, large). Today 16 isFlexRig gates in index.html keep
+    the Aether scope (drag / free pan, off-screen VFO tab, filter-edge drag),
+    NNR and some labels to the Flex. Replace them with per-rig capabilities:
+    a. Icom scope: drag pans by retuning in centre mode or moves fixed edges
+       (CI-V 27 1E) in fixed mode; zoom maps to the span list; recenter
+       policy as AetherSDR recenter-policy.md.
+    b. Filter-edge drag maps to filter width / PBT / IF shift where the rig
+       has them (Kenwood, Yaesu SH/IS commands).
+    c. Off-screen VFO tab and click-to-tune nearest 1 kHz on every rig.
+    d. NNR moved from flexCommander into the generic webServer RX audio
+       path, so every radio gets it.
+    e. Radios without a scope (FT-991A etc.) use the SDR scope sources
+       (items 3-5, RTL / Airspy / SDRplay / KiwiSDR) with the same UI.
+    f. Controls shown per capability, from the rig files (as AetherSDR
+       icom-capability-profiles.md / radio-capabilities-map.md).
+    Test on the virtual rig and the user's FT-991A; Icom needs a tester.
+20. All amplifiers AetherSDR supports (user, 2026-10-23; medium each).
+    Port like RF-KIT (protocol + connection classes, server-side gating
+    ampControlAllowed, status-only badges, OPERATE / TUNE / RESET, antenna
+    row, FUNC > AMP), one --amp flag per type:
+    - Acom 600S (AcomConnection / AcomProtocol)
+    - Elecraft KPA500 (+ fault history, maintenance), KAT500 tuner,
+      KPA1500, KXPA100
+    - SPE Expert 1.3K / 1.5K / 2K, new and legacy protocol (LCD scheduler)
+    - FlexRadio PowerGenius XL (PGXL) and TunerGenius XL (TGXL)
+    - Vkamp
+    - LP-100A wattmeter (meter only)
+    Source: AetherSDR src/core/*Connection / *Protocol and
+    docs/architecture/*-design.md. Unit tests per protocol and a stub amp
+    per type, as tests/test_rfkit.py. Order by what users own (the user
+    has the RF2K-S, already done).
