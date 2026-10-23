@@ -487,3 +487,13 @@ Status: implemented for build 60.
        the tuner in line and no stored tuning (STANDBY, AUTO, carrier, Tune);
        the eight error messages and their causes; Reset leaves STANDBY.
     The user confirmed the ATU wording on 2026-10-23 (replaces TUNER ON).
+17. Server CPU on the page (user, 2026-10-23; easy). The server measures
+    its own process CPU (getrusage on Linux / macOS, GetProcessTimes on
+    Windows; % of one core and % of the machine) plus the machine's total
+    CPU (/proc/stat, host_statistics, GetSystemTimes), memory in use, and
+    optionally per-feature shares where cheap (NNR, SDR scope) - sampled
+    every 2 s, pushed as {type:'serverStats'} only to browsers that show it.
+    Page: a small "CPU 12%" chip in the top bar (amber over 70 %, red over
+    90 % of the machine), tap for details (FlexWeb process, whole machine,
+    cores, memory, uptime); FUNC > STATS toggles it. Also on the terminal
+    status page. Item 8 (SDR readout) reuses it.
