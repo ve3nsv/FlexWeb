@@ -497,3 +497,13 @@ Status: implemented for build 60.
     90 % of the machine), tap for details (FlexWeb process, whole machine,
     cores, memory, uptime); FUNC > STATS toggles it. Also on the terminal
     status page. Item 8 (SDR readout) reuses it.
+17. Server CPU on the page (user, 2026-10-23). The server measures, every
+    2 s: FlexWeb's own process CPU (Linux / macOS getrusage or
+    /proc/self/stat, Windows GetProcessTimes; as % of one core and of the
+    whole machine) and the machine's total CPU (Linux /proc/stat, macOS
+    host_statistics, Windows GetSystemTimes), plus memory in use. Sent as
+    {type:'serverLoad'}; the page shows a small chip in the top bar
+    ("CPU 12%", amber above 70 %, red above 90 %) with a tooltip: FlexWeb vs
+    whole machine, cores, memory; and, where cheap to count, the heavy parts
+    (NNR, Opus encode, SDR scope once item 4 exists). Optional: hide the
+    chip (FUNC). Easy.
