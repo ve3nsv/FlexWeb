@@ -486,5 +486,4 @@ Status: implemented for build 60.
     h. Keep from the manual for tooltips / help: "Not Tuned!" blocks TX with
        the tuner in line and no stored tuning (STANDBY, AUTO, carrier, Tune);
        the eight error messages and their causes; Reset leaves STANDBY.
-    Note: the user chose "TUNER ON" wording on 2026-10-22; the hand-off v2
-    moves to "ATU IN" - confirm with the user before building.
+    The user confirmed the ATU wording on 2026-10-23 (replaces TUNER ON).
