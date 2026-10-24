@@ -14,6 +14,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 UNITS = {
+    "serverload": [],
+    "sstvsettings": [],
     # WSJT-X NetworkMessage serialization, checked by deserializing with Qt's
     # own schema-3 representation.
     "wsjtx_protocol": ["src/wsjtxmessage.cpp"],
@@ -25,6 +27,7 @@ UNITS = {
     "flexprotocol": ["src/radio/flexprotocol.cpp"],
     # RF-KIT (RF2K-S) amplifier REST/JSON codec.
     "rfkitprotocol": ["src/rfkitprotocol.cpp"],
+    "rfkitconnection": ["src/rfkitconnection.cpp", "src/rfkitprotocol.cpp"],
     # Windows launcher helpers: wfweb command line composed from the form,
     # and the server log lines the launcher reacts to.
     "launcher": ["launcher/src/launchconfig.cpp", "launcher/src/logparser.cpp",
@@ -34,7 +37,8 @@ UNITS = {
 }
 
 # Units that need more than Qt5Core.
-MODULES = {"webauth": ["Qt5Core", "Qt5Network"]}
+MODULES = {"webauth": ["Qt5Core", "Qt5Network"],
+           "rfkitconnection": ["Qt5Core", "Qt5Network"]}
 
 
 @pytest.mark.parametrize("unit", sorted(UNITS))
@@ -51,11 +55,19 @@ def test_cpp_unit(unit, tmp_path):
         pytest.skip("Qt5 development package unavailable")
 
     executable = tmp_path / f"{unit}_test"
+    extra = []
+    if unit == "rfkitconnection":
+        moc = shutil.which("moc") or shutil.which("moc-qt5")
+        assert moc, "Qt moc is required to test the RF-KIT transport"
+        generated = tmp_path / "moc_rfkitconnection.cpp"
+        subprocess.run([moc, str(ROOT / "include/rfkitconnection.h"), "-o", str(generated)], check=True)
+        extra.append(str(generated))
     command = [
         "g++", "-std=c++17", "-fPIC",
         "-I", str(ROOT / "include"),
         str(ROOT / "tests" / f"{unit}_test.cpp"),
         *(str(ROOT / src) for src in UNITS[unit]),
+        *extra,
         *flags.stdout.split(),
         "-o", str(executable),
     ]
@@ -69,3 +81,6 @@ def test_cpp_unit(unit, tmp_path):
         env = dict(os.environ, HOME=str(tmp_path), XDG_CONFIG_HOME=str(tmp_path / "cfg"),
                    WFWEB_CONFIG_DIR=str(tmp_path))
     subprocess.run([str(executable)], check=True, cwd=ROOT, env=env)
+    if unit == "rfkitconnection":
+        for scenario in ("truncated", "deadline"):
+            subprocess.run([str(executable), scenario], check=True, cwd=ROOT, env=env, timeout=20)

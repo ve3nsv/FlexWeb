@@ -8,7 +8,7 @@
 // called by the host's audio path. The clean receive path in index.html
 // (modeCleanProfile 'sstv') sets the sideband by band and turns the noise
 // tools off while body.sstv-open is set.
-import { SSTV_MODES, sstvMode, sstvEncode, SstvDecoder } from './sstv.mjs';
+import { SSTV_MODES, sstvMode, sstvEncode, SstvDecoder, sstvSnrEstimate } from './sstv.mjs';
 
 const BANDS = [
     { label: '80 m 3.845 LSB', hz: 3845000 },
@@ -26,7 +26,8 @@ const MARKUP = `
     <span class="sstv-chip" id="sstvFreq">---</span>
     <span class="sstv-chip" id="sstvState">RX: WAITING</span>
     <span class="sstv-info" id="sstvInfo"></span>
-    <select id="sstvBandSel" class="sstv-sel" title="SSTV calling frequencies"></select>
+    <div id="sstvBands" class="sstv-bands" aria-label="SSTV calling frequencies"></div>
+    <button type="button" class="sstv-btn" id="sstvBandEdit">EDIT BANDS</button>
     <button type="button" class="sstv-btn" id="sstvCloseBtn">CLOSE</button>
   </div>
   <div class="sstv-body">
@@ -60,6 +61,9 @@ const MARKUP = `
     </div>
   </div>
   <div class="sstv-view hidden" id="sstvView">
+    <button type="button" class="sstv-receiving hidden" id="sstvReceiving" aria-live="polite">
+      <canvas id="sstvReceivingThumb" width="80" height="64"></canvas><span id="sstvReceivingText"></span>
+    </button>
     <canvas id="sstvViewImg"></canvas>
     <div class="sstv-view-cap" id="sstvViewCap"></div>
     <div class="sstv-view-btns">
@@ -73,7 +77,7 @@ const MARKUP = `
 const S = {
     visible: false, dec: null, rxMode: 'auto', fs: 0, state: 'idle', pic: null,
     txImg: null, txBusy: false, txTimer: null, fft: null, wfRow: 0, snr: null,
-    gal: [], viewing: null, picMeta: null,
+    gal: [], viewing: null, picMeta: null, receiving: null,
 };
 const $ = id => document.getElementById(id);
 const host = name => (typeof window[name] !== 'undefined' ? window[name] : undefined);
@@ -173,6 +177,7 @@ function openView(rec) {
     $('sstvViewCap').textContent = `${rec.name} · ${new Date(rec.t).toLocaleString()}`
         + (rec.freq ? ` · ${(rec.freq / 1e6).toFixed(3)} MHz` : '') + (rec.lines < rec.of ? ` · ${rec.lines}/${rec.of} lines` : '');
     $('sstvView').classList.remove('hidden');
+    updateReceivingBanner();
 }
 
 // ---------------------------------------------------------------------
@@ -185,6 +190,7 @@ function newDecoder() {
 function onDecEvent(ev) {
     const c = $('sstvImg');
     if (ev.type === 'start') {
+        S.receiving = ev; updateReceivingBanner();
         S.state = 'rx'; S.pic = ev; S.picMeta = { t0: Date.now() };
         c.width = ev.w; c.height = ev.h;
         const g = c.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, ev.w, ev.h);
@@ -192,16 +198,28 @@ function onDecEvent(ev) {
         setInfo(ev.late ? 'joined a picture under way (no VIS)' : 'VIS received');
     } else if (ev.type === 'progress') {
         drawPic(ev);
+        S.receiving = ev; updateReceivingBanner();
         setInfo(`line ${ev.line} / ${ev.lines} · slant ${fmtPpm(ev.slant)}${S.pic && S.pic.late ? ' · joined late' : ''}`);
         setSignal(ev);
     } else if (ev.type === 'done') {
         drawPic(ev);
         S.state = 'idle';
+        S.receiving = ev; updateReceivingBanner();
         setState('RX: WAITING', '');
         setInfo(`${ev.name} ${ev.why} · ${ev.line} / ${ev.lines} lines`);
         if (ev.line >= 0.3 * ev.lines) galleryAdd(ev);
     }
 }
+function updateReceivingBanner() {
+    const b = $('sstvReceiving'), ev = S.receiving;
+    b.classList.toggle('hidden', !S.viewing || !ev);
+    if (!S.viewing || !ev) return;
+    $('sstvReceivingText').textContent = ev.type === 'done' ? 'New picture received – tap to view'
+        : `Receiving ${ev.name}… line ${ev.line || 0} / ${ev.lines || 0} – tap for live picture`;
+    const thumb = $('sstvReceivingThumb');
+    thumb.getContext('2d').drawImage($('sstvImg'), 0, 0, thumb.width, thumb.height);
+}
+
 function fmtPpm(p) { return Math.abs(p) < 30 ? 'none' : (p > 0 ? '+' : '') + Math.round(p) + ' ppm'; }
 function drawPic(ev) {
     const c = $('sstvImg');
@@ -217,7 +235,7 @@ function setInfo(t) { $('sstvInfo').textContent = t; }
 function setSignal(ev) {
     const parts = [];
     parts.push(ev.syncPct >= 80 ? 'Sync locked' : ev.syncPct >= 40 ? 'Sync weak' : 'Sync lost');
-    if (S.snr !== null) parts.push(`SNR ${Math.round(S.snr)} dB`);
+    parts.push(S.snr === null ? 'SNR —' : `SNR ~${Math.round(S.snr)} dB`);
     parts.push(`offset ${ev.offset >= 0 ? '+' : ''}${Math.round(ev.offset)} Hz`);
     $('sstvSignal').textContent = parts.join(' · ');
     const pct = S.snr === null ? ev.syncPct : Math.max(0, Math.min(100, (S.snr + 5) * 3));
@@ -268,16 +286,8 @@ function wfRow(buf, R) {
     const c = $('sstvWf'); if (!c) return;
     const g = c.getContext('2d'), W = c.width, H = c.height;
     const m = fftMag(buf), hz = R / buf.length;
-    // SNR: picture band 1100-2300 Hz against the quiet 2500-2800 Hz above it
-    let ps = 0, pn = 0, ns = 0, nn = 0;
-    for (let i = 0; i < m.length; i++) {
-        const f = i * hz;
-        if (f >= 1100 && f <= 2300) { ps += m[i]; ns++; } else if (f >= 2500 && f <= 2800) { pn += m[i]; nn++; }
-    }
-    if (nn && ns && pn > 0) {
-        const nd = pn / nn, sig = Math.max(1e-12, ps - nd * ns), snr = 10 * Math.log10(sig / (nd * 2500 / hz));
-        S.snr = S.snr === null ? snr : S.snr + 0.1 * (snr - S.snr);
-    }
+    const estimate = sstvSnrEstimate(m, hz);
+    S.snr = estimate === null ? null : S.snr === null ? estimate : S.snr + 0.1 * (estimate - S.snr);
     g.drawImage(c, 0, 0, W, H - 1, 0, 1, W, H - 1);
     const row = g.createImageData(W, 1);
     let mx = 1e-12; for (let i = 0; i < m.length; i++) if (m[i] > mx) mx = m[i];
@@ -383,14 +393,63 @@ function renderModeChips() {
         box.appendChild(b);
     }
 }
+let bands = BANDS.map(b => ({ label: b.label.split(' ')[0] + ' m', hz: b.hz, mode: b.hz < 10000000 ? 'LSB' : 'USB' }));
+window._sstvSettingsChanged = function (settings) {
+    if (!settings || !Array.isArray(settings.frequencies)) return;
+    bands = settings.frequencies;
+    renderBands();
+};
+window._sstvDesiredMode = function (hz) {
+    const band = bands.find(b => Math.abs(hz - b.hz) <= 3000);
+    return band && band.mode ? band.mode : hz < 10000000 ? 'LSB' : 'USB';
+};
+function renderBands() {
+    const box = $('sstvBands'); if (!box) return;
+    const f = host('currentFreq') || 0;
+    const signature = JSON.stringify([bands, Math.round(f / 1000)]);
+    if (box.dataset.signature === signature) return;
+    box.dataset.signature = signature;
+    box.replaceChildren();
+    for (const b of bands) {
+        const btn = document.createElement('button'); btn.type = 'button';
+        btn.className = 'sstv-btn' + (Math.abs(f - b.hz) <= 3000 ? ' sstv-chip-on' : '');
+        btn.textContent = b.label;
+        btn.title = `${(b.hz / 1e6).toFixed(3)} MHz ${b.mode || (b.hz < 10000000 ? 'LSB' : 'USB')}`;
+        btn.onclick = () => {
+            send_({ cmd: 'setFrequency', value: b.hz });
+            if (b.mode) send_({ cmd: 'setMode', value: b.mode });
+        };
+        box.appendChild(btn);
+    }
+}
+function saveBands(settings, reset = false) {
+    if (window._sstvSettingsServer) send_({ cmd: 'setSstvSettings', settings, reset });
+    else { save('wfSstvBands', JSON.stringify(settings)); window._sstvSettingsChanged(settings); }
+}
+function editBands() {
+    const text = prompt('SSTV bands: one per line: label, MHz, sideband (optional). Enter RESET for defaults.',
+        bands.map(b => `${b.label}, ${(b.hz / 1e6).toFixed(6)}, ${b.mode || ''}`).join('\n'));
+    if (text === null) return;
+    if (text.trim().toUpperCase() === 'RESET') { saveBands({ frequencies: BANDS.map(b => ({ label: b.label.split(' ')[0] + ' m', hz: b.hz, mode: b.hz < 10000000 ? 'LSB' : 'USB' })) }, true); return; }
+    const frequencies = text.split('\n').filter(l => l.trim()).map(l => {
+        const [label, mhz, mode = ''] = l.split(',').map(s => s.trim());
+        return { label, hz: Math.round(Number(mhz) * 1e6), mode: mode.toUpperCase() };
+    });
+    if (!frequencies.length || frequencies.length > 30 || frequencies.some(b => !b.label || b.label.length > 24
+        || !Number.isFinite(b.hz) || b.hz < 100000 || b.hz > 1300000000 || !['', 'LSB', 'USB', 'FM', 'AM'].includes(b.mode))) {
+        alert('Use up to 30 bands: label, valid MHz, and optional LSB, USB, FM or AM.'); return;
+    }
+    saveBands({ frequencies });
+}
 function nearestBand() {
     const f = host('currentFreq') || 0;
     let best = null, d = 1e12;
-    for (const b of BANDS) { const x = Math.abs(f - b.hz); if (x < d) { d = x; best = b; } }
+    for (const b of bands) { const x = Math.abs(f - b.hz); if (x < d) { d = x; best = b; } }
     return d < 500000 ? best : null;
 }
 function tick() {
     const f = host('currentFreq'), mode = host('currentMode');
+    renderBands();
     $('sstvFreq').textContent = f ? `${(f / 1e6).toFixed(3)} ${mode || ''}` : '---';
 }
 function open() {
@@ -403,7 +462,6 @@ function open() {
     if (typeof window.saveVfoSnapshot === 'function') window.saveVfoSnapshot();
     const b = nearestBand(), f = host('currentFreq') || 0;
     if (b) {
-        $('sstvBandSel').value = String(b.hz);
         if (Math.abs(f - b.hz) > 3000) send_({ cmd: 'setFrequency', value: b.hz });
     }
     if (typeof initDigiTxCtx === 'function') initDigiTxCtx();
@@ -435,9 +493,11 @@ function close() {
 (function init() {
     const scope = document.getElementById('scopeArea') || document.body;
     if (!$('sstvBar')) scope.insertAdjacentHTML('beforeend', MARKUP);
-    const bs = $('sstvBandSel');
-    bs.innerHTML = '<option value="">BAND</option>' + BANDS.map(b => `<option value="${b.hz}">${b.label}</option>`).join('');
-    bs.onchange = () => { if (bs.value) send_({ cmd: 'setFrequency', value: +bs.value }); };
+    renderBands();
+    $('sstvReceiving').onclick = () => { $('sstvViewClose').click(); S.receiving = null; };
+    $('sstvBandEdit').onclick = editBands;
+    if (window._sstvSettings) window._sstvSettingsChanged(window._sstvSettings);
+    else if (!window._sstvSettingsServer) { try { window._sstvSettingsChanged(JSON.parse(load('wfSstvBands', 'null'))); } catch (e) {} }
     const tm = $('sstvTxMode');
     tm.innerHTML = TX_MODES.map(id => { const m = sstvMode(id); return `<option value="${id}">${m.name} (${Math.round(m.seconds)} s)</option>`; }).join('');
     tm.value = load('wfSstvTxMode', 's1');

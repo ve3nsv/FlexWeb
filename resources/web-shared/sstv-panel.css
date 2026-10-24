@@ -62,3 +62,10 @@ body.sstv-open #bottomBar { grid-row: 5; }
     .sstv-gal-tile { flex: none; }
     .sstv-gal { max-height: 180px; }
 }
+
+.sstv-bands { display: flex; flex-wrap: wrap; gap: 4px; margin-left: auto; }
+.sstv-receiving { display: flex; align-items: center; gap: 12px; width: 100%; padding: 8px;
+    border: 1px solid #3ad; border-radius: 4px; background: #12364b; color: #fff; cursor: pointer;
+    font: 600 13px var(--font-ui, sans-serif); flex-shrink: 0; }
+.sstv-receiving.hidden { display: none; }
+#sstvReceivingThumb { width: 80px; height: 64px; object-fit: contain; }

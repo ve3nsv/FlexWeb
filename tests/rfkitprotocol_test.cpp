@@ -149,26 +149,31 @@ int main()
     // The four states a real RF2K-S gave for the header pill, plus OFF.
     {
         const auto pillOf = [](const char* json) { return tunerPill(*parseTuner(json)); };
-        report("AUTO reads as TUNER ON",
+        report("AUTO reads as ATU IN",
                pillOf(R"({"mode": "AUTO", "setup": "CL", "L": {"value": 755, "unit": "nH"}, "C": {"value": 439, "unit": "pF"}})")
                    == TunerPill::On);
-        report("MANUAL with a CL network reads as TUNER MANUAL",
+        report("MANUAL with a CL network reads as ATU MAN",
                pillOf(R"({"mode": "MANUAL", "setup": "CL", "L": {"value": 0, "unit": "nH"}, "C": {"value": 0, "unit": "pF"}})")
                    == TunerPill::Manual);
-        report("MANUAL with the BYPASS setup reads as TUNER MANUAL BYPASS",
+        report("MANUAL with the BYPASS setup reads as ATU MAN BYP",
                pillOf(R"({"mode": "MANUAL", "setup": "BYPASS", "tuned_frequency": {"value": 7188, "unit": "kHz"}})")
                    == TunerPill::ManualBypass);
-        report("mode BYPASS (nothing else sent) reads as TUNER BYPASS",
+        report("mode BYPASS (nothing else sent) reads as ATU BYP",
                pillOf(R"({"mode": "BYPASS"})") == TunerPill::Bypass);
-        report("mode OFF reads as TUNER OFF", pillOf(R"({"mode": "OFF"})") == TunerPill::Off);
-        report("a tune in progress still reads as TUNER ON",
+        report("mode OFF reads as ATU OFF", pillOf(R"({"mode": "OFF"})") == TunerPill::Off);
+        report("a tune in progress still reads as ATU IN",
                pillOf(R"({"mode": "AUTO_TUNING_FROM_AUTO", "setup": "CL"})") == TunerPill::On);
+        report("untuned AUTO is red and permits tune", pillOf(R"({"mode":"AUTO","setup":"NOT TUNED"})") == TunerPill::NotTuned
+               && !tunerPillInUse(TunerPill::NotTuned));
+        report("BYPASS wins over NOT TUNED", pillOf(R"({"mode":"BYPASS","setup":"NOT TUNED"})") == TunerPill::Bypass);
+        report("tuning wins over NOT TUNED", pillOf(R"({"mode":"AUTO_TUNING_FROM_AUTO","setup":"NOT TUNED"})") == TunerPill::On);
+        report("untuned manual can tune", tuneAllowed(*parseTuner(R"({"mode":"MANUAL","setup":"NOT TUNED"})")));
         report("an unknown mode gives the neutral pill", pillOf(R"({"mode": "WARP"})") == TunerPill::Unknown);
         report("pill labels are the amplifier's own wording",
-               tunerPillLabel(TunerPill::On) == "TUNER ON" && tunerPillLabel(TunerPill::Manual) == "TUNER MANUAL"
-                   && tunerPillLabel(TunerPill::ManualBypass) == "TUNER MANUAL BYPASS"
-                   && tunerPillLabel(TunerPill::Bypass) == "TUNER BYPASS"
-                   && tunerPillLabel(TunerPill::Off) == "TUNER OFF");
+               tunerPillLabel(TunerPill::On) == "ATU IN" && tunerPillLabel(TunerPill::Manual) == "ATU MAN"
+                   && tunerPillLabel(TunerPill::ManualBypass) == "ATU MAN BYP"
+                   && tunerPillLabel(TunerPill::Bypass) == "ATU BYP"
+                   && tunerPillLabel(TunerPill::Off) == "ATU OFF");
         report("green only when the tuner is in use (On, Manual)",
                tunerPillInUse(TunerPill::On) && tunerPillInUse(TunerPill::Manual)
                    && !tunerPillInUse(TunerPill::ManualBypass) && !tunerPillInUse(TunerPill::Bypass)

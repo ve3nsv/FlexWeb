@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     tags: ['v*']
+    branches: ['codex/punch-list']
   workflow_dispatch:
 
 env:

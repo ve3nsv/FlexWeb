@@ -403,6 +403,8 @@ macx:SOURCES += src/tlsproxy.cpp
 
 
 HEADERS  += \
+    include/serverload.h \
+    include/sstvsettings.h \
     include/wfweb_version.h \
     include/servermain.h \
     src/audio/adpcm/adpcm-lib.h \
