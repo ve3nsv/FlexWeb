@@ -15583,7 +15583,7 @@ if (fullscreenBtn && !document.documentElement.requestFullscreen) {
 // reuses the labels already rendered in the top bar.
 Recorder.init({
     button: document.getElementById('recBtn'),
-    getPresentationDelayMs: function () { return scopeSyncOn && audioEnabled ? scopeSyncCur : 0; },
+    getPresentationDelayMs: function () { return scopeSyncOn && audioEnabled && !isTransmitting ? scopeSyncCur : 0; },
     isTx: function() { return isTransmitting; },
     getState: function() {
         return {
