@@ -2182,12 +2182,12 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     if (type == "setSstvSettings") {
         const auto next = cmd["reset"].toBool() ? std::optional<QJsonObject>(defaultSstvSettings())
                                                : validateSstvSettings(cmd["settings"].toObject());
-        if (!next) { sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Invalid SSTV band list"}}); return; }
+        if (!next) { if (client) sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Invalid SSTV band list"}}); return; }
         auto settings = openSettings();
         settings->setValue("SSTV/Frequencies", QString::fromUtf8(QJsonDocument(*next).toJson(QJsonDocument::Compact)));
         settings->sync();
         if (settings->status() != QSettings::NoError) {
-            sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Could not save SSTV bands"}}); return;
+            if (client) sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Could not save SSTV bands"}}); return;
         }
         sendJsonToAll(QJsonObject{{"type", "sstvSettings"}, {"settings", *next}});
     }

@@ -155,7 +155,6 @@ async function main() {
     console.log(fail ? `${fail} FAILED` : 'all passed');
     process.exit(fail ? 1 : 0);
 }
-if (import.meta.url === 'file://' + process.argv[1]) main();
 
 // The estimate must not depend on out-of-passband bins (a 2.7 kHz
 // receiver filter removes the old 2500–2800 Hz reference).
@@ -171,3 +170,5 @@ if (import.meta.url === 'file://' + process.argv[1]) main();
     if (sstvSnrEstimate(p, 12000 / 512) !== null) throw Error('invalid spectrum has no SNR');
     console.log('PASS in-passband SNR estimate');
 }
+
+if (import.meta.url === 'file://' + process.argv[1]) main();

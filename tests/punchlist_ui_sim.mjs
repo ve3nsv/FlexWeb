@@ -43,4 +43,22 @@ function firstAudio(delay) {
 assert.equal(firstAudio(0.2), 200);
 assert.equal(firstAudio(0.4), 400);
 assert.equal(firstAudio(0), 10);
+// Increasing the display buffer after recording starts must also increase
+// the audio delay, rather than merely changing the next underrun threshold.
+{
+    const mixer = new Mixer();
+    mixer.port.onmessage({data:{k:'delay',seconds:0.2}});
+    for(let i=0;i<30;i++) {
+        mixer.port.onmessage({data:{k:'rx',d:new Float32Array(10).fill(0.5)}});
+        mixer.process([],[[new Float32Array(10)]]);
+    }
+    mixer.port.onmessage({data:{k:'delay',seconds:0.4}});
+    let silent=0;
+    for(let i=0;i<30;i++) {
+        mixer.port.onmessage({data:{k:'rx',d:new Float32Array(10).fill(0.5)}});
+        const output=new Float32Array(10);mixer.process([],[[output]]);
+        if(output.every(x=>x===0)) silent+=10;
+    }
+    assert(silent>=190 && silent<=220, 'adaptive delay must add about 200 ms of buffering');
+}
 console.log('PASS S-meter motion, peak and recorder presentation delay');
