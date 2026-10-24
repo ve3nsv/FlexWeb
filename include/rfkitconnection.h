@@ -1,8 +1,8 @@
 #pragma once
 
-// Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
+// Ported from VE3NSV's RF-KIT
 // support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
-// 94b0496), GPLv3. "Constitution principle" references are AetherSDR's
+// 94b0496), GPLv3, with FlexWeb punch-list updates. "Constitution principle" references are AetherSDR's
 // project rules.
 
 
@@ -91,6 +91,7 @@ private:
         QByteArray body;
         bool probe{false};  // the connect handshake (GET /info)
         bool tuneProbe{false};  // PUT /tuner {} : does this server have the route?
+        bool priority{false}; // command: FIFO ahead of routine polls
     };
 
     static bool isTuneStart(const Request& request);

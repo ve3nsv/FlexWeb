@@ -367,6 +367,7 @@ function draw(canvas, st) {
     else if (st.kind === 'po') t = angleOf('po', st.value / (st.poFull || 100) * 100);
     else t = angleOf(SCALES[st.kind] ? st.kind : 'swr', st.value);
     target = Math.max(STOP_LO, Math.min(STOP_HI, t));
+    if (!st.tx && st.immediateRx) { pos = target; vel = 0; }
 
     // A hidden tab gets no animation frames; keep the canvas truthful for a
     // recording that is still running.

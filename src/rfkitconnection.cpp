@@ -1,6 +1,6 @@
-// Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
+// Ported from VE3NSV's RF-KIT
 // support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
-// 94b0496), GPLv3. "Constitution principle" references are AetherSDR's
+// 94b0496), GPLv3, with FlexWeb punch-list updates. "Constitution principle" references are AetherSDR's
 // project rules.
 
 #include "rfkitconnection.h"
@@ -160,7 +160,11 @@ void RfkitConnection::resetSession()
 void RfkitConnection::enqueue(const Request& request, bool front)
 {
     if (front) {
-        m_queue.prepend(request);
+        Request command = request;
+        command.priority = true;
+        int i = 0;
+        while (i < m_queue.size() && m_queue.at(i).priority) ++i;
+        m_queue.insert(i, command);
     } else {
         m_queue.enqueue(request);
     }
@@ -203,6 +207,15 @@ void RfkitConnection::pump()
     m_inFlight = true;
     m_reply = reply;
     const int epoch = m_epoch;
+    // Inactivity timeout alone permits a trickling reply to run forever.
+    auto *deadline = new QTimer(reply);
+    deadline->setSingleShot(true);
+    connect(deadline, &QTimer::timeout, reply, [reply]() {
+        reply->setProperty("rfkitDeadline", true);
+        reply->abort();
+    });
+    connect(reply, &QNetworkReply::finished, deadline, &QTimer::stop);
+    deadline->start(10000);
 
     // Principle VII: bound what a LAN peer can make us buffer. The transfer
     // timeout bounds the time; this bounds the size.
@@ -235,7 +248,11 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
 
     // No HTTP status at all means the exchange never completed: refused,
     // timed out, unresolvable, reset, or aborted for size.
-    if (oversize || http == 0) {
+    const bool deadline = reply->property("rfkitDeadline").toBool();
+    // Qt maps completed HTTP 4xx/5xx to errors >= 200. Network/protocol
+    // errors (< 200) also include failures after valid HTTP headers.
+    const int error = int(reply->error());
+    if (oversize || deadline || http == 0 || (error > 0 && error < 200)) {
         onTransportFailure(oversize ? tr("Response too large") : reply->errorString(), request);
         return;
     }

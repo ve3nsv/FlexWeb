@@ -1,6 +1,6 @@
-// Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
+// Ported from VE3NSV's RF-KIT
 // support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
-// 94b0496), GPLv3. "Constitution principle" references are AetherSDR's
+// 94b0496), GPLv3, with FlexWeb punch-list updates. "Constitution principle" references are AetherSDR's
 // project rules.
 
 #include "rfkitprotocol.h"
@@ -442,6 +442,8 @@ TuneApi classifyTuneProbe(int httpStatus)
 
 TunerPill tunerPill(const Tuner& tuner)
 {
+    if ((tuner.mode == TunerMode::Auto || tuner.mode == TunerMode::Manual)
+        && tuner.setup == TunerSetup::NotTuned) return TunerPill::NotTuned;
     switch (tuner.mode) {
     case TunerMode::Auto:
     case TunerMode::AutoTuning: return TunerPill::On;
@@ -457,14 +459,15 @@ TunerPill tunerPill(const Tuner& tuner)
 QString tunerPillLabel(TunerPill pill)
 {
     switch (pill) {
-    case TunerPill::On:           return QStringLiteral("TUNER ON");
-    case TunerPill::Manual:       return QStringLiteral("TUNER MANUAL");
-    case TunerPill::ManualBypass: return QStringLiteral("TUNER MANUAL BYPASS");
-    case TunerPill::Bypass:       return QStringLiteral("TUNER BYPASS");
-    case TunerPill::Off:          return QStringLiteral("TUNER OFF");
+    case TunerPill::On:           return QStringLiteral("ATU IN");
+    case TunerPill::Manual:       return QStringLiteral("ATU MAN");
+    case TunerPill::ManualBypass: return QStringLiteral("ATU MAN BYP");
+    case TunerPill::Bypass:       return QStringLiteral("ATU BYP");
+    case TunerPill::Off:          return QStringLiteral("ATU OFF");
+    case TunerPill::NotTuned:     return QStringLiteral("ATU NO TUNE");
     case TunerPill::Unknown:      break;
     }
-    return QStringLiteral("TUNER —");
+    return QStringLiteral("ATU —");
 }
 
 bool tunerPillInUse(TunerPill pill)

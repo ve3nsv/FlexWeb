@@ -1,3 +1,30 @@
+# Codex branch progress
+
+Branch: `codex/punch-list`, based on `aether-look` at `311434b`.
+
+First implementation batch (candidate; requires CI and station verification):
+
+- **1:** TUNE power slider, in the shared TX rows used by the sidebar and GAIN.
+- **9:** SSTV band buttons, editable server-saved frequencies and mode overrides,
+  broadcast to connected browsers; reset to defaults. Standalone saves locally.
+- **12:** SSTV in-passband SNR estimate; silence/unmeasurable signals show a dash.
+- **14:** Receiving banner and live thumbnail over the SSTV gallery viewer.
+- **16:** RF-KIT ATU labels/NO TUNE, drive hint, combined errors, unknown OPERATE
+  state, FIFO commands ahead of polls, overall deadline and truncated-transfer
+  failures. Existing dimmed antennas and read-only EXT are retained.
+- **17:** Server/machine CPU badge, core count and process memory; FUNC toggle.
+- **18:** Immediate Flex LEVEL readings, no periodic cached replay, browser
+  attack/release and peak decay, video audio buffered to the display-sync delay.
+
+Still pending: 2–8, 10–11, 13, 15, 19–20. Optional FFT-derived meter from 18c
+is deferred until the native LEVEL timing is checked on the radio. The RF-KIT
+manual's complete error-help catalog and dBFS-only meter labeling remain follow-up
+work. CPU subcomponent attribution is deferred until the SDR pipeline exists.
+
+The original requirements and historical batches follow unchanged.
+
+---
+
 # FlexWeb next batch (aether-look branch)
 
 Status: all items below are implemented in build 56 (dev-aether-look).

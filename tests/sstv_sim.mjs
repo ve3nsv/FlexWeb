@@ -2,7 +2,7 @@
 // through a channel (noise, tuning offset, sound-card clock error, missing
 // VIS), decode, and compare with the original. Run: node tests/sstv_sim.mjs
 // [mode ...]. Exit code 1 on any failure. Wrapped by tests/test_sstv.py.
-import { SSTV_MODES, sstvEncode, SstvDecoder, sstvMode } from '../resources/web-shared/sstv.mjs';
+import { SSTV_MODES, sstvEncode, SstvDecoder, sstvMode, sstvSnrEstimate } from '../resources/web-shared/sstv.mjs';
 import { readFileSync } from 'node:fs';
 
 export function testCard(w, h) {
@@ -156,3 +156,18 @@ async function main() {
     process.exit(fail ? 1 : 0);
 }
 if (import.meta.url === 'file://' + process.argv[1]) main();
+
+// The estimate must not depend on out-of-passband bins (a 2.7 kHz
+// receiver filter removes the old 2500–2800 Hz reference).
+{
+    const p = new Float32Array(256).fill(1);
+    p[80] = 2000;
+    const before = sstvSnrEstimate(p, 12000 / 512);
+    p.fill(0, 107, 121);
+    const after = sstvSnrEstimate(p, 12000 / 512);
+    if (!Number.isFinite(before) || before !== after || before < 0) throw Error('SNR depends on filtered-out bins');
+    if (sstvSnrEstimate(new Float32Array(256), 12000 / 512) !== null) throw Error('silence has no SNR');
+    p[70] = NaN;
+    if (sstvSnrEstimate(p, 12000 / 512) !== null) throw Error('invalid spectrum has no SNR');
+    console.log('PASS in-passband SNR estimate');
+}
