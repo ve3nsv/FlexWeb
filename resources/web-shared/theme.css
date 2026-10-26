@@ -353,3 +353,7 @@
     font-family: var(--font-mono);
     font-size: var(--fs-sm);
 }
+
+/* Server load is a neutral status chip; REC keeps its red action styling. */
+#serverLoadChip { background: var(--bg-raised); border-color: var(--border-col); color: var(--text-dim); }
+#serverLoadChip[hidden] { display: none; }

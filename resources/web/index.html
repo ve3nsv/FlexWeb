@@ -2447,6 +2447,7 @@ try {
         <span id="dspIndicators"></span>
         <span class="flex-space"></span>
         <span id="rigTag" title="Rig"></span>
+        <button type="button" id="serverLoadChip" class="rec-btn" hidden aria-label="Server CPU usage">CPU —</button>
         <button id="recBtn" class="rec-btn" title="Record">REC</button>
         <button id="qsoLogBtn" class="qso-log-btn" title="Log QSO">LOG</button>
         <button id="userBtn" class="user-btn" hidden title="Signed in. Tap to sign out" onclick="userBtnClick()"></button>
@@ -2933,6 +2934,12 @@ try {
                     <input type="range" id="monitorLevelSlider" min="0" max="255" value="128"></div>
                 <span class="gain-val" id="monitorLevelVal">50%</span>
             </div>
+            <div class="gain-row tx" id="tunePowerRow" style="display:none" title="Radio tune-carrier power">
+                <span class="gain-label">TUNE</span>
+                <div class="gain-bar-bg"><div class="gain-bar-fill" id="tunePowerFill"></div>
+                    <input type="range" id="tunePowerSlider" aria-label="Tune power" min="0" max="100" value="0"></div>
+                <span class="gain-val" id="tunePowerVal">—</span>
+            </div>
             <div class="gain-back-row">
                 <button class="ov-btn back-btn" onclick="setPanel('default')">&#x21A9;</button>
             </div>
@@ -3125,6 +3132,7 @@ try {
 var wsTransport = null;
 var transport = null;         // alias to wsTransport
 var ws = null;                // alias to wsTransport.ws — legacy readyState checks
+window._sstvSettingsServer = true;
 var serverVersion = '';  // set from rigInfo message
 var rigModelName = '';   // set from rigInfo/rigConnected
 var rigTagName = '';     // server --name override (rigInfo.name); empty = show the model
@@ -3743,8 +3751,16 @@ function handleMessage(msg) {
             flexMemList = msg.list || [];
             flexMemRenderAll();
             break;
+        case 'sstvSettings':
+            window._sstvSettings = msg.settings;
+            if (window._sstvSettingsChanged) window._sstvSettingsChanged(msg.settings);
+            break;
+        case 'serverLoad':
+            updateServerLoad(msg);
+            break;
         case 'flexDsp':
             flexDsp = msg;
+            updateTunePowerRow();
             updatePreampAttIndicator();
             if (isFlexRig) updateRfGainIndicator(0);
             flexFmSync(msg);
@@ -3785,6 +3801,8 @@ function handleMessage(msg) {
             txBusyRefused();
             break;
         case 'rigInfo':
+            window._sstvSettings = msg.sstvSettings;
+            if (window._sstvSettingsChanged) window._sstvSettingsChanged(msg.sstvSettings);
             if (msg.webUser !== undefined) setWebUser(msg.webUser);
             if (msg.webLogin !== undefined) webLoginOn = !!msg.webLogin;
             if (msg.txOpus !== undefined) serverTxOpus = !!msg.txOpus;
@@ -4817,7 +4835,7 @@ function modeCleanCheck() {
     if (!p) return;
     // Sideband: data modes stay on USB; FreeDV follows the band.
     // SSTV, like FreeDV, is LSB below 10 MHz (3.845, 7.171) and USB above.
-    var want = p === 'digi' ? 'USB' : (p === 'fdv' || p === 'sstv') ? freedvSideband() : null;
+    var want = p === 'digi' ? 'USB' : p === 'sstv' && window._sstvDesiredMode ? window._sstvDesiredMode(currentFreq) : (p === 'fdv' || p === 'sstv') ? freedvSideband() : null;
     if (want && currentMode !== want && /^(USB|LSB|DIGU|DIGL|USB-D|LSB-D|AM|FM|NFM|CW|CW-R|RTTY|RTTY-R|SAM|DFM)$/.test(currentMode)) {
         if (modeCleanLastSide === want + currentMode) return;   // one request per change; the reply settles it
         modeCleanLastSide = want + currentMode;
@@ -5091,7 +5109,55 @@ var ALC_MAX_GAIN = 0.5;
 var ALC_SMOOTHED = 0;          // EMA-filtered ALC reading
 var ALC_EMA_ALPHA = 0.15;      // EMA smoothing factor (lower = smoother)
 
-function updateSMeter(val) { meterVal = val; if (!isTransmitting) drawMeter(); }
+var serverLoadHidden = localStorage.getItem('wfServerLoadHidden') === '1';
+function updateServerLoad(msg) {
+    var chip = document.getElementById('serverLoadChip');
+    if (!Number.isFinite(msg.systemPercent)) return;
+    chip.hidden = serverLoadHidden;
+    chip.textContent = 'CPU ' + Math.round(msg.systemPercent) + '%';
+    chip.style.color = msg.systemPercent >= 90 ? '#ff5050' : msg.systemPercent >= 70 ? '#ffbf40' : '';
+    chip.title = 'Machine CPU: ' + msg.systemPercent.toFixed(1) + '%\nFlexWeb CPU: '
+        + msg.processPercent.toFixed(1) + '% of machine (' + msg.processCorePercent.toFixed(1)
+        + '% of one core)\nCores: ' + msg.cores
+        + (msg.processMemoryBytes ? '\nFlexWeb memory: ' + (msg.processMemoryBytes / 1048576).toFixed(0) + ' MiB' : '');
+    chip.onclick = function () { alert(chip.title); };
+}
+function updateTunePowerRow() {
+    var known = flexDsp && Number.isFinite(flexDsp.tunePower);
+    document.getElementById('tunePowerRow').style.display = known ? '' : 'none';
+    if (known && document.activeElement !== document.getElementById('tunePowerSlider')) {
+        document.getElementById('tunePowerSlider').value = flexDsp.tunePower;
+        document.getElementById('tunePowerFill').style.width = flexDsp.tunePower + '%';
+        document.getElementById('tunePowerVal').textContent = flexDsp.tunePower + '%';
+    }
+}
+document.getElementById('tunePowerSlider').addEventListener('input', function () {
+    var val = Number(this.value);
+    document.getElementById('tunePowerFill').style.width = val + '%';
+    document.getElementById('tunePowerVal').textContent = val + '%';
+    sendFlexDsp('tunePower', 0, val);
+});
+
+var meterTarget = -54, meterFrameId = 0, meterFrameTs = 0;
+var meterPeakDb = -54, meterPeakReset = 0;
+function meterAnimate(ts) {
+    meterFrameId = 0;
+    var dt = meterFrameTs ? Math.min(250, ts - meterFrameTs) : 16;
+    meterFrameTs = ts;
+    meterVal += (meterTarget - meterVal) * (1 - Math.exp(-dt / (meterTarget > meterVal ? 45 : 180)));
+    if (!meterPeakReset || ts - meterPeakReset >= 10000) { meterPeakDb = meterVal; meterPeakReset = ts; }
+    meterPeakDb = Math.max(meterVal, meterPeakDb - dt * 0.01);
+    if (!isTransmitting) drawMeter();
+    if (Math.abs(meterTarget - meterVal) > 0.01 || meterPeakDb - meterVal > 0.01)
+        meterFrameId = requestAnimationFrame(meterAnimate);
+    else meterFrameTs = 0;
+}
+function updateSMeter(val) {
+    if (!Number.isFinite(val)) return;
+    meterTarget = Math.max(-54, Math.min(60, val));
+    if (document.hidden) { meterVal = meterTarget; meterPeakDb = meterTarget; }
+    if (!meterFrameId) meterFrameId = requestAnimationFrame(meterAnimate);
+}
 // Every S-meter reading goes through scope sync, so it lines up with the
 // spectrum and the audio. The 'update' push (each new reading, ~10 Hz on a
 // Flex) used to bypass it while the periodic 'meters' message was delayed,
@@ -5853,7 +5919,7 @@ function drawMeter() {
     var canvas = document.getElementById('meterCanvas');
     if (needleActive()) {
         NeedleMeter.draw(canvas, {
-            tx: isTransmitting, kind: txMeterKind, s: meterVal,
+            tx: isTransmitting, kind: txMeterKind, s: meterVal, immediateRx: true,
             value: (txMeterKind === 'po') ? powerVal : txMeterValue(txMeterKind),
             poFull: poFullScale
         });
@@ -5966,12 +6032,10 @@ function drawSMeter(ctx, cw, ch, barX, barW) {
         : s9tile + Math.round(Math.min(60, meterVal) / 60 * s9tile);
     var fillCount = Math.max(0, Math.min(tiles, idx + 1));
 
-    // IC-7300 style peak hold: the highest segment lingers briefly
-    var now = performance.now();
-    if (fillCount >= meterPeakCount || now - meterPeakTs > METER_PEAK_HOLD_MS) {
-        meterPeakCount = fillCount;
-        meterPeakTs = now;
-    }
+    // Peak falls 0.5 dB per 50 ms; reset every 10 s (meterAnimate).
+    var peakIdx = meterPeakDb <= 0 ? (meterPeakDb + 54) / 54 * s9tile
+                                 : s9tile + meterPeakDb / 60 * s9tile;
+    meterPeakCount = Math.max(0, Math.min(tiles, Math.round(peakIdx) + 1));
 
     // --- Tile bar (the S9 boundary tile itself is blue) ---
     for (var i = 0; i < tiles; i++) {
@@ -6689,7 +6753,7 @@ function renderApplets() {
         amp.appendChild(ah);
         if (up && a.ampError) {
             var eb = document.createElement('div'); eb.className = 'amp-error-banner';
-            eb.textContent = 'ERROR: ' + a.ampError;
+            eb.textContent = 'Error: ' + a.ampError;
             amp.appendChild(eb);
         }
         var body = document.createElement('button');
@@ -7098,6 +7162,12 @@ function renderFuncOverlay() {
     }));
 
     // Monitor (TX sidetone)
+    grid.appendChild(makeFuncBtn('SERVER CPU', serverLoadHidden ? 'HIDDEN' : 'SHOWN', !serverLoadHidden, function () {
+        serverLoadHidden = !serverLoadHidden;
+        localStorage.setItem('wfServerLoadHidden', serverLoadHidden ? '1' : '0');
+        document.getElementById('serverLoadChip').hidden = serverLoadHidden;
+        renderFuncOverlay();
+    }));
     grid.appendChild(makeFuncBtn('MON', monitorEnabled ? toPercent(monitorLevel, 255) : 'OFF', monitorEnabled, function() {
         monitorEnabled = !monitorEnabled;
         send({ cmd: 'setMonitor', value: monitorEnabled });
@@ -7222,14 +7292,15 @@ function ampTuneButton(a, lock) {
     var b = document.createElement('button');
     b.type = 'button';
     var ready = !lock && !!a.tuneAllowed && !tuning && !ampTunePending;
-    b.className = 'amp-ctl amp-tune-btn' + (tuning ? ' tuning' : ready ? ' ready' : '');
+    b.className = 'amp-ctl amp-tune-btn' + (tuning ? ' tuning' : ready && a.fwd >= 4 && a.fwd <= 39 ? ' ready' : '');
     b.textContent = tuning ? 'TUNING' : 'TUNE';
     b.disabled = !ready;
     b.title = lock ? lock
             : tuning ? 'The amplifier is tuning'
             : !a.tuneAllowed ? 'Tune needs the tuner in AUTO or MANUAL (not OFF or BYPASS)'
             : !isTransmitting ? 'Key TUNE first: the amplifier tunes on a carrier'
-            : 'Start the amplifier\'s autotune';
+            : a.fwd < 10 ? 'At least 10 W tune drive is recommended (range 4–39 W)'
+            : 'Start the amplifier\'s autotune (drive range 4–39 W)';
     b.onclick = function (e) {
         e.stopPropagation();
         if (b.disabled) return;
@@ -7246,10 +7317,11 @@ function ampControlRows(a, lock) {
     var box = document.createElement('div'); box.className = 'amp-ctl-rows';
     var r1 = document.createElement('div'); r1.className = 'amp-ctl-row';
     var op = document.createElement('button'); op.type = 'button';
-    op.className = 'amp-ctl ' + (up ? (a.operate ? 'op-on' : 'op-standby') : '');
-    op.textContent = up ? (a.operate ? 'OPERATE' : 'STANDBY') : 'OPERATE';
-    op.disabled = !up || !!lock;
-    op.title = lock || (up ? (a.operate ? 'In OPERATE: tap for STANDBY' : 'In STANDBY: tap for OPERATE') : 'Amplifier offline');
+    var operateKnown = up && typeof a.operate === 'boolean';
+    op.className = 'amp-ctl ' + (operateKnown ? (a.operate ? 'op-on' : 'op-standby') : '');
+    op.textContent = operateKnown ? (a.operate ? 'OPERATE' : 'STANDBY') : '—';
+    op.disabled = !operateKnown || !!lock;
+    op.title = lock || (up && !operateKnown ? 'Waiting for the amplifier operate state' : up ? (a.operate ? 'In OPERATE: tap for STANDBY' : 'In STANDBY: tap for OPERATE') : 'Amplifier offline');
     op.onclick = function (e) { e.stopPropagation(); send({ cmd: 'ampOperate', value: !(ampState && ampState.operate) }); };
     r1.appendChild(op);
     var tb = ampTuneButton(a, lock);
@@ -7302,9 +7374,9 @@ function ampTunerState(a) {
     // AetherSDR's tuner pill (rfkitprotocol tunerPill): green while the tuner
     // is in the signal path (TUNER ON / MANUAL), red when bypassed or off.
     if (!a || !a.connected || !a.tunerKnown)
-        return { text: 'TUNER \u2014', cls: '', on: false, title: 'Tuner state unknown' };
+        return { text: 'ATU \u2014', cls: '', on: false, title: 'Tuner state unknown' };
     return { text: a.tunerPill, cls: a.tunerInUse ? 'on' : 'off', on: !!a.tunerInUse,
-             title: (a.tunerInUse ? 'Tuner in the signal path' : 'Tuner not in the signal path') + ' (status)' };
+             title: a.tunerPill === 'ATU NO TUNE' ? 'Not Tuned! The amplifier blocks transmit with the tuner in line and no stored tuning. Use STANDBY, AUTO, a carrier, then Tune.' : (a.tunerInUse ? 'Tuner in the signal path' : 'Tuner not in the signal path') + ' (status)' };
 }
 
 function renderAmpOverlay() {
@@ -7315,7 +7387,7 @@ function renderAmpOverlay() {
     var lock = up ? ampLockReason() : '';
     var html = '<div class="amp-head"><b>' + ampEsc(a.device || 'RF-KIT') + '</b><span>' +
         (up ? 'connected ' : 'offline ') + ampEsc(a.target || '') + '</span></div>';
-    if (up && a.ampError) html += '<div class="amp-error-banner">ERROR: ' + ampEsc(a.ampError) + '</div>';
+    if (up && a.ampError) html += '<div class="amp-error-banner">Error: ' + ampEsc(a.ampError) + '</div>';
     if (!up && a.error) html += '<div class="amp-head"><span style="color:#e33">' + ampEsc(a.error) + '</span></div>';
 
     // Fixed scales matching the amplifier's own display (see AetherSDR's
@@ -7343,9 +7415,8 @@ function renderAmpOverlay() {
         ampTile('TEMP', up && a.temp !== undefined ? a.temp.toFixed(0) + ' \u00b0C' : undefined, a.temp >= 60) +
         ampTile('VOLTS', up && a.volts !== undefined ? a.volts.toFixed(1) + ' V' : undefined) +
         ampTile('CURRENT', up && a.amps !== undefined ? a.amps.toFixed(1) + ' A' : undefined) +
-        ampTile('TUNER', up ? String(a.tunerPill || a.tuner || '').replace(/^TUNER /, '') : undefined) +
+        ampTile('ATU', up ? [a.tuner, a.tunerSetup, a.tunerL ? 'L ' + a.tunerL : '', a.tunerC ? 'C ' + a.tunerC : ''].filter(Boolean).join(' ') : undefined) +
         ampTile('INTERFACE', up ? a.iface : undefined) +
-        ampTile('STATUS', up ? a.status : undefined) +
         '</div>';
     body.innerHTML = html;
 
@@ -15512,6 +15583,7 @@ if (fullscreenBtn && !document.documentElement.requestFullscreen) {
 // reuses the labels already rendered in the top bar.
 Recorder.init({
     button: document.getElementById('recBtn'),
+    getPresentationDelayMs: function () { return scopeSyncOn && audioEnabled && !isTransmitting ? scopeSyncCur : 0; },
     isTx: function() { return isTransmitting; },
     getState: function() {
         return {

@@ -1,3 +1,30 @@
+# Codex branch progress
+
+Branch: `codex/punch-list`, based on `aether-look` at `311434b`.
+
+First implementation batch (candidate; requires CI and station verification):
+
+- **1:** TUNE power slider, in the shared TX rows used by the sidebar and GAIN.
+- **9:** SSTV band buttons, editable server-saved frequencies and mode overrides,
+  broadcast to connected browsers; reset to defaults. Standalone saves locally.
+- **12:** SSTV in-passband SNR estimate; silence/unmeasurable signals show a dash.
+- **14:** Receiving banner and live thumbnail over the SSTV gallery viewer.
+- **16:** RF-KIT ATU labels/NO TUNE, drive hint, combined errors, unknown OPERATE
+  state, FIFO commands ahead of polls, overall deadline and truncated-transfer
+  failures. Existing dimmed antennas and read-only EXT are retained.
+- **17:** Server/machine CPU badge, core count and process memory; FUNC toggle.
+- **18:** Immediate Flex LEVEL readings, no periodic cached replay, browser
+  attack/release and peak decay, video audio buffered to the display-sync delay.
+
+Still pending: 2–8, 10–11, 13, 15, 19–21. Optional FFT-derived meter from 18c
+is deferred until the native LEVEL timing is checked on the radio. The RF-KIT
+manual's complete error-help catalog and dBFS-only meter labeling remain follow-up
+work. CPU subcomponent attribution is deferred until the SDR pipeline exists.
+
+The original requirements and historical batches follow unchanged.
+
+---
+
 # FlexWeb next batch (aether-look branch)
 
 Status: all items below are implemented in build 56 (dev-aether-look).
@@ -552,3 +579,13 @@ Status: implemented for build 60.
     docs/architecture/*-design.md. Unit tests per protocol and a stub amp
     per type, as tests/test_rfkit.py. Order by what users own (the user
     has the RF2K-S, already done).
+
+21. Server CPU temperature (user, 2026-10-26; Windows first).
+    - Show the FlexWeb server computer's CPU package temperature in degrees C
+      beside the existing CPU/load display, with the sensor name in its tooltip.
+      This is separate from the Flex radio and RF-KIT amplifier temperatures.
+    - Use a supported sensor source on each platform; document any required
+      Windows sensor helper/provider. Do not assume every machine exposes one.
+    - Refresh alongside server-load updates without blocking audio or control.
+      Report unavailable or stale sensor readings as unavailable, never 0 C.
+    - Include the user's Intel Skull Canyon NUC in station testing.

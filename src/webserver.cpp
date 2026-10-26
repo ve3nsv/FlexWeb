@@ -1,4 +1,5 @@
 #include "webserver.h"
+#include "sstvsettings.h"
 #include "rfkitconnection.h"
 #include "freedvprocessor.h"
 #include <QtMath>
@@ -498,6 +499,13 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
     statusTimer = new QTimer(this);
     connect(statusTimer, &QTimer::timeout, this, &webServer::sendPeriodicStatus);
     statusTimer->start(200);
+    auto *loadTimer = new QTimer(this);
+    serverLoad_.sample();
+    connect(loadTimer, &QTimer::timeout, this, [this]() {
+        const QJsonObject load = serverLoad_.sample();
+        if (!load.isEmpty()) sendJsonToAll(load);
+    });
+    loadTimer->start(2000);
 
     // Fingerprint the embedded SPA so an already-open tab can detect a
     // server upgrade.  The SPA's WebSocket auto-reconnects across server
@@ -2171,7 +2179,19 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
 {
     QString type = cmd["cmd"].toString();
 
-    if (type == "qsoLogged") {
+    if (type == "setSstvSettings") {
+        const auto next = cmd["reset"].toBool() ? std::optional<QJsonObject>(defaultSstvSettings())
+                                               : validateSstvSettings(cmd["settings"].toObject());
+        if (!next) { if (client) sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Invalid SSTV band list"}}); return; }
+        auto settings = openSettings();
+        settings->setValue("SSTV/Frequencies", QString::fromUtf8(QJsonDocument(*next).toJson(QJsonDocument::Compact)));
+        settings->sync();
+        if (settings->status() != QSettings::NoError) {
+            if (client) sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Could not save SSTV bands"}}); return;
+        }
+        sendJsonToAll(QJsonObject{{"type", "sstvSettings"}, {"settings", *next}});
+    }
+    else if (type == "qsoLogged") {
         QsoRecord r = QsoRecord::fromJson(cmd["qso"].toObject());
         if (!logbookAdd(r))
             qWarning() << "Web: qsoLogged ignored (invalid record or logbook not writable)";
@@ -3868,6 +3888,8 @@ QJsonObject webServer::buildInfoJson() const
     info["stationCallsign"] = reporterCallsign;
     info["stationGrid"] = reporterGrid;
     info["cwMacros"] = cwMacrosJson();
+    const auto sstv = validateSstvSettings(QJsonDocument::fromJson(openSettings()->value("SSTV/Frequencies").toString().toUtf8()).object());
+    info["sstvSettings"] = sstv ? *sstv : defaultSstvSettings();
     info["version"] = QString(FLEXWEB_VERSION);
     info["baseVersion"] = QString(WFWEB_VERSION);
     // Instance tag from --name; empty means "show the rig model".
@@ -4825,9 +4847,10 @@ void webServer::sendPeriodicStatus()
     QJsonObject status;
     status["type"] = "meters";
 
-    cacheItem smeter = queue->getCache(funcSMeter, 0);
-    if (smeter.value.isValid()) {
-        status["sMeter"] = smeter.value.toDouble();
+    // Flex pushes LEVEL; don't even request its cache on this timer.
+    if (rigCaps->manufacturer != manufFlexRadio) {
+        cacheItem smeter = queue->getCache(funcSMeter, 0);
+        if (smeter.value.isValid()) status["sMeter"] = smeter.value.toDouble();
     }
 
     cacheItem power = queue->getCache(funcPowerMeter, 0);
@@ -7480,7 +7503,13 @@ void webServer::configureRfkit(const QString &target)
         // messages: High SWR, Overheating, ...; idle is "") or the
         // interface's error. RESET is red, and acts, only while there is one.
         QString fault = st.data ? st.data->status.trimmed() : QString();
-        if (fault.isEmpty() && st.interfaceState) fault = st.interfaceState->error.trimmed();
+        if (st.interfaceState) {
+            const QString other = st.interfaceState->error.trimmed();
+            if (!other.isEmpty() && other != fault) {
+                if (!fault.isEmpty()) fault += QStringLiteral("; ");
+                fault += other;
+            }
+        }
         o["ampError"] = fault;
         ampFault_ = !fault.isEmpty();
         if (st.antennas) {

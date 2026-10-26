@@ -550,3 +550,22 @@ export class SstvDecoder {
         }
     }
 }
+
+// In-passband spectral contrast estimate. A percentile avoids depending on
+// bins removed by the receiver filter. Null means insufficient measurable
+// energy; this is an estimate, not a calibrated channel SNR measurement.
+export function sstvSnrEstimate(power, binHz) {
+    const band = [];
+    for (let i = Math.ceil(1100 / binHz); i <= Math.floor(2300 / binHz) && i < power.length; i++) {
+        if (!Number.isFinite(power[i]) || power[i] < 0) return null;
+        band.push(power[i]);
+    }
+    if (band.length < 8) return null;
+    const total = band.reduce((a, b) => a + b, 0);
+    if (total <= 1e-12) return null;
+    band.sort((a, b) => a - b);
+    const noise = band[Math.floor(band.length * 0.25)] / -Math.log(0.75);
+    if (!(noise > total * 1e-12)) return null;
+    const ratio = Math.max(0, (total / band.length - noise) / noise);
+    return Math.max(-10, Math.min(60, 10 * Math.log10(Math.max(0.1, ratio))));
+}

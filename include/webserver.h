@@ -26,6 +26,7 @@
 #include <atomic>
 #include "logbook.h"
 #include "webauth.h"
+#include "serverload.h"
 namespace AetherSDR { class RfkitConnection; }
 
 #if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
@@ -366,6 +367,7 @@ private:
     void sendRedirect(QTcpSocket *socket, const QByteArray &location, const QByteArray &extraHeader = QByteArray());
     cachingQueue *queue = nullptr;
     rigCapabilities *rigCaps = nullptr;
+    ServerLoad serverLoad_;
     QTimer *statusTimer = nullptr;
     QMimeDatabase mimeDb;
     bool rigPoweredOn = true;

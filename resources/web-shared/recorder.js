@@ -52,7 +52,8 @@ var uiTimer = null;
 // Mixer worklet. Stringified into a Blob URL (same trick as the host's
 // playback processor), so it must not reference anything outside itself.
 //
-// Both queues are delayed by the same 200 ms, which keeps the timeline
+// Audio recordings use a 200 ms buffer; video follows the host display
+// delay. Both queues share that buffer target, which keeps the timeline
 // consistent: while TX audio plays, RX is consumed in step and discarded, so
 // RX resumes exactly where the transmission ended. TX replaces RX rather than
 // adding to it — a rig with MONITOR on loops the transmit audio back into the
@@ -81,12 +82,19 @@ function mixerWorklet() {
             super();
             var self = this;
             this.rx = new Fifo(); this.tx = new Fifo();
+            this.delay = 0.2;
             this.rxArmed = false; this.txArmed = false; this.txWait = 0;
             this.pcm = null; this.pcmPos = 0; this.done = false;
             this.port.onmessage = function (e) {
                 var m = e.data;
                 if (m.k === 'rx') self.rx.push(m.d);
                 else if (m.k === 'tx') self.tx.push(m.d);
+                else if (m.k === 'delay') {
+                    var next = Math.max(0, Math.min(1.5, Number(m.seconds) || 0));
+                    if (next > self.delay) self.rxArmed = false; // build the additional presentation delay
+                    else if (next < self.delay) self.rx.take(null, Math.round((self.delay - next) * sampleRate));
+                    self.delay = next;
+                }
                 else if (m.k === 'capture') self.pcm = new Int16Array(PCM_BLOCK);
                 else if (m.k === 'stop') {
                     if (self.pcm && self.pcmPos) {
@@ -99,7 +107,7 @@ function mixerWorklet() {
         }
         process(inputs, outputs) {
             var out = outputs[0][0], n = out.length;    // zero-filled on entry
-            var rx = this.rx, tx = this.tx, delay = sampleRate * 0.2;
+            var rx = this.rx, tx = this.tx, delay = sampleRate * this.delay;
 
             if (!this.txArmed && tx.len) {
                 this.txWait += n;
@@ -115,7 +123,7 @@ function mixerWorklet() {
                 this.rxArmed = true;
             }
             // A burst after a stall must not push the recording behind real time.
-            if (rx.len > sampleRate) rx.take(null, rx.len - delay);
+            if (rx.len > Math.max(sampleRate, delay + sampleRate / 2)) rx.take(null, rx.len - delay);
 
             if (this.pcm) {
                 for (var i = 0; i < n; i++) {
@@ -203,8 +211,18 @@ function post(r, kind, f32) {
     r.node.port.postMessage({ k: kind, d: f32 }, [f32.buffer]);
 }
 
+function updateRecordDelay(r) {
+    if (r.kind !== 'video' || !host.getPresentationDelayMs) return;
+    var delay = Math.max(0, Math.min(1500, Number(host.getPresentationDelayMs()) || 0));
+    if (r.delayMs === undefined || Math.abs(r.delayMs - delay) >= 5) {
+        r.delayMs = delay;
+        r.node.port.postMessage({ k: 'delay', seconds: delay / 1000 });
+    }
+}
+
 function feedRx(pcm, rate) {
     if (!rec) return;
+    updateRecordDelay(rec);
     post(rec, 'rx', resample(rec.rxRs, pcm, rate || DEFAULT_RATE, rec.ctx.sampleRate));
 }
 
@@ -1308,6 +1326,7 @@ function start(kind) {
         // track of a video recording. Nothing goes to the speakers.
         r.dest = r.ctx.createMediaStreamDestination();
         r.node.connect(r.dest);
+        updateRecordDelay(r);
         if (r.ctx.state === 'suspended') r.ctx.resume();
         return kind === 'video' ? startVideo(r) : startMp3(r);
     }).then(function () {
