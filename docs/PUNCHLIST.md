@@ -16,7 +16,7 @@ First implementation batch (candidate; requires CI and station verification):
 - **18:** Immediate Flex LEVEL readings, no periodic cached replay, browser
   attack/release and peak decay, video audio buffered to the display-sync delay.
 
-Still pending: 2–8, 10–11, 13, 15, 19–20. Optional FFT-derived meter from 18c
+Still pending: 2–8, 10–11, 13, 15, 19–21. Optional FFT-derived meter from 18c
 is deferred until the native LEVEL timing is checked on the radio. The RF-KIT
 manual's complete error-help catalog and dBFS-only meter labeling remain follow-up
 work. CPU subcomponent attribution is deferred until the SDR pipeline exists.
@@ -579,3 +579,13 @@ Status: implemented for build 60.
     docs/architecture/*-design.md. Unit tests per protocol and a stub amp
     per type, as tests/test_rfkit.py. Order by what users own (the user
     has the RF2K-S, already done).
+
+21. Server CPU temperature (user, 2026-10-26; Windows first).
+    - Show the FlexWeb server computer's CPU package temperature in degrees C
+      beside the existing CPU/load display, with the sensor name in its tooltip.
+      This is separate from the Flex radio and RF-KIT amplifier temperatures.
+    - Use a supported sensor source on each platform; document any required
+      Windows sensor helper/provider. Do not assume every machine exposes one.
+    - Refresh alongside server-load updates without blocking audio or control.
+      Report unavailable or stale sensor readings as unavailable, never 0 C.
+    - Include the user's Intel Skull Canyon NUC in station testing.
