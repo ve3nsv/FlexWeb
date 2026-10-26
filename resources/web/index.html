@@ -2479,6 +2479,8 @@ try {
     <div id="scopeInfoBar">
         <span id="spanIndicator" onclick="setPanel('span')"></span>
         <span id="scopeLabel">SPECTRUM SCOPE</span>
+        <button type="button" id="sdrScopeButton" onclick="editSdrScope()" title="Configure an external SDR scope">SDR</button>
+        <span id="sdrScopeStatus" aria-live="polite"></span>
         <span id="otherVfoFreq">---.---.---</span>
     </div>
 
@@ -3662,6 +3664,8 @@ function onTransportClose() {
 
 // Web login: the signed-in user in the top bar; tap twice to sign out.
 var webUser = '';
+var webGuest = false;
+var guestReadCommands = new Set(['getStatus', 'enableAudio', 'setAudioCodec', 'setTxListen', 'timePing', 'getMemories']);
 var webLoginOn = false;      // the server has named users (web login on)
 var userBtnTimer = null;
 function setWebUser(name) {
@@ -3669,7 +3673,7 @@ function setWebUser(name) {
     var b = document.getElementById('userBtn');
     if (!b) return;
     b.hidden = !webUser;
-    b.textContent = webUser;
+    b.textContent = webGuest ? 'guest · VIEW ONLY' : webUser;
     b.classList.remove('confirm');
 }
 function userBtnClick() {
@@ -3706,7 +3710,51 @@ function scheduleReconnect() {
     }
 }
 
+var sdrScopeConfig = {};
+function updateSdrScope(msg) {
+    if (msg.settings) sdrScopeConfig = msg.settings;
+    var label = document.getElementById('sdrScopeStatus');
+    if (label) label.textContent = msg.enabled ? (msg.source === 'kiwi' ? 'Kiwi: ' : msg.source === 'soapy' ? 'Soapy: ' : msg.source === 'local' ? 'RTL local: ' : 'RTL remote: ') + (msg.state || 'connecting') : '';
+    if (msg.enabled) { hasSpectrum = true; spectAmpMax = 160; scopeRigAssert(); }
+    else if (msg.nativeSpectrum !== undefined) { hasSpectrum = !!msg.nativeSpectrum; }
+    var btn = document.getElementById('sdrScopeButton');
+    if (btn) { btn.classList.toggle('active', !!msg.enabled); btn.title = msg.enabled && msg.clipped > .01 ? 'SDR overload detected; reduce gain' : 'Configure external SDR scope'; }
+}
+function editSdrScope() {
+    if (typeof webGuest !== 'undefined' && webGuest) return;
+    var c = sdrScopeConfig || {};
+    var dialog = document.createElement('dialog');
+    dialog.style.cssText = 'background:#16222e;color:white;border:1px solid #6f8aa0;border-radius:8px;padding:20px;max-width:90vw';
+    dialog.innerHTML = '<h3>Scope source</h3>' +
+        '<label>Source <select id="sdrSource"><option value="radio">Radio</option><option value="rtl_local">RTL-SDR on this server</option><option value="rtl_tcp">Remote rtl_tcp</option><option value="soapy">SDRplay / Airspy / SoapyRemote</option><option value="kiwi">KiwiSDR waterfall</option></select></label><br><br>' +
+        '<label>Soapy device arguments <input id="sdrSoapyArgs" maxlength="1024" placeholder="driver=sdrplay"></label><br><br>' +
+        '<label>Local device number <input id="sdrDevice" type="number" min="0" max="63"></label><br><br>' +
+        '<label>Host <input id="sdrHost" maxlength="253"></label> <label>Port <input id="sdrPort" type="number" min="1" max="65535"></label><br><br>' +
+        '<label>Sample rate <select id="sdrRate"><option value="1024000">1.024 MS/s</option><option value="2048000">2.048 MS/s</option><option value="2400000">2.4 MS/s</option><option value="6000000">6 MS/s (Soapy)</option><option value="10000000">10 MS/s (Soapy)</option></select></label><br><br>' +
+        '<label><input type="checkbox" id="sdrAutoGain"> Automatic tuner gain</label> <label>Manual gain (dB) <input id="sdrGain" type="number" min="-10" max="60" step="0.1"></label><br><br>' +
+        '<label>Frequency correction (ppm) <input id="sdrPpm" type="number" min="-1000" max="1000"></label><br><br>' +
+        '<label><input type="checkbox" id="sdrDirect"> Direct sampling Q (older RTL-SDR HF)</label><br>' +
+        '<label><input type="checkbox" id="sdrBias"> Bias-T</label><br><br>' +
+        '<button type="button" id="sdrSave">Save</button> <button type="button" id="sdrCancel">Cancel</button>';
+    document.body.appendChild(dialog);
+    function el(id) { return dialog.querySelector('#' + id); }
+    el('sdrSource').value = c.enabled ? (c.source || 'rtl_tcp') : 'radio'; el('sdrDevice').value = c.device || 0; el('sdrSoapyArgs').value = c.soapyArgs || 'driver=sdrplay'; el('sdrHost').value = c.host || '127.0.0.1'; el('sdrPort').value = c.port || 1234;
+    el('sdrRate').value = c.rate || 2048000; el('sdrAutoGain').checked = c.autoGain !== false;
+    el('sdrGain').value = (c.gain || 0) / 10; el('sdrPpm').value = c.ppm || 0;
+    el('sdrDirect').checked = !!c.directQ; el('sdrBias').checked = !!c.biasT;
+    el('sdrSave').onclick = function () {
+        var v = {enabled:el('sdrSource').value !== 'radio',source:el('sdrSource').value === 'radio' ? 'rtl_tcp' : el('sdrSource').value,device:Number(el('sdrDevice').value),soapyArgs:el('sdrSoapyArgs').value.trim(),host:el('sdrHost').value.trim(),port:Number(el('sdrPort').value),rate:Number(el('sdrRate').value),
+            autoGain:el('sdrAutoGain').checked,gain:Math.round(Number(el('sdrGain').value)*10),ppm:Number(el('sdrPpm').value),directQ:el('sdrDirect').checked,biasT:el('sdrBias').checked};
+        if (v.enabled && (((v.source === 'rtl_tcp' || v.source === 'kiwi') && (!v.host || v.port<1 || v.port>65535)) || (v.source !== 'soapy' && v.rate > 3200000) || v.device<0 || v.device>63 || v.ppm < -1000 || v.ppm > 1000 || v.gain < -100 || v.gain > 600)) { alert('Check the SDR address, port, gain and frequency correction.'); return; }
+        send({cmd:'setSdrScope',settings:v}); dialog.close();
+    };
+    el('sdrSource').onchange = function () { if (el('sdrSource').value === 'kiwi' && el('sdrPort').value === '1234') el('sdrPort').value = '8073'; };
+    el('sdrCancel').onclick = function () { dialog.close(); };
+    dialog.onclose = function () { dialog.remove(); }; dialog.showModal();
+}
+
 function send(obj) {
+    if (webGuest && !guestReadCommands.has(obj.cmd)) return;
     if (obj && obj.cmd === 'setPTT') micTxWanted = !!obj.value;
     if (wsTransport) wsTransport.sendCommand(obj);
 }
@@ -3755,6 +3803,9 @@ function handleMessage(msg) {
             window._sstvSettings = msg.settings;
             if (window._sstvSettingsChanged) window._sstvSettingsChanged(msg.settings);
             break;
+        case 'sdrScopeStatus':
+            updateSdrScope(msg);
+            break;
         case 'serverLoad':
             updateServerLoad(msg);
             break;
@@ -3800,7 +3851,13 @@ function handleMessage(msg) {
             setTxOther(msg.by || 'another browser');
             txBusyRefused();
             break;
+        case 'readOnly':
+            console.info(msg.message || 'View only');
+            break;
         case 'rigInfo':
+            if (msg.sdrScope) sdrScopeConfig = msg.sdrScope;
+            webGuest = !!msg.webGuest;
+            document.body.classList.toggle('web-guest', webGuest);
             window._sstvSettings = msg.sstvSettings;
             if (window._sstvSettingsChanged) window._sstvSettingsChanged(msg.sstvSettings);
             if (msg.webUser !== undefined) setWebUser(msg.webUser);
@@ -5114,12 +5171,21 @@ function updateServerLoad(msg) {
     var chip = document.getElementById('serverLoadChip');
     if (!Number.isFinite(msg.systemPercent)) return;
     chip.hidden = serverLoadHidden;
-    chip.textContent = 'CPU ' + Math.round(msg.systemPercent) + '%';
+    var tempOk = msg.cpuTemperatureStatus === 'ok' && Number.isFinite(msg.cpuTemperatureC)
+        && msg.cpuTemperatureC > 0 && msg.cpuTemperatureC <= 150;
+    chip.textContent = 'CPU ' + Math.round(msg.systemPercent) + '% · '
+        + (tempOk ? Math.round(msg.cpuTemperatureC) + ' °C' : 'TEMP —');
     chip.style.color = msg.systemPercent >= 90 ? '#ff5050' : msg.systemPercent >= 70 ? '#ffbf40' : '';
     chip.title = 'Machine CPU: ' + msg.systemPercent.toFixed(1) + '%\nFlexWeb CPU: '
         + msg.processPercent.toFixed(1) + '% of machine (' + msg.processCorePercent.toFixed(1)
         + '% of one core)\nCores: ' + msg.cores
         + (msg.processMemoryBytes ? '\nFlexWeb memory: ' + (msg.processMemoryBytes / 1048576).toFixed(0) + ' MiB' : '');
+    chip.title += tempOk ? '\nCPU temperature: ' + msg.cpuTemperatureC.toFixed(1) + ' °C'
+        + '\nSensor: ' + (msg.cpuTemperatureSensor || 'CPU') + '\nSource: ' + (msg.cpuTemperatureProvider || 'Unknown')
+        : '\nCPU temperature: ' + (msg.cpuTemperatureStatus === 'stale' ? 'stale — unavailable' : 'unavailable')
+        + (msg.cpuTemperatureDetail ? '\n' + msg.cpuTemperatureDetail : '')
+        + '\nWindows: run LibreHardwareMonitor with CPU sensors and WMI or local JSON (port 8085) available.';
+    chip.setAttribute('aria-label', chip.title);
     chip.onclick = function () { alert(chip.title); };
 }
 function updateTunePowerRow() {

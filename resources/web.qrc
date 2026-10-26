@@ -27,6 +27,7 @@
         <file alias="js8-panel.css">web-shared/js8-panel.css</file>
         <file alias="js8-panel.mjs">web-shared/js8-panel.mjs</file>
         <file alias="sstv-panel.css">web-shared/sstv-panel.css</file>
+        <file alias="sstv-templates.mjs">web-shared/sstv-templates.mjs</file>
         <file alias="sstv-panel.mjs">web-shared/sstv-panel.mjs</file>
         <file alias="sstv.mjs">web-shared/sstv.mjs</file>
         <file alias="ft8ts.mjs">ft8ts/dist/ft8ts.mjs</file>

@@ -521,3 +521,141 @@ def test_lockout(server):
     # Even the right password is refused while locked out.
     r = _login(base, "tom", PASSWORD)
     assert r.status_code == 429 and "Try again" in r.text
+
+
+def test_guest_view_only(tmp_path):
+    """An enabled guest can observe, but cannot key, tune, or write via REST.
+
+    Run against a real server and mock radio: client-side disabled controls are
+    not a security boundary. After a restart with guests disabled, the same
+    cookie must no longer authenticate.
+    """
+    if not WFWEB_BIN.exists():
+        pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
+    config = tmp_path / "config"
+    config.mkdir()
+    env = dict(os.environ, HOME=str(tmp_path), XDG_CONFIG_HOME=str(config),
+               WFWEB_CONFIG_DIR=str(config), WFWEB_NO_TUI="1")
+    add = subprocess.run([str(WFWEB_BIN), "--add-user", "tom"],
+                         input=(PASSWORD + "\n").encode(), capture_output=True, env=env, timeout=20)
+    assert add.returncode == 0, add.stdout + add.stderr
+    loop = asyncio.new_event_loop()
+    radio = MockFlexRadio()
+    loop.run_until_complete(radio.start())
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    port = _free_port()
+    base = f"https://127.0.0.1:{port}"
+    proc = None
+
+    def start(flag):
+        p = subprocess.Popen([str(WFWEB_BIN), "-p", str(port), "--manufacturer", "3", "--lan", "127.0.0.1",
+                              "--lan-control", str(radio.control_port), "--lan-audio", str(radio.vita_port), flag],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        assert _wait(lambda: requests.get(base + "/login", verify=False, timeout=2).ok), "wfweb did not start"
+        return p
+
+    try:
+        proc = start("--guest-view")
+        page = requests.get(base + "/login", verify=False, timeout=5)
+        assert 'action="/guest"' in page.text
+        guest = requests.post(base + "/guest", verify=False, allow_redirects=False, timeout=5)
+        assert guest.status_code == 303
+        token = guest.cookies["wfweb_session"]
+        jar = {"wfweb_session": token}
+        assert requests.get(base + "/api/v1/radio/info", cookies=jar, verify=False, timeout=5).ok
+        assert requests.put(base + "/api/v1/radio/frequency", json={"frequency": 7171000},
+                            cookies=jar, verify=False, timeout=5).status_code == 403
+        status, sock, buf = _ws(port, token)
+        assert " 101" in status
+        reader = _Reader(sock, buf)
+        try:
+            info = _drain_until(reader, lambda m: m.get("type") == "rigInfo")
+            assert info and info.get("webGuest") is True and info.get("webUser") == "guest"
+            before_xmit = len(radio.find("xmit"))
+            before_tune = len(radio.find("slice tune"))
+            for cmd in ({"cmd": "setPTT", "value": True},
+                        {"cmd": "setFrequency", "value": 7171000},
+                        {"cmd": "enableMic", "value": True},
+                        {"cmd": "futureControl", "value": True}):
+                _ws_send(sock, cmd)
+                assert _drain_until(reader, lambda m: m.get("type") == "readOnly")
+            assert len(radio.find("xmit")) == before_xmit
+            assert len(radio.find("slice tune")) == before_tune
+        finally:
+            sock.close()
+        proc.terminate()
+        proc.wait(timeout=5)
+        proc = None
+        proc = start("--no-guest-view")
+        page = requests.get(base + "/login", verify=False, timeout=5)
+        assert 'action="/guest"' not in page.text
+        assert requests.get(base + "/api/v1/radio/info", cookies=jar, verify=False, timeout=5).status_code == 401
+        assert requests.post(base + "/guest", verify=False, timeout=5).status_code == 403
+    finally:
+        if proc is not None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)
+        loop.close()
+
+
+def test_remote_rtl_scope(server):
+    """Configure a fake rtl_tcp server and receive its FFT through the SPA socket."""
+    import math
+    base, port, _, radio = server
+    token = _login(base, "tom", PASSWORD).cookies["wfweb_session"]
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    listener.settimeout(10)
+    stopped = threading.Event()
+    received = bytearray()
+    def rtl_server():
+        try:
+            peer, _ = listener.accept()
+            peer.settimeout(.05)
+            peer.sendall(b'RTL0' + struct.pack('>II', 5, 29))
+            iq = bytes(v for i in range(2048) for v in
+                       (int(127.5 + 60 * math.cos(2 * math.pi * 128 * i / 2048)),
+                        int(127.5 + 60 * math.sin(2 * math.pi * 128 * i / 2048))))
+            with peer:
+                while not stopped.is_set():
+                    try:
+                        received.extend(peer.recv(4096))
+                    except socket.timeout:
+                        pass
+                    peer.sendall(iq)
+                    time.sleep(.05)
+        except OSError:
+            pass
+    thread = threading.Thread(target=rtl_server, daemon=True)
+    thread.start()
+    status, sock, buf = _ws(port, token)
+    assert ' 101' in status
+    reader = _Reader(sock, buf)
+    try:
+        assert _drain_until(reader, lambda m: m.get('type') == 'rigInfo')
+        _ws_send(sock, {'cmd': 'setSdrScope', 'settings': {'enabled': True, 'host': '127.0.0.1',
+                 'port': listener.getsockname()[1], 'rate': 2048000, 'autoGain': True}})
+        assert _drain_until(reader, lambda m: m.get('type') == 'sdrScopeStatus' and m.get('enabled'))
+        found = False
+        for op, payload in reader.all(8):
+            if op == 2 and len(payload) == 2060 and payload[0] == 1:
+                low, high = struct.unpack('<ff', payload[4:12])
+                assert 0 < low < high and abs(high - low - 2.048) < .01
+                found = True
+                break
+        assert found and len(received) >= 30
+        _ws_send(sock, {'cmd': 'setSdrScope', 'settings': {'enabled': False}})
+        assert _drain_until(reader, lambda m: m.get('type') == 'sdrScopeStatus' and not m.get('enabled'))
+    finally:
+        sock.close()
+        stopped.set()
+        listener.close()
+        thread.join(timeout=2)

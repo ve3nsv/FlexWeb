@@ -27,6 +27,11 @@
 #include "logbook.h"
 #include "webauth.h"
 #include "serverload.h"
+#include "rtltcpsource.h"
+#include "rtllocalsource.h"
+#include "soapysource.h"
+#include "kiwisource.h"
+#include <limits>
 namespace AetherSDR { class RfkitConnection; }
 
 #if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
@@ -150,6 +155,7 @@ public slots:
     // interface. Default: 127.0.0.1 only, so it can never be port forwarded.
     // With web users set up, LAN requests to it need HTTP Basic auth.
     void setRestLan(bool lan);
+    void setGuestView(bool enabled);
     // Logbook path and remote-logging (WSJT-X UDP) setup from settings +
     // command-line overrides; runs once on the web thread at startup.
     void configureLogbook(const QString &logbookOverride,
@@ -313,6 +319,8 @@ private:
     // Web login (webAuth): who each browser is signed in as.
     webAuth auth;
     QHash<QWebSocket *, QString> wsUser;
+    QSet<QWebSocket *> wsGuests;
+    bool guestViewEnabled_ = false;
     bool restLan = false;
     QHash<QByteArray, qint64> restBasicOk;   // sha256(user:pass) -> valid until (ms)
     QString requestUser(QTcpSocket *socket, const QByteArray &headers);
@@ -368,6 +376,22 @@ private:
     cachingQueue *queue = nullptr;
     rigCapabilities *rigCaps = nullptr;
     ServerLoad serverLoad_;
+    RtlTcpSource *rtlScope_ = nullptr;
+    RtlLocalSource *rtlLocalScope_ = nullptr;
+    SoapySource *soapyScope_ = nullptr;
+    KiwiSource *kiwiScope_ = nullptr;
+    QString rtlLocalState_;
+    quint64 rtlScopeGeneration_ = 0;
+    bool rtlScopeLocal_ = false;
+    bool rtlScopeSoapy_ = false;
+    bool rtlScopeKiwi_ = false;
+    bool rtlScopeEnabled_ = false;
+    bool rtlScopeTx_ = false;
+    quint32 rtlScopeHz_ = 0;
+    float rtlScopeClipped_ = 0;
+    float rtlScopeFloor_ = std::numeric_limits<float>::quiet_NaN();
+    bool configureRtlScope(const QJsonObject &settings, bool persist);
+    void sendRtlScopeFrame(const SdrSpectrum::Frame &frame, quint32 center, quint32 rate);
     QTimer *statusTimer = nullptr;
     QMimeDatabase mimeDb;
     bool rigPoweredOn = true;

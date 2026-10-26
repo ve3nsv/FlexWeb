@@ -404,6 +404,16 @@ macx:SOURCES += src/tlsproxy.cpp
 
 HEADERS  += \
     include/serverload.h \
+    include/cputemperature.h \
+    include/sdrspectrum.h \
+    include/scopesync.h \
+    include/rtltcpprotocol.h \
+    include/rtltcpsource.h \
+    include/rtllocalsource.h \
+    include/soapysource.h \
+    include/kiwiwaterfall.h \
+    include/kiwisource.h \
+    include/guestpolicy.h \
     include/sstvsettings.h \
     include/wfweb_version.h \
     include/servermain.h \

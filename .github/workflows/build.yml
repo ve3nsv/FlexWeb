@@ -3,7 +3,7 @@ name: Build
 on:
   push:
     tags: ['v*']
-    branches: ['codex/punch-list']
+    branches: ['codex/punch-list', 'codex/punch-list-additions']
   workflow_dispatch:
 
 env:
@@ -865,11 +865,25 @@ jobs:
           Rename-Item wfweb-release FlexWeb
           Compress-Archive -Path FlexWeb -DestinationPath "FlexWeb${devSuffix}-windows-x86_64.zip"
 
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $compiler)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          if (!(Test-Path $compiler)) { Write-Error "Inno Setup compiler not found"; exit 1 }
+          & $compiler "/DProductVersion=1.0.${{ github.run_number }}" "/DOutputDir=$PWD" "packaging\FlexWeb.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: wfweb-windows-x86_64
-          path: FlexWeb*-windows-x86_64.zip
+          path: |
+            FlexWeb*-windows-x86_64.zip
+            FlexWeb-Setup-*-windows-x64.exe
           retention-days: 30
 
   release:
@@ -901,5 +915,6 @@ jobs:
             wfweb-aarch64-appimage/*.AppImage
             wfweb-macos-arm64/FlexWeb*-macos-arm64.zip
             wfweb-windows-x86_64/FlexWeb*-windows-x86_64.zip
+            wfweb-windows-x86_64/FlexWeb-Setup-*-windows-x64.exe
           generate_release_notes: ${{ startsWith(github.ref, 'refs/tags/v') }}
           overwrite: true

@@ -40,6 +40,9 @@ public:
     static QString createSession(const QString& user, bool remember);
     // The user the token belongs to, or "" (unknown, expired, user removed).
     static QString sessionUser(const QString& token);
+    static constexpr const char *kGuestUser = "~guest"; // not a valid account name
+    static QString createGuestSession() { return createSession(QString::fromLatin1(kGuestUser), false); }
+    static void endGuestSessions() { endUserSessions(QString::fromLatin1(kGuestUser)); }
     static void endSession(const QString& token);
     static void endUserSessions(const QString& user);
     static QString cookieToken(const QByteArray& headers);   // wfweb_session=... from a Cookie header

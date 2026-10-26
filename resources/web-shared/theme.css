@@ -357,3 +357,6 @@
 /* Server load is a neutral status chip; REC keeps its red action styling. */
 #serverLoadChip { background: var(--bg-raised); border-color: var(--border-col); color: var(--text-dim); }
 #serverLoadChip[hidden] { display: none; }
+
+body.web-guest .gain-row input, body.web-guest .amp-ctl, body.web-guest #aeTxRows,
+body.web-guest #pttBtn { opacity: .45; pointer-events: none; }

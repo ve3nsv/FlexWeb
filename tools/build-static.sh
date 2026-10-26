@@ -48,7 +48,7 @@ cp "$SHARED/digits-sprite.png" "$DIST/"
 for f in cw-decoder.js cw-decoder-stft.js cw-decoder-utils.js cw-decoder-worker.js \
          ggmorse-wasm.js packet.js reporters.js airbus.js wf-canvas.js urltune.js \
          ctcss.js dxcc.js recorder.js needle-meter.js rx-jitter.js cw-keyer.js \
-         theme.css js8-panel.css js8-panel.mjs js8.mjs sstv.mjs sstv-panel.mjs sstv-panel.css; do
+         theme.css js8-panel.css js8-panel.mjs js8.mjs sstv.mjs sstv-templates.mjs sstv-panel.mjs sstv-panel.css; do
     cp "$SHARED/$f" "$DIST/"
 done
 cp "$SHARED"/transport/*.js "$DIST/transport/"

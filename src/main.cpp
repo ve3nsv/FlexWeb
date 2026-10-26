@@ -435,6 +435,8 @@ int main(int argc, char *argv[])
         "  --passwd <name>         Change a web user's password\n"
         "  --remove-user <name>    Remove a web user (none left = login off)\n"
         "  --list-users            List the web users\n"
+        "  --guest-view            Enable password-free view-only guest sessions\n"
+        "  --no-guest-view         Disable guest access\n"
         "  --rest                  Open the plain-HTTP REST port (web port + 1) to the\n"
         "                          LAN; default is 127.0.0.1 only. With web users, LAN\n"
         "                          requests need HTTP Basic auth\n"
@@ -691,6 +693,8 @@ int main(int argc, char *argv[])
             if (v != "opus" && v != "none" && v != "auto") { std::cout << "Error: --flex-audio takes opus, none or auto\n"; return -1; }
             qputenv("WFWEB_FLEX_AUDIO", v.toLatin1());
         }
+        else if (currentArg == "--guest-view") overrides.guestView = 1;
+        else if (currentArg == "--no-guest-view") overrides.guestView = 0;
         else if (currentArg == "--rest")
         {
             overrides.restLan = true;

@@ -15,6 +15,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 UNITS = {
     "serverload": [],
+    "sdrspectrum": [],
+    "scopesync": [],
+    "kiwiwaterfall": [],
+    "kiwisource": [],
+    "rtltcpprotocol": [],
+    "rtltcpsource": [],
+    "rtllocalsource": [],
+    "soapysource": [],
+    "cputemperature": [],
     "sstvsettings": [],
     # WSJT-X NetworkMessage serialization, checked by deserializing with Qt's
     # own schema-3 representation.
@@ -37,7 +46,9 @@ UNITS = {
 }
 
 # Units that need more than Qt5Core.
-MODULES = {"webauth": ["Qt5Core", "Qt5Network"],
+MODULES = {"kiwisource": ["Qt5Core", "Qt5Network", "Qt5WebSockets"],
+           "rtltcpsource": ["Qt5Core", "Qt5Network"],
+           "webauth": ["Qt5Core", "Qt5Network"],
            "rfkitconnection": ["Qt5Core", "Qt5Network"]}
 
 
@@ -80,7 +91,17 @@ def test_cpp_unit(unit, tmp_path):
         # empty directory, and the users this test adds must not land there.
         env = dict(os.environ, HOME=str(tmp_path), XDG_CONFIG_HOME=str(tmp_path / "cfg"),
                    WFWEB_CONFIG_DIR=str(tmp_path))
-    subprocess.run([str(executable)], check=True, cwd=ROOT, env=env)
+    args = [str(executable)]
+    if unit in ("rtllocalsource", "soapysource"):
+        import sys
+        if sys.platform != "linux":
+            pytest.skip("The fake RTL-SDR shared library is built on Linux")
+        library = tmp_path / ("libfake_rtlsdr.so" if unit == "rtllocalsource" else "libfake_soapy.so")
+        fake = "fake_rtlsdr.cpp" if unit == "rtllocalsource" else "fake_soapy.cpp"
+        subprocess.run(["g++", "-std=c++17", "-fPIC", "-shared", "-pthread",
+                        str(ROOT / "tests" / fake), "-o", str(library)], check=True)
+        args.append(str(library))
+    subprocess.run(args, check=True, cwd=ROOT, env=env)
     if unit == "rfkitconnection":
         for scenario in ("truncated", "deadline"):
             subprocess.run([str(executable), scenario], check=True, cwd=ROOT, env=env, timeout=20)

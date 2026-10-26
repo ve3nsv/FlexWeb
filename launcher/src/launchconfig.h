@@ -45,6 +45,7 @@ struct LaunchConfig {
     // Station (any network rig)
     QString ampHost;             // --rfkit host[:port]; empty = no amplifier
     int onDemandSeconds = 0;     // --on-demand N; 0 = stay connected
+    bool guestView = false;
     bool restLan = false;        // --rest
 
     bool isNetwork() const { return transport != Usb; }

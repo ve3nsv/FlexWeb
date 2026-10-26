@@ -111,6 +111,9 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
                 QMetaObject::invokeMethod(web, "configureRfkit", Qt::QueuedConnection,
                                           Q_ARG(QString, rfkit));
         }
+        QMetaObject::invokeMethod(web, "setGuestView", Qt::QueuedConnection,
+            Q_ARG(bool, cliOverrides.guestView >= 0 ? cliOverrides.guestView != 0
+                : settings && settings->value("Web/GuestView", false).toBool()));
         QMetaObject::invokeMethod(web, "setRestLan", Qt::QueuedConnection,
                                   Q_ARG(bool, cliOverrides.restLan));
         QMetaObject::invokeMethod(web, "configureLogbook", Qt::QueuedConnection,
@@ -1441,7 +1444,7 @@ void servermain::setManufacturer(manufacturersType_t man)
             rigSettings->beginGroup("Rig");
             manufacturersType_t manuf = rigSettings->value("Manufacturer",manufIcom).value<manufacturersType_t>();
             if (manuf == man) {
-                uchar civ = rigSettings->value("CIVAddress",0).toInt();
+                quint16 civ = rigSettings->value("CIVAddress",0).toUInt();
                 QString model = rigSettings->value("Model","").toString();
                 QString path = systemRigDir.absoluteFilePath(rig);
 
@@ -1478,7 +1481,7 @@ void servermain::setManufacturer(manufacturersType_t man)
 
             manufacturersType_t manuf = rigSettings->value("Manufacturer",manufIcom).value<manufacturersType_t>();
             if (manuf == man) {
-                uchar civ = rigSettings->value("CIVAddress",0).toInt();
+                quint16 civ = rigSettings->value("CIVAddress",0).toUInt();
                 QString model = rigSettings->value("Model","").toString();
                 QString path = userRigDir.absoluteFilePath(rig);
 

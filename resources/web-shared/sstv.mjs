@@ -89,7 +89,7 @@ function yuvToRgb(y, u, v) {
 // ---------------------------------------------------------------------
 // rgba: Uint8(Clamped)Array of mode.w x mode.h pixels. Returns Float32Array
 // audio at fs, amplitude `amp`, continuous phase throughout.
-export function sstvEncode(modeId, rgba, fs = 12000, amp = 0.8) {
+export function sstvEncode(modeId, rgba, fs = 12000, amp = 0.8, fskId = '') {
     const m = sstvMode(modeId);
     if (!m) throw new Error('SSTV: unknown mode ' + modeId);
     const W = m.w, H = m.h;
@@ -126,6 +126,7 @@ export function sstvEncode(modeId, rgba, fs = 12000, amp = 0.8) {
             } else seq.push([Array.isArray(it.f) ? it.f[line % 2] : it.f, it.ms]);
         }
     }
+    if (fskId) seq.push(...sstvFskTones(fskId));
     let total = 0;
     for (const s of seq) total += s[1];
     const out = new Float32Array(Math.ceil(total * fs / 1000) + 1);
@@ -532,6 +533,18 @@ export class SstvDecoder {
     _finish(why) {
         const P = this.pic;
         if (!P) return;
+        // A lost tail must not turn post-picture noise or FSK ID into rows.
+        // Keep internal weak lines, but blank every row beyond the final
+        // confirmed sync. Do not crop the image's standard dimensions.
+        const lastSyncLine = P.syncs.length ? P.syncs[P.syncs.length - 1][0] + 1 : 0;
+        if (lastSyncLine < P.done) {
+            const firstRow = lastSyncLine * (P.m.color === 'pd' ? 2 : 1);
+            for (let i = firstRow * P.m.w * 4; i < P.rgba.length; i += 4) {
+                P.rgba[i] = P.rgba[i + 1] = P.rgba[i + 2] = 0; P.rgba[i + 3] = 255;
+            }
+            P.done = lastSyncLine;
+            if (why === 'complete') why = 'incomplete tail';
+        }
         this.pic = null;
         this.lastPicEnd = this.end;
         this.onEvent({ type: 'done', why, mode: P.m.id, name: P.m.name, w: P.m.w, h: P.m.h, rgba: P.rgba,
@@ -568,4 +581,67 @@ export function sstvSnrEstimate(power, binHz) {
     if (!(noise > total * 1e-12)) return null;
     const ratio = Math.max(0, (total / band.length - noise) / noise);
     return Math.max(-10, Math.min(60, 10 * Math.log10(Math.max(0.1, ratio))));
+}
+
+// MMSSTV/QSSTV-compatible FSK ID: 6-bit LSB-first characters, 22 ms/bit.
+// Wire reference: PySSTV SSTV.gen_freq_bits/add_fskid_text.
+export function sstvFskTones(call) {
+    call = String(call || '').trim().toUpperCase();
+    if (!/^[A-Z0-9/]{3,16}$/.test(call)) return [];
+    const codes = [0x20, 0x2a, ...Array.from(call, c => c.charCodeAt(0) - 32), 1];
+    const tones = [];
+    for (const code of codes) for (let bit = 0; bit < 6; bit++) tones.push([(code >> bit) & 1 ? 1900 : 2100, 22]);
+    return tones;
+}
+
+export class SstvFskIdDecoder {
+    constructor(fs, onCall) { this.fs = fs; this.onCall = onCall; this.reset(); }
+    reset() { this.buf = new Float32Array(0); this.scan = 0; this.frame = null; }
+    push(samples, offset = 0) {
+        const b = new Float32Array(this.buf.length + samples.length); b.set(this.buf); b.set(samples, this.buf.length); this.buf = b;
+        const bit = this.fs * 0.022, step = Math.max(1, Math.round(this.fs * 0.002));
+        const read = (at, count) => {
+            if (at + count * bit > this.buf.length) return undefined;
+            let code = 0;
+            for (let k = 0; k < count; k++) {
+                const lo = Math.round(at + (k + 0.2) * bit), hi = Math.round(at + (k + 0.8) * bit);
+                let energy = 0; for (let i = lo; i < hi; i++) energy += this.buf[i] * this.buf[i];
+                const power = freq => {
+                    const c = 2 * Math.cos(2 * Math.PI * (freq + offset) / this.fs); let a = 0, b = 0;
+                    for (let i = lo; i < hi; i++) { const n = this.buf[i] + c * a - b; b = a; a = n; }
+                    return a * a + b * b - c * a * b;
+                };
+                const one = power(1900), zero = power(2100), peak = Math.max(one, zero);
+                if (!(energy > 1e-10) || peak < energy * (hi - lo) * 0.08 || peak < 2 * Math.min(one, zero)) return null;
+                if (one > zero) code |= 1 << k;
+            }
+            return code;
+        };
+        while (true) {
+            if (!this.frame) {
+                let found = false;
+                for (; this.scan + 12 * bit <= this.buf.length; this.scan += step) {
+                    if (read(this.scan, 6) === 0x20 && read(this.scan + 6 * bit, 6) === 0x2a) {
+                        this.frame = {start: this.scan, at: this.scan + 12 * bit, call: ''}; found = true; break;
+                    }
+                }
+                if (!found) break;
+            }
+            const f = this.frame, code = read(f.at, 6);
+            if (code === undefined) break;
+            if (code === 1) {
+                if (/^[A-Z0-9/]{3,16}$/.test(f.call)) this.onCall(f.call);
+                this.scan = f.at + 6 * bit; this.frame = null; continue;
+            }
+            const ch = code === null ? '' : String.fromCharCode(code + 32);
+            if (!/^[A-Z0-9/]$/.test(ch) || f.call.length >= 16) { this.scan = f.start + bit; this.frame = null; continue; }
+            f.call += ch; f.at += 6 * bit;
+        }
+        const drop = Math.max(0, Math.floor(this.frame ? this.frame.start : this.scan - 12 * bit));
+        if (drop > this.fs) {
+            this.buf = this.buf.slice(drop); this.scan -= drop;
+            if (this.frame) { this.frame.start -= drop; this.frame.at -= drop; }
+        }
+        if (this.buf.length > this.fs * 6) this.reset();
+    }
 }

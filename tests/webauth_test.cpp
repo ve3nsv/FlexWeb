@@ -2,6 +2,7 @@
 // pointed at a temporary directory, so QSettings stays out of real settings.
 
 #include "webauth.h"
+#include "guestpolicy.h"
 
 #include <QCoreApplication>
 #include <cstdio>
@@ -55,6 +56,16 @@ int main(int argc, char** argv)
     CHECK(webAuth::removeUser("ve3nsv"));
     CHECK(webAuth::sessionUser(t3).isEmpty());
     CHECK(!webAuth::removeUser("ve3nsv"));
+
+    CHECK(!webAuth::validUserName(webAuth::kGuestUser));
+    const auto guest = webAuth::createGuestSession();
+    CHECK(webAuth::sessionUser(guest) == webAuth::kGuestUser);
+    CHECK(guestCommandAllowed("enableAudio"));
+    CHECK(guestCommandAllowed("getStatus"));
+    for (const auto &command : {"setPTT", "ampTune", "ampOperate", "setFrequency", "setSstvSettings", "futureUnknownCommand", "enableMic"})
+        CHECK(!guestCommandAllowed(command));
+    webAuth::endGuestSessions();
+    CHECK(webAuth::sessionUser(guest).isEmpty());
 
     // Cookie header parsing.
     CHECK(webAuth::cookieToken("GET / HTTP/1.1\r\nHost: x\r\nCookie: a=1; wfweb_session=abc-_9; b=2\r\n") == "abc-_9");

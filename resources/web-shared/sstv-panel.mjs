@@ -8,7 +8,9 @@
 // called by the host's audio path. The clean receive path in index.html
 // (modeCleanProfile 'sstv') sets the sideband by band and turns the noise
 // tools off while body.sstv-open is set.
-import { SSTV_MODES, sstvMode, sstvEncode, SstvDecoder, sstvSnrEstimate } from './sstv.mjs';
+import { SSTV_MODES, sstvMode, sstvEncode, SstvDecoder, sstvSnrEstimate, SstvFskIdDecoder, sstvFskTones } from './sstv.mjs';
+
+import { SSTV_TEMPLATES, expandSstvMacros, validateSstvTemplates, drawSstvTemplate } from './sstv-templates.mjs';
 
 const BANDS = [
     { label: '80 m 3.845 LSB', hz: 3845000 },
@@ -50,7 +52,17 @@ const MARKUP = `
             <button type="button" class="sstv-btn" id="sstvPickBtn">PICK IMAGE</button>
             <input type="file" id="sstvFile" accept="image/*" hidden>
             <input type="text" id="sstvTxText" class="sstv-text" maxlength="40" placeholder="CALL GRID or a message">
+            <select id="sstvTemplate" class="sstv-sel" aria-label="Transmit template"></select>
+            <button type="button" id="sstvTemplateEdit" class="sstv-btn">EDIT TEMPLATE</button>
+            <input id="sstvTheirCall" class="sstv-text" maxlength="16" placeholder="Their callsign">
+            <input id="sstvTheirName" class="sstv-text" maxlength="32" placeholder="Their name">
+            <input id="sstvReport" class="sstv-text" maxlength="12" placeholder="RSV report" value="595">
+            <input id="sstvMyName" class="sstv-text" maxlength="32" placeholder="My name">
+            <input id="sstvComment" class="sstv-text" maxlength="80" placeholder="Comment 1">
+            <input id="sstvComment2" class="sstv-text" maxlength="80" placeholder="Comment 2">
+            <input id="sstvComment3" class="sstv-text" maxlength="80" placeholder="Comment 3">
             <select id="sstvTxMode" class="sstv-sel"></select>
+            <label><input type="checkbox" id="sstvFskId" checked> Send callsign FSK ID</label>
           </div>
         </div>
         <div class="sstv-send-row2">
@@ -138,19 +150,23 @@ function fileStem(rec) {
 }
 
 async function galleryAdd(ev) {
+    const generation = S.rxGeneration;
     const c = picCanvas(ev.w, ev.h, ev.rgba);
     const blob = await new Promise(res => c.toBlob(res, 'image/png'));
-    const rec = { t: Date.now(), mode: ev.mode, name: ev.name, w: ev.w, h: ev.h, freq: host('currentFreq') || 0,
+    if (!blob) return;
+    const rec = { call: S.pendingFskCall || '', t: Date.now(), mode: ev.mode, name: ev.name, w: ev.w, h: ev.h, freq: host('currentFreq') || 0,
                   lines: ev.line, of: ev.lines, why: ev.why, png: blob };
     await dbPut(rec);
-    S.gal.unshift(rec);
+    if (generation === S.rxGeneration) { rec.call = S.pendingFskCall || rec.call; S.lastRx = rec; }
+    S.gal.unshift(rec); useInset(rec);
+    if (rec.call) { try { const db = await dbOpen(); db.transaction('pics','readwrite').objectStore('pics').put(rec); } catch(e) {} }
     while (S.gal.length > GAL_MAX) { const old = S.gal.pop(); dbDel(old.id); }
     renderGallery();
 }
 async function galleryLoad() {
     const all = await dbAll();
     S.gal = all.sort((a, b) => b.t - a.t).slice(0, GAL_MAX);
-    renderGallery();
+    renderGallery(); if (S.gal[0]) useInset(S.gal[0]);
 }
 function renderGallery() {
     const g = $('sstvGal'); if (!g) return;
@@ -160,21 +176,21 @@ function renderGallery() {
         const im = document.createElement('img');
         if (!rec.url && rec.png) rec.url = URL.createObjectURL(rec.png);
         im.src = rec.url || '';
-        im.title = `${rec.name} · ${new Date(rec.t).toLocaleString()}` + (rec.freq ? ` · ${(rec.freq / 1e6).toFixed(3)} MHz` : '');
+        im.title = `${rec.call ? rec.call + ' · ' : ''}${rec.name} · ${new Date(rec.t).toLocaleString()}` + (rec.freq ? ` · ${(rec.freq / 1e6).toFixed(3)} MHz` : '');
         im.onclick = () => openView(rec);
         g.appendChild(im);
     }
     if (!S.gal.length) g.innerHTML = '<div class="sstv-empty">Pictures you receive appear here.</div>';
 }
 function openView(rec) {
-    S.viewing = rec;
+    S.viewing = rec; useInset(rec);
     const img = new Image();
     img.onload = () => {
         const c = $('sstvViewImg'); c.width = img.naturalWidth; c.height = img.naturalHeight;
         c.getContext('2d').drawImage(img, 0, 0);
     };
     img.src = rec.url;
-    $('sstvViewCap').textContent = `${rec.name} · ${new Date(rec.t).toLocaleString()}`
+    $('sstvViewCap').textContent = `${rec.call ? rec.call + ' · ' : ''}${rec.name} · ${new Date(rec.t).toLocaleString()}`
         + (rec.freq ? ` · ${(rec.freq / 1e6).toFixed(3)} MHz` : '') + (rec.lines < rec.of ? ` · ${rec.lines}/${rec.of} lines` : '');
     $('sstvView').classList.remove('hidden');
     updateReceivingBanner();
@@ -186,10 +202,25 @@ function openView(rec) {
 function newDecoder() {
     S.fs = host('audioSampleRate') || 48000;
     S.dec = new SstvDecoder(S.fs, { mode: S.rxMode, onEvent: onDecEvent });
+    S.fsk = new SstvFskIdDecoder(S.fs, async call => {
+        S.theirCall = call; S.pendingFskCall = call;
+        const rec = S.lastRx;
+        if (rec) {
+            rec.call = call;
+            try {
+                const db = await dbOpen(); const tx = db.transaction('pics', 'readwrite');
+                tx.objectStore('pics').put(rec);
+            } catch (e) {}
+            renderGallery();
+        }
+        setInfo('FSK ID: ' + call);
+        const field = $('sstvTheirCall'); if (field) { field.value = call; save('wfsstvTheirCall', call); renderTxPreview(); }
+    });
 }
 function onDecEvent(ev) {
     const c = $('sstvImg');
     if (ev.type === 'start') {
+        S.rxGeneration = (S.rxGeneration || 0) + 1; S.lastRx = null; S.pendingFskCall = ''; S.fskUntil = 0;
         S.receiving = ev; updateReceivingBanner();
         S.state = 'rx'; S.pic = ev; S.picMeta = { t0: Date.now() };
         c.width = ev.w; c.height = ev.h;
@@ -204,6 +235,8 @@ function onDecEvent(ev) {
     } else if (ev.type === 'done') {
         drawPic(ev);
         S.state = 'idle';
+        S.fskUntil = Date.now() + 8000;
+        if (S.fsk) S.fsk.reset();
         S.receiving = ev; updateReceivingBanner();
         setState('RX: WAITING', '');
         setInfo(`${ev.name} ${ev.why} · ${ev.line} / ${ev.lines} lines`);
@@ -247,6 +280,7 @@ window._sstvProcessAudioChunk = function (int16) {
     const x = new Float32Array(int16.length);
     for (let i = 0; i < int16.length; i++) x[i] = int16[i] / 32768;
     S.dec.push(x);
+    if (S.fsk && Date.now() < (S.fskUntil || 0)) S.fsk.push(x, S.dec.off || 0);
     feedWaterfall(x);
 };
 
@@ -309,6 +343,64 @@ function wfRow(buf, R) {
 // ---------------------------------------------------------------------
 // Send
 // ---------------------------------------------------------------------
+let templates = structuredClone(SSTV_TEMPLATES);
+function templateOptions() {
+    const select = $('sstvTemplate'); if (!select) return;
+    const old = select.value; select.replaceChildren(new Option('Image + text',''));
+    templates.forEach((t,i) => select.add(new Option(t.name,String(i))));
+    select.value = [...select.options].some(o => o.value === old) ? old : '';
+}
+function macroValues() {
+    const now = new Date();
+    return {m:typeof getMyCall === 'function' ? getMyCall() : '', l:typeof getMyGrid === 'function' ? getMyGrid() : '',
+        f:$('sstvMyName').value,n:$('sstvMyName').value,c:$('sstvTheirCall').value.toUpperCase(),o:$('sstvTheirName').value,
+        r:$('sstvReport').value,t:now.toISOString().slice(11,16),d:now.toISOString().slice(0,10),x:$('sstvComment').value,y:$('sstvComment2').value,z:$('sstvComment3').value};
+}
+function useInset(rec) {
+    if (!rec || !rec.png) return;
+    const image = new Image(), url = URL.createObjectURL(rec.png), generation = S.insetGeneration = (S.insetGeneration || 0) + 1;
+    image.onload = () => { if (generation === S.insetGeneration) { S.inset = image; renderTxPreview(); } URL.revokeObjectURL(url); };
+    image.onerror = () => URL.revokeObjectURL(url); image.src = url;
+}
+function editTemplate() {
+    let index = Number($('sstvTemplate').value);
+    if ($('sstvTemplate').value === '') { index = 0; $('sstvTemplate').value = '0'; }
+    const draft = structuredClone(templates[index]); if (!draft) return;
+    const dialog = document.createElement('dialog'); dialog.className = 'sstv-template-editor';
+    const title = document.createElement('h3'); title.textContent = 'Edit SSTV template'; dialog.append(title);
+    const help = document.createElement('p'); help.textContent = 'Positions and sizes are percentages of the picture. Macros: %m my call, %l grid, %f/%n my name, %c their call, %o their name, %r RSV, %t UTC, %d date, %x/%y/%z comments, %i received image.'; dialog.append(help);
+    const name = document.createElement('input'); name.value = draft.name; name.maxLength=32; name.setAttribute('aria-label','Template name'); dialog.append(name);
+    const table = document.createElement('div'); dialog.append(table);
+    function rows() {
+        table.replaceChildren();
+        draft.layers.forEach((layer,i) => {
+            const row = document.createElement('div'); row.className='sstv-template-row';
+            const text = document.createElement('input'); text.value=layer.text; text.maxLength=160; text.setAttribute('aria-label','Text or %i');
+            text.onchange=()=>{ layer.text=text.value; if (layer.text==='%i') {layer.w ??=0.5;layer.h ??=0.5;} else {layer.size ??=0.08;layer.color ??='#ffffff';} rows(); }; row.append(text);
+            for (const key of layer.text==='%i' ? ['x','y','w','h'] : ['x','y','size']) {
+                const label=document.createElement('label');label.textContent=key+' % ';
+                const input=document.createElement('input');input.type='number';input.min=key==='size'?2:['w','h'].includes(key)?5:0;input.max=key==='size'?30:100;input.step='1';input.value=Math.round(layer[key]*100);
+                input.oninput=()=>layer[key]=Number(input.value)/100;label.append(input);row.append(label);
+            }
+            if (layer.text!=='%i') {const color=document.createElement('input');color.type='color';color.value=layer.color;color.setAttribute('aria-label','Text color');color.oninput=()=>layer.color=color.value;row.append(color);}
+            const del=document.createElement('button');del.textContent='Remove';del.onclick=()=>{draft.layers.splice(i,1);rows();};row.append(del);table.append(row);
+        });
+    }
+    rows();
+    function button(text,fn) {const b=document.createElement('button');b.type='button';b.textContent=text;b.onclick=fn;dialog.append(b);}
+    button('Add text',()=>{if(draft.layers.length<16){draft.layers.push({text:'%x',x:0.04,y:0.5,size:0.08,color:'#ffffff'});rows();}});
+    button('Add received image',()=>{if(draft.layers.length<16){draft.layers.push({text:'%i',x:0.04,y:0.2,w:0.5,h:0.6});rows();}});
+    const error=document.createElement('p');error.setAttribute('role','alert');dialog.append(error);
+    button('Save',()=>{draft.name=name.value.trim();const next=structuredClone(templates);next[index]=draft;
+        if(!validateSstvTemplates(next)){error.textContent='Check the name, text and percentage ranges.';return;}
+        saveBands({templates:next});dialog.close();});
+    button('Restore defaults',()=>{saveBands({templates:structuredClone(SSTV_TEMPLATES)});dialog.close();});
+    button('Cancel',()=>dialog.close());dialog.onclose=()=>dialog.remove();document.body.append(dialog);dialog.showModal();
+}
+function txSeconds(m) {
+    const call = typeof getMyCall === 'function' ? getMyCall() : '';
+    return m.seconds + (load('wfSstvFskId', '1') === '1' ? sstvFskTones(call).length * 0.022 : 0);
+}
 function txMode() { return sstvMode($('sstvTxMode').value) || sstvMode('s1'); }
 function renderTxPreview() {
     const m = txMode(), c = $('sstvTxPrev');
@@ -322,27 +414,30 @@ function renderTxPreview() {
         g.drawImage(S.txImg, (m.w - w) / 2, (m.h - h) / 2, w, h);
     } else {
         g.fillStyle = '#6f8aa0'; g.font = `bold ${Math.round(m.h / 12)}px sans-serif`; g.textAlign = 'center';
-        g.fillText('PICK IMAGE', m.w / 2, m.h / 2); g.textAlign = 'left';
+        if ($('sstvTemplate').value === '') g.fillText('PICK IMAGE', m.w / 2, m.h / 2); g.textAlign = 'left';
     }
-    const text = $('sstvTxText').value.trim();
+    const selected = $('sstvTemplate').value;
+    if (selected !== '' && templates[Number(selected)]) drawSstvTemplate(g,templates[Number(selected)],macroValues(),S.inset);
+    const text = selected === '' ? $('sstvTxText').value.trim() : '';
     if (text) {
         const fsz = Math.round(m.h / 9);
         g.font = `bold ${fsz}px sans-serif`;
         g.lineWidth = Math.max(2, fsz / 6); g.strokeStyle = '#000'; g.fillStyle = '#fff';
         g.strokeText(text, fsz / 2, fsz * 1.15); g.fillText(text, fsz / 2, fsz * 1.15);
     }
-    $('sstvTxInfo').textContent = `${m.name} · ${Math.round(m.seconds)} s on air`;
-    $('sstvSendBtn').textContent = S.txBusy ? 'STOP' : `SEND · ${Math.round(m.seconds)} s`;
+    $('sstvTxInfo').textContent = `${m.name} · ${Math.round(txSeconds(m))} s on air`;
+    $('sstvSendBtn').textContent = S.txBusy ? 'STOP' : `SEND · ${Math.round(txSeconds(m))} s`;
 }
 function send_(o) { if (typeof send === 'function') send(o); }
 function startTx() {
     if (S.txBusy) { stopTx(); return; }
-    if (!S.txImg) { $('sstvTxInfo').textContent = 'Pick an image first'; return; }
+    if (!S.txImg && $('sstvTemplate').value === '') { $('sstvTxInfo').textContent = 'Pick an image or template first'; return; }
     if (typeof streamDigiAudio !== 'function') { $('sstvTxInfo').textContent = 'Sending is not available here'; return; }
     renderTxPreview();
     const m = txMode(), c = $('sstvTxPrev');
     const rgba = c.getContext('2d').getImageData(0, 0, m.w, m.h).data;
-    const audio = sstvEncode(m.id, rgba, 12000, 0.8);
+    const call = typeof getMyCall === 'function' ? getMyCall() : '';
+    const audio = sstvEncode(m.id, rgba, 12000, 0.8, load('wfSstvFskId', '1') === '1' ? call : '');
     // show what is going out in the main picture
     const big = $('sstvImg'); big.width = m.w; big.height = m.h; big.getContext('2d').drawImage(c, 0, 0);
     if (typeof initDigiTxCtx === 'function') initDigiTxCtx();
@@ -367,7 +462,7 @@ function startTx() {
         t0 = Date.now();
         S.txTimer = setInterval(function () {
             const s = (Date.now() - t0) / 1000;
-            $('sstvTxInfo').textContent = `Sending ${m.name} · ${Math.round(s)} / ${Math.round(m.seconds)} s`;
+            $('sstvTxInfo').textContent = `Sending ${m.name} · ${Math.round(s)} / ${Math.round(txSeconds(m))} s`;
         }, 500);
     });
 }
@@ -397,7 +492,9 @@ let bands = BANDS.map(b => ({ label: b.label.split(' ')[0] + ' m', hz: b.hz, mod
 window._sstvSettingsChanged = function (settings) {
     if (!settings || !Array.isArray(settings.frequencies)) return;
     bands = settings.frequencies;
-    renderBands();
+    if (validateSstvTemplates(settings.templates)) templates = structuredClone(settings.templates.length ? settings.templates : SSTV_TEMPLATES);
+    templateOptions(); renderBands();
+    if ($('sstvTxMode')?.value) renderTxPreview();
 };
 window._sstvDesiredMode = function (hz) {
     const band = bands.find(b => Math.abs(hz - b.hz) <= 3000);
@@ -424,7 +521,7 @@ function renderBands() {
 }
 function saveBands(settings, reset = false) {
     if (window._sstvSettingsServer) send_({ cmd: 'setSstvSettings', settings, reset });
-    else { save('wfSstvBands', JSON.stringify(settings)); window._sstvSettingsChanged(settings); }
+    else { const merged = {frequencies:bands,templates,...settings}; save('wfSstvBands', JSON.stringify(merged)); window._sstvSettingsChanged(merged); }
 }
 function editBands() {
     const text = prompt('SSTV bands: one per line: label, MHz, sideband (optional). Enter RESET for defaults.',
@@ -493,13 +590,18 @@ function close() {
 (function init() {
     const scope = document.getElementById('scopeArea') || document.body;
     if (!$('sstvBar')) scope.insertAdjacentHTML('beforeend', MARKUP);
-    renderBands();
+    renderBands(); templateOptions();
+    $('sstvTemplateEdit').onclick=editTemplate;
+    $('sstvTemplate').onchange=renderTxPreview;
+    for(const id of ['sstvTheirCall','sstvTheirName','sstvReport','sstvMyName','sstvComment','sstvComment2','sstvComment3']) { const input=$(id);input.value=load('wf'+id,input.value); input.oninput=()=>{save('wf'+id,input.value);renderTxPreview();}; }
     $('sstvReceiving').onclick = () => { $('sstvViewClose').click(); S.receiving = null; };
     $('sstvBandEdit').onclick = editBands;
     if (window._sstvSettings) window._sstvSettingsChanged(window._sstvSettings);
     else if (!window._sstvSettingsServer) { try { window._sstvSettingsChanged(JSON.parse(load('wfSstvBands', 'null'))); } catch (e) {} }
+    $('sstvFskId').checked = load('wfSstvFskId', '1') === '1';
+    $('sstvFskId').onchange = () => { save('wfSstvFskId', $('sstvFskId').checked ? '1' : '0'); renderTxPreview(); };
     const tm = $('sstvTxMode');
-    tm.innerHTML = TX_MODES.map(id => { const m = sstvMode(id); return `<option value="${id}">${m.name} (${Math.round(m.seconds)} s)</option>`; }).join('');
+    tm.innerHTML = TX_MODES.map(id => { const m = sstvMode(id); return `<option value="${id}">${m.name} (${Math.round(txSeconds(m))} s)</option>`; }).join('');
     tm.value = load('wfSstvTxMode', 's1');
     tm.onchange = () => { save('wfSstvTxMode', tm.value); renderTxPreview(); };
     S.rxMode = load('wfSstvRxMode', 'auto');

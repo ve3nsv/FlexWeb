@@ -71,6 +71,7 @@ struct cmdLineOverrides {
     // open: connect when the first one arrives, close the session this many
     // seconds after the last one leaves (0 = option off).
     int onDemandIdle = 0;
+    int guestView = -1;        // CLI override: -1 = use [Web] GuestView
     bool restLan = false;      // --rest: REST port on all interfaces
     // -n/--name: label shown in the web UI top bar and browser tab instead
     // of the rig model, to tell several wfweb instances apart

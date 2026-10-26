@@ -1,5 +1,7 @@
 #include "webserver.h"
 #include "sstvsettings.h"
+#include "cputemperature.h"
+#include "guestpolicy.h"
 #include "rfkitconnection.h"
 #include "freedvprocessor.h"
 #include <QtMath>
@@ -499,11 +501,32 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
     statusTimer = new QTimer(this);
     connect(statusTimer, &QTimer::timeout, this, &webServer::sendPeriodicStatus);
     statusTimer->start(200);
+    rtlScope_ = new RtlTcpSource(this);
+    rtlScope_->setFrameCallback([this](const SdrSpectrum::Frame &frame, quint32 center, quint32 rate) {
+        if (!rtlScopeLocal_ && !rtlScopeSoapy_ && !rtlScopeKiwi_) sendRtlScopeFrame(frame, center, rate);
+    });
+    const auto savedSdr = QJsonDocument::fromJson(openSettings()->value("SDR/RtlTcp").toString().toUtf8()).object();
+    if (!savedSdr.isEmpty()) configureRtlScope(savedSdr, false);
+    auto *sdrTimer = new QTimer(this);
+    connect(sdrTimer, &QTimer::timeout, this, [this]() {
+        if (!rtlScope_ || !rtlScopeEnabled_) return;
+        const auto &st = rtlScope_->status();
+        sendJsonToAll(QJsonObject{{"type", "sdrScopeStatus"}, {"enabled", true},
+            {"state", (rtlScopeLocal_ || rtlScopeSoapy_ || rtlScopeKiwi_) ? rtlLocalState_ : st.state}, {"source", rtlScopeKiwi_ ? "kiwi" : rtlScopeSoapy_ ? "soapy" : rtlScopeLocal_ ? "local" : "rtl_tcp"},
+            {"nativeSpectrum", rigCaps && rigCaps->hasSpectrum}, {"tuner", int(st.tuner)}, {"gainCount", int(st.gainCount)},
+            {"bytes", double(st.receivedBytes)}, {"clipped", (rtlScopeLocal_ || rtlScopeSoapy_ || rtlScopeKiwi_) ? rtlScopeClipped_ : st.clipped}});
+    });
+    sdrTimer->start(2000);
     auto *loadTimer = new QTimer(this);
     serverLoad_.sample();
-    connect(loadTimer, &QTimer::timeout, this, [this]() {
-        const QJsonObject load = serverLoad_.sample();
-        if (!load.isEmpty()) sendJsonToAll(load);
+    auto *temperature = new CpuTemperature::Monitor(this);
+    temperature->start();
+    connect(loadTimer, &QTimer::timeout, this, [this, temperature]() {
+        QJsonObject load = serverLoad_.sample();
+        if (load.isEmpty()) return;
+        const auto thermal = temperature->snapshot();
+        for (auto it = thermal.begin(); it != thermal.end(); ++it) load[it.key()] = it.value();
+        sendJsonToAll(load);
     });
     loadTimer->start(2000);
 
@@ -557,9 +580,9 @@ void webServer::receiveRigCaps(rigCapabilities *caps)
         obj["model"] = rigCaps->modelName;
         obj["manufacturer"] = manufacturerName(rigCaps->manufacturer);
         obj["hasTransmit"] = rigCaps->hasTransmit;
-        obj["hasSpectrum"] = rigCaps->hasSpectrum;
+        obj["hasSpectrum"] = rtlScopeEnabled_ || rigCaps->hasSpectrum;
         obj["spectLenMax"] = rigCaps->spectLenMax;
-        obj["spectAmpMax"] = rigCaps->spectAmpMax;
+        obj["spectAmpMax"] = rtlScopeEnabled_ ? 160 : rigCaps->spectAmpMax;
         obj["hasMainSub"] = rigCaps->hasCommand29;
         // Antenna tuner: only rigs whose .rig declares the ATU command have
         // something to tune, so the TUNE tile and the FUNC TUNER button
@@ -810,12 +833,26 @@ void webServer::onHttpReadyRead()
             else serveLoginPage(socket, 200, QString());
             return;
         }
+        if (path == "/guest" && method == "POST") {
+            const QString address = socket->peerAddress().toString();
+            if (!guestViewEnabled_ || !loginOn || auth.lockedOut(address)) {
+                sendHttpResponse(socket, 403, "Forbidden", "text/plain", "Guest access unavailable"); return;
+            }
+            auth.recordFailure(address); // bound creation of anonymous sessions as well as login attempts
+            QByteArray cookie = webAuth::setCookieHeader(webAuth::createGuestSession(), false);
+            if (!sslEnabled) cookie.replace("; Secure", "");
+            sendRedirect(socket, "/", cookie); return;
+        }
         if (path == "/logout") {
             webAuth::endSession(webAuth::cookieToken(headerSection));
             sendRedirect(socket, loginOn ? "/login" : "/", webAuth::clearCookieHeader());
             return;
         }
-        if (loginOn && requestUser(socket, headerSection).isEmpty()) {
+        const QString webRequestUser = requestUser(socket, headerSection);
+        if (webRequestUser == QLatin1String(webAuth::kGuestUser) && path.startsWith("/api/") && method != "GET") {
+            sendRestResponse(socket, 403, QJsonObject{{"error", "Guest session is view-only"}}); return;
+        }
+        if (loginOn && webRequestUser.isEmpty()) {
             if (path.startsWith("/api/")) {
                 QJsonObject err;
                 err["error"] = "login required";
@@ -1814,7 +1851,7 @@ void webServer::onWsNewConnection()
     if (webAuth::hasUsers()) {
         const QByteArray cookie = pSocket->request().rawHeader("Cookie");
         user = webAuth::sessionUser(webAuth::cookieToken("Cookie: " + cookie));
-        if (user.isEmpty()) {
+        if (user.isEmpty() || (user == QLatin1String(webAuth::kGuestUser) && !guestViewEnabled_)) {
             qWarning() << "Web: refused a browser without a valid login from" << pSocket->peerAddress().toString();
             pSocket->close(QWebSocketProtocol::CloseCodePolicyViolated, "login required");
             pSocket->deleteLater();
@@ -1822,6 +1859,7 @@ void webServer::onWsNewConnection()
         }
     }
     wsUser.insert(pSocket, user);
+    if (user == QLatin1String(webAuth::kGuestUser)) wsGuests.insert(pSocket);
 
     connect(pSocket, &QWebSocket::textMessageReceived, this, &webServer::onWsTextMessage);
     connect(pSocket, &QWebSocket::binaryMessageReceived, this, &webServer::onWsBinaryMessage);
@@ -1908,6 +1946,7 @@ void webServer::onWsDisconnected()
         packetUsbTxActive = false;
         audioClients.remove(pClient);
         wsUser.remove(pClient);
+        wsGuests.remove(pClient);
         txListen.remove(pClient);
         if (talkLastMs.remove(pClient)) QTimer::singleShot(0, this, [this]() { broadcastTalkers(); });
         talkerId.remove(pClient);
@@ -1922,6 +1961,7 @@ void webServer::onWsDisconnected()
 
 void webServer::onWsBinaryMessage(QByteArray message)
 {
+    if (wsGuests.contains(qobject_cast<QWebSocket *>(sender()))) return;
     if (message.size() < 6) return;
 
     quint8 msgType = static_cast<quint8>(message[0]);
@@ -2178,16 +2218,27 @@ static bool labelIsRigCapture(const QString &label, const QString &rigName)
 void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
 {
     QString type = cmd["cmd"].toString();
+    if (client && wsGuests.contains(client) && !guestCommandAllowed(type)) {
+        sendJsonTo(client, QJsonObject{{"type", "readOnly"}, {"message", "View-only guest session"}}); return;
+    }
 
-    if (type == "setSstvSettings") {
-        const auto next = cmd["reset"].toBool() ? std::optional<QJsonObject>(defaultSstvSettings())
-                                               : validateSstvSettings(cmd["settings"].toObject());
-        if (!next) { if (client) sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Invalid SSTV band list"}}); return; }
+    if (type == "setSdrScope") {
+        if (!configureRtlScope(cmd.value("settings").toObject(), true) && client)
+            sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Invalid SDR scope settings or settings could not be saved"}});
+    }
+    else if (type == "setSstvSettings") {
         auto settings = openSettings();
+        auto current = validateSstvSettings(QJsonDocument::fromJson(settings->value("SSTV/Frequencies").toString().toUtf8()).object());
+        QJsonObject merged = current ? *current : defaultSstvSettings();
+        const auto edit = cmd["settings"].toObject();
+        for (auto it = edit.begin(); it != edit.end(); ++it) merged[it.key()] = it.value();
+        if (cmd["reset"].toBool()) merged["frequencies"] = defaultSstvSettings()["frequencies"];
+        const auto next = validateSstvSettings(merged);
+        if (!next) { if (client) sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Invalid SSTV settings"}}); return; }
         settings->setValue("SSTV/Frequencies", QString::fromUtf8(QJsonDocument(*next).toJson(QJsonDocument::Compact)));
         settings->sync();
         if (settings->status() != QSettings::NoError) {
-            if (client) sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Could not save SSTV bands"}}); return;
+            if (client) sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Could not save SSTV settings"}}); return;
         }
         sendJsonToAll(QJsonObject{{"type", "sstvSettings"}, {"settings", *next}});
     }
@@ -2410,6 +2461,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
             });
             return;
         }
+        rtlScopeTx_ = on;
         queue->add(priorityImmediate, queueItem(funcTransceiverStatus, QVariant::fromValue<bool>(on), false, uchar(0)));
         pttClient = on ? client : nullptr;
         broadcastTxState();
@@ -3890,6 +3942,7 @@ QJsonObject webServer::buildInfoJson() const
     info["cwMacros"] = cwMacrosJson();
     const auto sstv = validateSstvSettings(QJsonDocument::fromJson(openSettings()->value("SSTV/Frequencies").toString().toUtf8()).object());
     info["sstvSettings"] = sstv ? *sstv : defaultSstvSettings();
+    info["sdrScope"] = QJsonDocument::fromJson(openSettings()->value("SDR/RtlTcp").toString().toUtf8()).object();
     info["version"] = QString(FLEXWEB_VERSION);
     info["baseVersion"] = QString(WFWEB_VERSION);
     // Instance tag from --name; empty means "show the rig model".
@@ -3912,9 +3965,9 @@ QJsonObject webServer::buildInfoJson() const
         info["model"] = rigCaps->modelName;
         info["manufacturer"] = manufacturerName(rigCaps->manufacturer);
         info["hasTransmit"] = rigCaps->hasTransmit;
-        info["hasSpectrum"] = rigCaps->hasSpectrum;
+        info["hasSpectrum"] = rtlScopeEnabled_ || rigCaps->hasSpectrum;
         info["spectLenMax"] = rigCaps->spectLenMax;
-        info["spectAmpMax"] = rigCaps->spectAmpMax;
+        info["spectAmpMax"] = rtlScopeEnabled_ ? 160 : rigCaps->spectAmpMax;
 
         QJsonArray modes;
         for (const modeInfo &mi : rigCaps->modes) {
@@ -4057,7 +4110,8 @@ void webServer::sendCurrentState(QWebSocket *client)
     info["logbookCount"] = logbook_.count();
     info["logbookPersistent"] = logbookPersistent_;
     // Web login: who this browser is signed in as ("" when login is off).
-    info["webUser"] = wsUser.value(client);
+    info["webGuest"] = wsGuests.contains(client);
+    info["webUser"] = wsGuests.contains(client) ? QStringLiteral("guest") : wsUser.value(client);
     info["webLogin"] = webAuth::hasUsers();
     info["txOpus"] = true;      // accepts 0x09 Opus voice frames (onWsBinaryMessage)
     // The browser adopts these on connect instead of pushing its own copy.
@@ -4469,6 +4523,15 @@ void webServer::receiveCache(cacheItem item)
             update[activeIsB ? "vfoBFrequency" : "vfoAFrequency"] = hz;
         }
         if (isActive) {
+            if (f.Hz > 0 && f.Hz <= 0xffffffffULL) {
+                rtlScopeHz_ = quint32(f.Hz);
+                if (rtlScopeEnabled_) {
+                    if (rtlScopeKiwi_ && kiwiScope_) kiwiScope_->setCenter(rtlScopeHz_);
+                    else if (rtlScopeSoapy_ && soapyScope_) soapyScope_->setCenter(rtlScopeHz_);
+                    else if (rtlScopeLocal_ && rtlLocalScope_) rtlLocalScope_->setCenter(rtlScopeHz_);
+                    else if (rtlScope_) rtlScope_->setCenter(rtlScopeHz_);
+                }
+            }
             update["frequency"] = hz;
             // Reporters keep the last real frequency while the rig has none.
             if (f.Hz && freedvReporter) freedvReporter->updateFrequency(f.Hz);
@@ -4583,6 +4646,7 @@ void webServer::receiveCache(cacheItem item)
         update["idMeter"] = item.value.toDouble();
         break;
     case funcTransceiverStatus:
+        rtlScopeTx_ = item.value.toBool();
         update["transmitting"] = item.value.toBool();
         if (freedvReporter) freedvReporter->updateTx(freedvModeName, item.value.toBool());
         break;
@@ -4603,6 +4667,7 @@ void webServer::receiveCache(cacheItem item)
         break;
     case funcScopeWaveData:
     {
+        if (rtlScopeEnabled_) return;
         // Send spectrum data as binary message for efficiency
         scopeData sd = item.value.value<scopeData>();
         if (!sd.valid || sd.data.isEmpty()) return;
@@ -7543,7 +7608,7 @@ bool webServer::ampControlAllowed(QWebSocket *client)
     QString reason;
     if (!webAuth::hasUsers())
         reason = "nousers";
-    else if (!client || wsUser.value(client).isEmpty())
+    else if (!client || wsGuests.contains(client) || wsUser.value(client).isEmpty())
         reason = "signin";
     else if (pttClient && pttClient != client && wsClients.contains(pttClient))
         reason = "tx:" + wsUser.value(pttClient);
@@ -9099,6 +9164,118 @@ QJsonObject webServer::timeStatusJson() const
     return o;
 }
 
+void webServer::sendRtlScopeFrame(const SdrSpectrum::Frame &frame, quint32 center, quint32 rate)
+{
+    if (!rtlScopeEnabled_ || rtlScopeTx_ || !rtlScopeHz_ || wsClients.isEmpty()) return;
+    if ((!rtlScopeKiwi_ && center != rtlScopeHz_) || (rtlScopeKiwi_ && (double(rtlScopeHz_) < double(center)-rate/2.0 || double(rtlScopeHz_) > double(center)+rate/2.0))) return;
+    rtlScopeClipped_ = frame.overloadFraction;
+    const auto bins = SdrSpectrum::display(frame, rtlScopeFloor_, 160);
+    if (bins.empty()) return;
+    QByteArray msg(12 + int(bins.size()), 0);
+    msg[0] = 0x01; msg[1] = 1;
+    const float start = float((double(center) - rate / 2.0) / 1e6);
+    const float end = float((double(center) + rate / 2.0) / 1e6);
+    memcpy(msg.data() + 4, &start, 4); memcpy(msg.data() + 8, &end, 4);
+    memcpy(msg.data() + 12, bins.data(), bins.size());
+    sendBinaryToAll(msg);
+}
+
+bool webServer::configureRtlScope(const QJsonObject &settings, bool persist)
+{
+    if (!rtlScope_) return false;
+    const bool enabled = settings.value("enabled").toBool();
+    const QString source = settings.value("source").toString("rtl_tcp");
+    const int device = settings.value("device").toInt(0);
+    if ((source != "rtl_tcp" && source != "rtl_local" && source != "soapy" && source != "kiwi") || device < 0 || device > 63) return false;
+    const bool local = source == "rtl_local";
+    const bool soapy = source == "soapy";
+    const bool kiwi = source == "kiwi";
+    const QString soapyArgs = settings.value("soapyArgs").toString().trimmed();
+    if (soapyArgs.size() > 1024) return false;
+    RtlTcpSource::Config c;
+    c.host = settings.value("host").toString().trimmed();
+    const int port = settings.value("port").toInt(1234);
+    const int rate = settings.value("rate").toInt(2048000);
+    const int ppm = settings.value("ppm").toInt(0);
+    const int gain = settings.value("gain").toInt(0);
+    if (enabled && ((!local && !soapy && (c.host.isEmpty() || c.host.size() > 253 || port < 1 || port > 65535))
+        || rate < (soapy ? 100000 : 225001) || rate > (soapy ? 10000000 : 3200000) || ppm < -1000 || ppm > 1000 || gain < -100 || gain > 600)) return false;
+    c.port = quint16(port); c.sampleRate = quint32(rate); c.ppm = ppm; c.gainTenthsDb = gain;
+    c.autoGain = settings.value("autoGain").toBool(true);
+    c.biasT = settings.value("biasT").toBool(false);
+    c.directQ = settings.value("directQ").toBool(false);
+    c.centerHz = rtlScopeHz_ ? rtlScopeHz_ : 14230000;
+    ++rtlScopeGeneration_;
+    if (rtlLocalScope_) { rtlLocalScope_->stop(); rtlLocalScope_ = nullptr; }
+    if (soapyScope_) { soapyScope_->stop(); soapyScope_ = nullptr; }
+    if (kiwiScope_) { kiwiScope_->stop(); kiwiScope_->deleteLater(); kiwiScope_ = nullptr; }
+    rtlScope_->stop();
+    rtlScopeLocal_ = local; rtlScopeSoapy_ = soapy; rtlScopeKiwi_ = kiwi;
+    rtlScopeEnabled_ = enabled;
+    if (enabled && local) {
+        const quint64 generation = rtlScopeGeneration_;
+        rtlLocalState_ = "connecting";
+        auto *worker = new RtlLocalSource(this,
+            [this, generation](const SdrSpectrum::Frame &frame, quint32 center, quint32 rate) {
+                if (generation == rtlScopeGeneration_) sendRtlScopeFrame(frame, center, rate);
+            }, [this, generation](const QString &state) { if (generation == rtlScopeGeneration_) rtlLocalState_ = state; });
+        connect(worker, &QThread::finished, this, [this, worker, generation]() {
+            if (generation == rtlScopeGeneration_ && rtlLocalScope_ == worker) rtlLocalScope_ = nullptr;
+        });
+        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        rtlLocalScope_ = worker;
+        RtlLocalSource::Config lc;
+        lc.deviceIndex = unsigned(device); lc.rate = c.sampleRate; lc.center = c.centerHz;
+        lc.autoGain = c.autoGain; lc.gainTenthsDb = c.gainTenthsDb; lc.ppm = c.ppm; lc.biasT = c.biasT; lc.directQ = c.directQ;
+        if (!worker->open(lc)) { rtlLocalScope_ = nullptr; worker->deleteLater(); rtlScopeEnabled_ = false; return false; }
+    } else if (enabled && soapy) {
+        const quint64 generation = rtlScopeGeneration_;
+        rtlLocalState_ = "connecting";
+        auto *worker = new SoapySource(this,
+            [this, generation](const SdrSpectrum::Frame &frame, quint32 center, quint32 rate) {
+                if (generation == rtlScopeGeneration_) sendRtlScopeFrame(frame, center, rate);
+            }, [this, generation](const QString &state) { if (generation == rtlScopeGeneration_) rtlLocalState_ = state; });
+        connect(worker, &QThread::finished, this, [this, worker, generation]() {
+            if (generation == rtlScopeGeneration_ && soapyScope_ == worker) soapyScope_ = nullptr;
+        });
+        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        soapyScope_ = worker;
+        SoapySource::Config sc; sc.args = soapyArgs; sc.rate = c.sampleRate; sc.center = c.centerHz;
+        sc.autoGain = c.autoGain; sc.gain = double(c.gainTenthsDb) / 10.0;
+        if (!worker->open(sc)) { soapyScope_ = nullptr; worker->deleteLater(); rtlScopeEnabled_ = false; return false; }
+    } else if (enabled && kiwi) {
+        const quint64 generation = rtlScopeGeneration_;
+        rtlLocalState_ = "connecting";
+        kiwiScope_ = new KiwiSource(this,
+            [this, generation](const SdrSpectrum::Frame &frame, quint32 center, quint32 rate) {
+                if (generation == rtlScopeGeneration_) sendRtlScopeFrame(frame, center, rate);
+            }, [this, generation](const QString &state) { if (generation == rtlScopeGeneration_) rtlLocalState_ = state; });
+        KiwiSource::Config kc; kc.host = c.host; kc.port = c.port; kc.center = c.centerHz;
+        if (!kiwiScope_->start(kc)) { kiwiScope_->deleteLater(); kiwiScope_ = nullptr; rtlScopeEnabled_ = false; return false; }
+    } else if (enabled && !rtlScope_->start(c)) { rtlScopeEnabled_ = false; return false; }
+    rtlScopeFloor_ = std::numeric_limits<float>::quiet_NaN();
+    const QJsonObject clean{{"enabled", enabled}, {"source", source}, {"device", device}, {"soapyArgs", soapyArgs}, {"host", c.host}, {"port", port}, {"rate", rate},
+        {"ppm", ppm}, {"gain", gain}, {"autoGain", c.autoGain}, {"biasT", c.biasT}, {"directQ", c.directQ}};
+    if (persist) {
+        auto file = openSettings();
+        file->setValue("SDR/RtlTcp", QString::fromUtf8(QJsonDocument(clean).toJson(QJsonDocument::Compact)));
+        file->sync();
+        if (file->status() != QSettings::NoError) return false;
+    }
+    sendJsonToAll(QJsonObject{{"type", "sdrScopeStatus"}, {"enabled", enabled}, {"settings", clean},
+        {"state", enabled ? "connecting" : "off"}, {"nativeSpectrum", rigCaps && rigCaps->hasSpectrum}});
+    return true;
+}
+
+void webServer::setGuestView(bool enabled)
+{
+    guestViewEnabled_ = enabled;
+    if (!enabled) {
+        webAuth::endGuestSessions();
+        for (auto *client : wsGuests.values()) client->close(QWebSocketProtocol::CloseCodePolicyViolated, "Guest access disabled");
+    }
+}
+
 void webServer::setRestLan(bool lan)
 {
     restLan = lan;
@@ -9109,7 +9286,8 @@ void webServer::setRestLan(bool lan)
 QString webServer::requestUser(QTcpSocket *socket, const QByteArray &headers)
 {
     Q_UNUSED(socket)
-    return webAuth::sessionUser(webAuth::cookieToken(headers));
+    const QString user = webAuth::sessionUser(webAuth::cookieToken(headers));
+    return user == QLatin1String(webAuth::kGuestUser) && !guestViewEnabled_ ? QString() : user;
 }
 
 bool webServer::restAuthorized(QTcpSocket *socket, const QByteArray &headers)
@@ -9168,7 +9346,7 @@ void webServer::serveLoginPage(QTcpSocket *socket, int status, const QString &er
 <title>%1 sign in</title>
 <style>
 :root{color-scheme:dark}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;
  background:#0f0f1a;color:#c8d8e8;font:15px system-ui,-apple-system,Segoe UI,sans-serif}
 form{width:min(320px,calc(100vw - 32px));background:#121a26;border:1px solid #2a3a4d;border-radius:6px;padding:24px}
 h1{margin:0 0 4px;font-size:20px;color:#e6f0fa}
@@ -9191,7 +9369,8 @@ button{margin-top:18px;width:100%;padding:11px;border:0;border-radius:4px;backgr
 </form></body></html>
 )HTML");
     const QString err = error.isEmpty() ? QString() : QString("<div class=\"err\" role=\"alert\">%1</div>").arg(error.toHtmlEscaped());
-    page = page.arg(title.toHtmlEscaped(), err);
+    const QString guest = guestViewEnabled_ ? QStringLiteral("</form><form method=\"post\" action=\"/guest\"><button type=\"submit\">View only (no password)</button>") : QString();
+    page = page.arg(title.toHtmlEscaped(), err + guest);
     sendHttpResponse(socket, status, status == 200 ? "OK" : (status == 429 ? "Too Many Requests" : "Unauthorized"),
                      "text/html; charset=utf-8", page.toUtf8());
 }

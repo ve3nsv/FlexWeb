@@ -83,7 +83,7 @@ int main()
     {
         LaunchConfig c;
         const QStringList args = c.toArguments(log);
-        require(args == QStringList{"--no-tui", "-l", log},
+        require(args == QStringList{"--no-tui", "-l", log, "--no-guest-view"},
                 "USB/auto with defaults adds nothing beyond --no-tui and -l");
     }
 
