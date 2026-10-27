@@ -457,14 +457,19 @@ Status: implemented for build 60.
     worked), own call highlighted when logged; past nets browser; optional
     logbook entry for a net check-in. Read-only: NetLogger has no check-in
     submission through this service.
-16. RF-KIT to AetherSDR rfkit-tune 53e95571 (user's hand-off v2,
-    2026-10-23; supersedes the first hand-off; build 62 has 94b0496).
+16. RF-KIT to AetherSDR rfkit-tune-pr 934dcd6 (2026-10-24, the user's
+    latest: one commit, same source as rfkit-tune 1199ed3; supersedes the
+    v2 hand-off 53e95571; build 62 has 94b0496). Changes from v2, which
+    win over a-h below: ATU MAN BYP / ATU BYP / ATU OFF neutral, not red
+    (only NO TUNE is red); the ATU indicator leads the ATU line; RESET
+    only while an error shows and asks for confirmation; OPERATE / TUNE /
+    RESET equal width.
     Re-port RfkitProtocol / RfkitConnection / protocol test, then:
     a. Badge wording KPA1500-style "ATU" (replaces TUNER ON / MANUAL ...):
        ATU IN (AUTO, AUTO_TUNING*; green), ATU MAN (MANUAL + CL / LC;
-       green), ATU MAN BYP (MANUAL + BYPASS; red), ATU BYP (BYPASS; red),
-       ATU OFF (OFF; red), ATU NO TUNE (AUTO or MANUAL with setup NOT TUNED;
-       red), "ATU -" neutral. BYPASS / OFF win over NOT TUNED; a tune in
+       green), ATU MAN BYP (MANUAL + BYPASS; neutral), ATU BYP (BYPASS;
+       neutral), ATU OFF (OFF; neutral), ATU NO TUNE (AUTO or MANUAL with
+       setup NOT TUNED; red), "ATU -" neutral. BYPASS / OFF win over NOT TUNED; a tune in
        progress stays ATU IN. Info line "ATU <mode> <setup> L .. C ..".
     b. TUNE allowed in AUTO and MANUAL incl. MANUAL+BYPASS and NOT TUNED;
        not in BYPASS / OFF.
@@ -472,8 +477,8 @@ Status: implemented for build 60.
        manual's tune drive range, 7.2); tooltip says 10 W or more is
        recommended below 10 W. Hint only, TUNE stays clickable.
     d. Fault banner "Error: <text>" = /data status plus the interface error
-       when different; the plain STATUS tile goes. RESET as now (red while a
-       fault shows, green when clear, one click, sent only while red).
+       when different; the plain STATUS tile goes. RESET enabled (red) only
+       while a fault shows, disabled otherwise, with a confirmation.
     e. Connection fixes: commands ahead of queued polls but in the order
        issued (two antenna clicks arrive in order); a 10 s total deadline per
        request besides the 4 s inactivity timeout; a transfer broken after
