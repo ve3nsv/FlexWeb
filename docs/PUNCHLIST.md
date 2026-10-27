@@ -719,3 +719,11 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
        when MON is off (the stream carries only zeros then); with MON on,
        open 250 ms after on-air. End the gate on unkey, on onAir false and
        on the rig's own return to RX (TX timeout).
+27. Panel buttons toggle (user, 2026-10-27; easy). The AUDIO button in the
+    TX applet (desktop layout) opens FUNC > AUDIO / TX, but clicking it
+    again does nothing - only the panel's exit button closes it. Make the
+    button a toggle: open when closed, close (back to the default view)
+    when that panel is already open; the exit button keeps working. Same
+    for the other buttons that open a panel the same way (PROC..., NNR...,
+    and the like), so every panel button behaves alike. Show the button lit
+    while its panel is open.
