@@ -571,4 +571,12 @@ Status: implemented for build 60.
       (localhost:8085/data.json) - else try the ACPI zone, else nothing.
     - macOS: SMC through IOKit on Intel; private IOHID sensors on Apple
       Silicon (fragile across OS versions). Best effort.
-    Easy on Linux, medium on Windows (with LibreHardwareMonitor).
+    The user runs HWiNFO on the server (2026-10-27): read its shared memory
+    (Global\HWiNFO_SENS_SM2, sensor readings, pick the CPU package / Tctl
+    reading). HWiNFO must be running with Settings > Shared Memory Support
+    on; the free version turns that off after 12 h, so the tooltip says
+    "HWiNFO shared memory off" rather than just dropping the reading.
+    Setup note for the help: HWiNFO Auto Start + Minimize Sensors on
+    startup + Shared Memory Support. FlexWeb does not start HWiNFO
+    (needs admin / UAC) and does not ship a sensor driver.
+    Easy on Linux, medium on Windows.
