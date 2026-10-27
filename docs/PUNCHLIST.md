@@ -557,26 +557,3 @@ Status: implemented for build 60.
     docs/architecture/*-design.md. Unit tests per protocol and a stub amp
     per type, as tests/test_rfkit.py. Order by what users own (the user
     has the RF2K-S, already done).
-21. Server CPU temperature (user, 2026-10-27), shown in item 17's chip and
-    tooltip ("CPU 12% 54°C", amber / red at the sensor's high / critical
-    marks, else 80 / 90 °C); hidden when no reading is available.
-    - Linux / Raspberry Pi: easy. /sys/class/hwmon (coretemp, k10temp,
-      cpu_thermal) or /sys/class/thermal/thermal_zone*.
-    - Windows (the user's server): no plain API gives the real CPU
-      temperature. WMI MSAcpi_ThermalZoneTemperature needs admin and on many
-      boards is missing or a fixed ACPI value; the real sensors need a
-      kernel driver, which FlexWeb should not ship. Do: read
-      LibreHardwareMonitor (or HWiNFO shared memory) when the user runs it
-      - LHM's WMI namespace root\LibreHardwareMonitor or its web server
-      (localhost:8085/data.json) - else try the ACPI zone, else nothing.
-    - macOS: SMC through IOKit on Intel; private IOHID sensors on Apple
-      Silicon (fragile across OS versions). Best effort.
-    The user runs HWiNFO on the server (2026-10-27): read its shared memory
-    (Global\HWiNFO_SENS_SM2, sensor readings, pick the CPU package / Tctl
-    reading). HWiNFO must be running with Settings > Shared Memory Support
-    on; the free version turns that off after 12 h, so the tooltip says
-    "HWiNFO shared memory off" rather than just dropping the reading.
-    Setup note for the help: HWiNFO Auto Start + Minimize Sensors on
-    startup + Shared Memory Support. FlexWeb does not start HWiNFO
-    (needs admin / UAC) and does not ship a sensor driver.
-    Easy on Linux, medium on Windows.
