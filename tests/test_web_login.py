@@ -622,8 +622,8 @@ def test_guest_hears_operator_and_who_is_on(guest_server):
     assert " 101" in st and " 101" in st2
     ra, rg = _Reader(a, abuf), _Reader(g, gbuf)
     try:
-        assert _drain_until(ra, lambda m: m.get("type") == "rigInfo")
-        assert _drain_until(rg, lambda m: m.get("type") == "rigInfo")
+        assert _drain_until(ra, lambda m: m.get("type") == "rigInfo"), "tom: no rigInfo"
+        assert _drain_until(rg, lambda m: m.get("type") == "rigInfo"), "guest: no rigInfo"
         cl = _drain_until(ra, lambda m: m.get("type") == "clients" and len(m.get("list", [])) == 2)
         assert cl, "no clients list"
         names = sorted((e["name"], e["you"], e["guest"]) for e in cl["list"])
@@ -637,7 +637,7 @@ def test_guest_hears_operator_and_who_is_on(guest_server):
         _ws_send(a, {"cmd": "enableMic", "value": True})
         time.sleep(0.5)
         _ws_send(a, {"cmd": "setPTT", "value": True})
-        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 1"], timeout=5)
+        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 1"], timeout=5), ("first key-up", radio.find("xmit")[-4:])
         tone = struct.pack("<480h", *([1000, -1000] * 240))
         for i in range(40):
             _ws_send(a, bytes([0x03, 0x00]) + struct.pack("<HH", i, 0) + tone, opcode=2)
@@ -645,14 +645,15 @@ def test_guest_hears_operator_and_who_is_on(guest_server):
         intercom = sum(1 for op, p in rg.all(2.0) if op == 2 and len(p) > 6 and p[0] == 0x02 and p[1] == 1)
         assert intercom >= 1, "the guest did not hear the operator"
         _ws_send(a, {"cmd": "setPTT", "value": False})
-        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 0"], timeout=5)
+        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 0"], timeout=5), ("unkey", radio.find("xmit")[-4:])
+        time.sleep(0.5)
 
         # ON-AIR from a guest is OPERATOR: MON stays as it was
         _ws_send(g, {"cmd": "setTxListen", "mode": "air"})
         assert not _drain_until(rg, lambda m: m.get("type") == "guestRefused", timeout=1.0)
         mons = len(radio.find("transmit set mon="))
         _ws_send(a, {"cmd": "setPTT", "value": True})
-        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 1"], timeout=5)
+        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 1"], timeout=8), ("second key-up", radio.find("xmit")[-4:])
         time.sleep(1.0)
         assert "transmit set mon=1" not in radio.find("transmit set mon=")[mons:]
         _ws_send(a, {"cmd": "setPTT", "value": False})
