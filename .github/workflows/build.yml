@@ -876,10 +876,11 @@ jobs:
     needs: [build-linux-ubuntu2404, build-linux-debian12, build-linux-debian13, build-linux-appimage, build-macos, build-windows]
     runs-on: ubuntu-24.04
     # GitHub's macOS arm64 runners are sometimes not available at all ("not
-    # acquired by Runner ... after multiple attempts" -> cancelled). Publish
-    # anyway then: every other build must have passed, and the Mac download
-    # stays on its last good version (overwrite only replaces what is given).
-    # A macOS build that ran and failed still blocks the release.
+    # acquired by Runner ... after multiple attempts"). That job then reaches
+    # this one as a failure, not as cancelled, so macOS is not required:
+    # every other build (they run the same tests) must have passed, and the
+    # Mac download stays on its last good version when there is no new one
+    # (overwrite only replaces the files given).
     if: >-
       always() &&
       (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') &&
@@ -887,8 +888,7 @@ jobs:
       needs.build-linux-debian12.result == 'success' &&
       needs.build-linux-debian13.result == 'success' &&
       needs.build-linux-appimage.result == 'success' &&
-      needs.build-windows.result == 'success' &&
-      (needs.build-macos.result == 'success' || needs.build-macos.result == 'cancelled')
+      needs.build-windows.result == 'success'
     permissions:
       contents: write
 
