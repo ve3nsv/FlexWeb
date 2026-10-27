@@ -557,27 +557,48 @@ Status: implemented for build 60.
     docs/architecture/*-design.md. Unit tests per protocol and a stub amp
     per type, as tests/test_rfkit.py. Order by what users own (the user
     has the RF2K-S, already done).
-21. Radio picker for clubs (user, 2026-10-27): one place where a user picks
-    which radio to use, from several FlexWeb servers and / or SmartLink /
-    LAN Flex radios. Today one FlexWeb process drives one radio.
-    a. Club directory (medium): a RADIOS page / menu lists radios from a
-       club list (settings file, edited by an admin): each entry is a
-       FlexWeb server URL (its own machine, its own radio) or a radio this
-       server can reach (SmartLink account list via the existing
-       --smartlink-radios path, Flex LAN discovery on UDP 4992). Live
-       status per radio from REST /api/v1/radio/info: online, frequency /
-       mode, who is signed in, who holds TX. Pick = open that server's page
-       (or switch, b).
-    b. Switch radio on one server (medium): the server drops the current
-       radio and connects to the chosen SmartLink / LAN radio; everyone on
-       that server follows it. Refused while someone is transmitting;
-       admin-only or allowed per user.
-    c. Club accounts (medium): one sign-in for all club servers (a token
-       signed by the directory server, or a shared users file), per-radio
-       permission (view only / RX / TX), and a log of who used which radio
-       when (callsign ID for the station licensee). Optional booking:
-       reserve a radio for a time slot; the holder gets TX first.
-    d. Not planned: several radios live at once in one FlexWeb process (a
-       large rewrite of the one-radio server); run one FlexWeb per radio
-       instead (the Windows launcher could start several).
-    Works with item 2 (guest view-only) and the TX lock.
+21. Radio picker with hand-off for clubs (user, 2026-10-27; replaces the
+    first draft; medium-hard). A RADIOS page on the club ("hub") FlexWeb
+    lists every radio the club can use; picking one hands the user to the
+    FlexWeb that should run it.
+    a. Who runs a radio:
+       - The radio already has a FlexWeb running at its site (registered
+         with the hub, see b): hand off - open that server's page (same
+         sign-in, see d). The hub never connects to that radio itself.
+       - No FlexWeb at the radio and the hub can reach it (Flex over
+         SmartLink or LAN, Icom LAN rigs over the network): the hub connects
+         and runs it. The hub is then busy: every other radio that would
+         need the hub shows "Hub busy - in use on <radio> by <user>" until
+         the hub releases it (last user leaves + idle timeout, or the
+         operator presses RELEASE; never while transmitting).
+       - USB / serial radios (FT-991A, Icom USB, Kenwood ...) can only be
+         run by a FlexWeb on the computer they are plugged into; listed when
+         that server is registered, else not at all.
+    b. Finding radios:
+       - FlexWeb servers register with the hub (hub URL + club key in their
+         settings): heartbeat every 30 s with server URL, radio model,
+         serial / name, frequency, mode, signed-in users, TX holder,
+         capabilities. Missing 3 heartbeats = offline.
+       - Flex radios the hub can reach: SmartLink account list
+         (--smartlink-radios path) and LAN discovery (UDP 4992). Matched to
+         registered servers by radio serial; SmartLink's client list
+         (gui_client_programs) also shows "FlexWeb" when one is connected.
+       - Icom LAN rigs: entered by the admin (address, port, user).
+    c. The page: one card per radio, Flex and non-Flex alike - model, name /
+       callsign of the station, location, online / offline, frequency and
+       mode, users and who has TX, "runs on <its server>" or "hub can run
+       it". Capability badges from items 3, 4-6 and 19: CAT, SCOPE (built-in
+       panadapter) or SDR SCOPE (RTL / Airspy / SDRplay / Kiwi feeding the
+       panadapter), AMP, TX allowed for you. Buttons: OPEN (hand off), RUN
+       HERE (hub hosts it; greyed when the hub is busy), VIEW (guest, item 2).
+    d. Accounts across servers: sign in once on the hub; the hand-off passes
+       a short-lived token signed with the club key, which the radio's
+       server exchanges for its own session. Per-radio permission (view /
+       RX / TX) set on the hub; each radio's own server can still refuse.
+       Usage log on the hub: who used which radio, when, TX time (for the
+       station licensee).
+    e. Later, optional: the hub starts a separate FlexWeb process per radio
+       it runs (own port), so it is not limited to one; booking of time
+       slots.
+    Depends on 19 (CAT / panadapter for all radios) for the non-Flex cards
+    to be useful, and on 2 (guest view-only).
