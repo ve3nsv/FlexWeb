@@ -440,6 +440,9 @@ int main(int argc, char *argv[])
         "                          requests need HTTP Basic auth\n"
         "  --rfkit <host[:port]>   RF-KIT (RF2K-S) amplifier on the LAN (REST API, port\n"
         "                          8080 if omitted); shown under FUNC > AMP\n"
+        "  --guest-view            Add a \"View only (no password)\" button to the login\n"
+        "                          page: guests see and hear everything but cannot\n"
+        "                          change or key the radio (also [Web] GuestView=true)\n"
         "  --remote-log-decodes    Also forward FT8/FT4 decodes to the remote logger\n"
         "  -l --logfile <file>     Log file\n"
         "  -b --background         Run as daemon (not Windows)\n"
@@ -711,6 +714,7 @@ int main(int argc, char *argv[])
             if (argc > c + 1) overrides.rfkit = argv[++c];
             else { std::cout << "Error: --rfkit requires host[:port]\n"; return -1; }
         }
+        else if (currentArg == "--guest-view") overrides.guestView = true;
         else if (currentArg == "--no-remote-log") overrides.noRemoteLog = true;
         else if (currentArg == "--remote-log-decodes") overrides.remoteLogDecodes = true;
         else if (currentArg == "--lan-control")

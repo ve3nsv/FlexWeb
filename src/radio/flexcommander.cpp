@@ -1611,29 +1611,13 @@ void flexCommander::handleMeters(const QByteArray& d, const vitaPacket& p)
         }
     }
 
-    // Meter packets come at up to ~20 Hz per meter, each carrying only some
-    // meters; the page wants ~10 Hz. The first reading after a quiet spell
-    // goes at once, later ones within 100 ms are held and the latest is sent
-    // when the window ends. (A plain "drop inside 100 ms" lost the S-meter
-    // whenever a packet of other meters had just opened the window, so the
-    // meter stalled for several updates at a time.)
+    // Each reading goes on at once, as AetherSDR's MeterModel does: the page
+    // animates the face itself and delays it with the scope (scope sync), so
+    // holding readings here only added lag (up to 100 ms, punch list 18).
     meterSDirty = meterSDirty || sChanged;
     meterTxDirty = meterTxDirty || txChanged;
-    if (meterFlushTimer == nullptr) {
-        meterFlushTimer = new QTimer(this);
-        meterFlushTimer->setSingleShot(true);
-        meterFlushTimer->setInterval(100);
-        connect(meterFlushTimer, &QTimer::timeout, this, [this]() {
-            if (meterSDirty || meterTxDirty) {
-                flushMeters();
-                meterFlushTimer->start();   // keep the 100 ms spacing
-            }
-        });
-    }
-    if (!meterFlushTimer->isActive()) {
+    if (meterSDirty || meterTxDirty)
         flushMeters();
-        meterFlushTimer->start();
-    }
 }
 
 void flexCommander::flushMeters()

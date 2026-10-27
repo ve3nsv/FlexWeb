@@ -19,6 +19,21 @@
 export const FREQ_SYNC = 1200, FREQ_BLACK = 1500, FREQ_WHITE = 2300, FREQ_LEADER = 1900;
 const FREQ_BIT1 = 1100, FREQ_BIT0 = 1300;
 
+// FSK ID after the picture, as MMSSTV / QSSTV / PySSTV (add_fskid_text):
+// 6-bit characters (ASCII - 0x20), least significant bit first, 22 ms per
+// bit, 1900 Hz = 1, 2100 Hz = 0, framed 0x20 0x2A <text> 0x01.
+export const FSKID_BIT1 = 1900, FSKID_BIT0 = 2100, FSKID_BIT_MS = 22;
+export function fskIdCodes(text) {
+    const t = String(text || '').toUpperCase().replace(/[^A-Z0-9/ -]/g, '').trim().slice(0, 16);
+    return t ? [0x20, 0x2a, ...Array.from(t, c => c.charCodeAt(0) - 0x20), 0x01] : [];
+}
+function fskIdTones(text) {
+    const seq = [];
+    for (const code of fskIdCodes(text))
+        for (let b = 0; b < 6; b++) seq.push([(code >> b) & 1 ? FSKID_BIT1 : FSKID_BIT0, FSKID_BIT_MS]);
+    return seq;
+}
+
 // One scan line as tone items: {f, ms} plain tone (f may be [even, odd]
 // for Robot 36's separator), {sync: ms}, {ch, ms} pixels of one channel.
 function martin(scan) {
@@ -88,8 +103,9 @@ function yuvToRgb(y, u, v) {
 // Encoder
 // ---------------------------------------------------------------------
 // rgba: Uint8(Clamped)Array of mode.w x mode.h pixels. Returns Float32Array
-// audio at fs, amplitude `amp`, continuous phase throughout.
-export function sstvEncode(modeId, rgba, fs = 12000, amp = 0.8) {
+// audio at fs, amplitude `amp`, continuous phase throughout. opts.fskId: a
+// callsign sent as FSK ID after the picture.
+export function sstvEncode(modeId, rgba, fs = 12000, amp = 0.8, opts = {}) {
     const m = sstvMode(modeId);
     if (!m) throw new Error('SSTV: unknown mode ' + modeId);
     const W = m.w, H = m.h;
@@ -126,6 +142,7 @@ export function sstvEncode(modeId, rgba, fs = 12000, amp = 0.8) {
             } else seq.push([Array.isArray(it.f) ? it.f[line % 2] : it.f, it.ms]);
         }
     }
+    if (opts.fskId) seq.push(...fskIdTones(opts.fskId));
     let total = 0;
     for (const s of seq) total += s[1];
     const out = new Float32Array(Math.ceil(total * fs / 1000) + 1);
@@ -181,6 +198,7 @@ export class SstvDecoder {
         this.nextVisCheck = 0;
         this.nextChainCheck = 0;
         this.lastPicEnd = -1e12;
+        this.fsk = null;                             // FSK ID search after a picture
     }
     setMode(id) { this.modeSel = id || 'auto'; }
     reset() { this.pic = null; this.base += this.len; this.len = 0; }
@@ -266,6 +284,7 @@ export class SstvDecoder {
 
     _work() {
         if (this.pic) this._decodePic();
+        if (this.fsk && !this.pic) this._findFsk();
         // look for a VIS every 10 ms of audio, however large the pushes are
         const step = Math.round(this.R * 0.01);
         if (this.nextVisCheck < this.end - 20 * step) this.nextVisCheck = this.end - 20 * step;
@@ -529,10 +548,76 @@ export class SstvDecoder {
         }
     }
 
+    // ---- FSK ID: look for the 0x20 0x2A frame in the few seconds after a
+    // picture, then read characters to 0x01.
+    _fskBit(t, bitN) {
+        const f = this._mean(t + 0.15 * bitN, t + 0.85 * bitN) - this.off;
+        if (f !== f || f < 1750 || f > 2250 || Math.abs(f - 2000) < 30) return -1;
+        return f < 2000 ? 1 : 0;
+    }
+    _fskCode(t, bitN) {
+        let c = 0;
+        for (let b = 0; b < 6; b++) {
+            const v = this._fskBit(t + b * bitN, bitN);
+            if (v < 0) return -1;
+            c |= v << b;
+        }
+        return c;
+    }
+    _findFsk() {
+        const F = this.fsk, bitN = FSKID_BIT_MS * this.R / 1000, chN = 6 * bitN;
+        if (this.end > F.until && F.at === undefined) { this.fsk = null; return; }
+        if (F.at === undefined) {
+            const step = Math.max(1, Math.round(this.R / 500));
+            for (; F.next + 2 * chN + 2 < this.end; F.next += step) {
+                if (this._fskCode(F.next, bitN) === 0x20 && this._fskCode(F.next + chN, bitN) === 0x2a) {
+                    F.at = F.next + 2 * chN;
+                    break;
+                }
+            }
+            if (F.at === undefined) return;
+        }
+        // characters, up to 16, until 0x01
+        let text = '';
+        for (let i = 0; i < 17; i++) {
+            const t = F.at + i * chN;
+            if (t + chN + 2 >= this.end) {
+                if (this.end > F.until + 3 * this.R) this.fsk = null;
+                return;   // wait for more audio
+            }
+            const c = this._fskCode(t, bitN);
+            if (c === 0x01) break;
+            const ch = c >= 0 ? String.fromCharCode(c + 0x20) : '';
+            if (!/^[A-Z0-9/ -]$/.test(ch) || i === 16) { this.fsk = null; return; }
+            text += ch;
+        }
+        this.fsk = null;
+        text = text.trim();
+        if (text.length >= 3) this.onEvent({ type: 'fskid', text });
+    }
+
+    // Lines after the last sync pulse found are not picture: the sender
+    // stopped or faded, or the FSK ID / next transmission followed. Leave
+    // them black instead of painting noise.
+    _blankTail(P) {
+        const m = P.m;
+        if (!P.syncs.length) return;
+        let kLast = -1;
+        for (const [k] of P.syncs) if (k > kLast) kLast = k;
+        const keep = kLast + 1;
+        if (P.done - keep < 2) return;
+        const row0 = m.color === 'pd' ? 2 * keep : keep;
+        for (let i = row0 * m.w * 4; i < P.rgba.length; i += 4) { P.rgba[i] = P.rgba[i + 1] = P.rgba[i + 2] = 0; }
+        P.done = keep;
+    }
+
     _finish(why) {
         const P = this.pic;
         if (!P) return;
         this.pic = null;
+        this._blankTail(P);
+        // an FSK ID may follow the picture
+        this.fsk = { next: Math.max(this.base, this.end - Math.round(this.R * 0.5)), until: this.end + Math.round(this.R * 4) };
         this.lastPicEnd = this.end;
         this.onEvent({ type: 'done', why, mode: P.m.id, name: P.m.name, w: P.m.w, h: P.m.h, rgba: P.rgba,
                        line: P.done, lines: P.m.lines, late: P.late, offset: this.off,

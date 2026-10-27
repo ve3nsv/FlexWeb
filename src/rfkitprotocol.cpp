@@ -1,6 +1,6 @@
 // Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
-// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
-// 94b0496), GPLv3. "Constitution principle" references are AetherSDR's
+// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune-pr,
+// 934dcd6), GPLv3. "Constitution principle" references are AetherSDR's
 // project rules.
 
 #include "rfkitprotocol.h"
@@ -95,8 +95,8 @@ std::optional<FloatValue> parseFloatValue(const QJsonValue& v)
     return out;
 }
 
-// max_value is the device's own full-scale; absent or unusable means 0, which
-// the applet reads as "not reported" and falls back to a default scale.
+// max_value is the device's reported limit (not a meter range); absent or
+// unusable means 0, "not reported". The applet uses fixed scales and ignores it.
 std::optional<IntWithMax> parseIntWithMax(const QJsonValue& v)
 {
     if (!v.isObject()) {
@@ -444,9 +444,12 @@ TunerPill tunerPill(const Tuner& tuner)
 {
     switch (tuner.mode) {
     case TunerMode::Auto:
-    case TunerMode::AutoTuning: return TunerPill::On;
+        return tuner.setup == TunerSetup::NotTuned ? TunerPill::NotTuned : TunerPill::On;
+    case TunerMode::AutoTuning: return TunerPill::On;  // working on it
     case TunerMode::Manual:
-        return tuner.setup == TunerSetup::Bypass ? TunerPill::ManualBypass : TunerPill::Manual;
+        return tuner.setup == TunerSetup::Bypass    ? TunerPill::ManualBypass
+               : tuner.setup == TunerSetup::NotTuned ? TunerPill::NotTuned
+                                                     : TunerPill::Manual;
     case TunerMode::Bypass:     return TunerPill::Bypass;
     case TunerMode::Off:        return TunerPill::Off;
     case TunerMode::Unknown:    break;
@@ -457,14 +460,15 @@ TunerPill tunerPill(const Tuner& tuner)
 QString tunerPillLabel(TunerPill pill)
 {
     switch (pill) {
-    case TunerPill::On:           return QStringLiteral("TUNER ON");
-    case TunerPill::Manual:       return QStringLiteral("TUNER MANUAL");
-    case TunerPill::ManualBypass: return QStringLiteral("TUNER MANUAL BYPASS");
-    case TunerPill::Bypass:       return QStringLiteral("TUNER BYPASS");
-    case TunerPill::Off:          return QStringLiteral("TUNER OFF");
+    case TunerPill::On:           return QStringLiteral("ATU IN");
+    case TunerPill::Manual:       return QStringLiteral("ATU MAN");
+    case TunerPill::ManualBypass: return QStringLiteral("ATU MAN BYP");
+    case TunerPill::Bypass:       return QStringLiteral("ATU BYP");
+    case TunerPill::Off:          return QStringLiteral("ATU OFF");
+    case TunerPill::NotTuned:     return QStringLiteral("ATU NO TUNE");
     case TunerPill::Unknown:      break;
     }
-    return QStringLiteral("TUNER —");
+    return QStringLiteral("ATU —");
 }
 
 bool tunerPillInUse(TunerPill pill)
@@ -472,9 +476,27 @@ bool tunerPillInUse(TunerPill pill)
     return pill == TunerPill::On || pill == TunerPill::Manual;
 }
 
+bool tunerPillIsAlert(TunerPill pill)
+{
+    return pill == TunerPill::NotTuned;
+}
+
 bool tuneAllowed(const Tuner& tuner)
 {
     return tuner.mode == TunerMode::Auto || tuner.mode == TunerMode::Manual;
+}
+
+TuneDrive tuneDrive(const Power& power)
+{
+    const QString unit = power.forward.unit.trimmed();
+    if (!unit.isEmpty() && unit.compare(QLatin1String("W"), Qt::CaseInsensitive) != 0) {
+        return TuneDrive::Unknown;
+    }
+    const int watts = power.forward.value;
+    if (watts < kTuneMinWatts || watts > kTuneMaxWatts) {
+        return TuneDrive::Outside;
+    }
+    return watts < kTuneRecommendedWatts ? TuneDrive::Low : TuneDrive::Good;
 }
 
 // ── Presentation helpers ─────────────────────────────────────────────────

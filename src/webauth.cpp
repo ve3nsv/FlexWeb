@@ -172,6 +172,8 @@ QString webAuth::sessionUser(const QString& token)
     const QStringList v = s->value(tokenKey(token)).toString().split('|');
     if (v.size() < 2 || v[1].toLongLong() < QDateTime::currentSecsSinceEpoch())
         return QString();
+    if (v[0] == QLatin1String(kGuest))
+        return v[0];
     if (!s->contains("users/" + v[0]))
         return QString();
     return v[0];

@@ -282,6 +282,12 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 63 (2026-10-27, "quick wins"): items 1, 2, 9, 10, 11, 12, 13, 14,
+16, 17 and 18 are done. Still open: 3, 4, 5, 6, 7, 8, 15, 19, 20, 21.
+Not done from those items: 17's per-feature CPU shares (NNR, Opus) and the
+terminal status page; 18c (the optional FFT S-meter) - only if 18b is not
+enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
+
 1. TUNE PWR slider in the TX applet (user, 2026-10-22): today it is only in
    the PROC... overlay (renderProcOverlay opt('TUNE PWR', 'tunePower')). Add a
    "TUNE" gain row under PWR / MIC / LVL / MON in #aeTxRows (0-100 %,

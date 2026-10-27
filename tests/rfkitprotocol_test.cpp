@@ -1,5 +1,5 @@
 // Ported unchanged (apart from includes) from VE3NSV's RF-KIT support for
-// AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune, 94b0496), GPLv3.
+// AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune-pr, 934dcd6), GPLv3.
 // "Constitution principle" references are AetherSDR's project rules.
 
 // Pure-codec tests for the RF-KIT REST/JSON protocol layer.
@@ -149,30 +149,47 @@ int main()
     // The four states a real RF2K-S gave for the header pill, plus OFF.
     {
         const auto pillOf = [](const char* json) { return tunerPill(*parseTuner(json)); };
-        report("AUTO reads as TUNER ON",
+        report("AUTO reads as ATU IN",
                pillOf(R"({"mode": "AUTO", "setup": "CL", "L": {"value": 755, "unit": "nH"}, "C": {"value": 439, "unit": "pF"}})")
                    == TunerPill::On);
-        report("MANUAL with a CL network reads as TUNER MANUAL",
+        report("MANUAL with a CL network reads as ATU MAN",
                pillOf(R"({"mode": "MANUAL", "setup": "CL", "L": {"value": 0, "unit": "nH"}, "C": {"value": 0, "unit": "pF"}})")
                    == TunerPill::Manual);
-        report("MANUAL with the BYPASS setup reads as TUNER MANUAL BYPASS",
+        report("MANUAL with the BYPASS setup reads as ATU MAN BYP",
                pillOf(R"({"mode": "MANUAL", "setup": "BYPASS", "tuned_frequency": {"value": 7188, "unit": "kHz"}})")
                    == TunerPill::ManualBypass);
-        report("mode BYPASS (nothing else sent) reads as TUNER BYPASS",
+        report("mode BYPASS (nothing else sent) reads as ATU BYP",
                pillOf(R"({"mode": "BYPASS"})") == TunerPill::Bypass);
-        report("mode OFF reads as TUNER OFF", pillOf(R"({"mode": "OFF"})") == TunerPill::Off);
-        report("a tune in progress still reads as TUNER ON",
+        report("mode OFF reads as ATU OFF", pillOf(R"({"mode": "OFF"})") == TunerPill::Off);
+        report("a tune in progress still reads as ATU IN",
                pillOf(R"({"mode": "AUTO_TUNING_FROM_AUTO", "setup": "CL"})") == TunerPill::On);
+        report("AUTO with setup NOT TUNED reads as ATU NO TUNE (transmission is blocked)",
+               pillOf(R"({"mode": "AUTO", "setup": "NOT TUNED"})") == TunerPill::NotTuned);
+        report("MANUAL with setup NOT TUNED also reads as ATU NO TUNE",
+               pillOf(R"({"mode": "MANUAL", "setup": "NOT TUNED"})") == TunerPill::NotTuned);
+        report("a tune in progress from an untuned state reads as ATU IN, not NO TUNE",
+               pillOf(R"({"mode": "AUTO_TUNING_FROM_AUTO", "setup": "NOT TUNED"})") == TunerPill::On);
+        report("BYPASS and OFF win over a NOT TUNED setup",
+               pillOf(R"({"mode": "BYPASS", "setup": "NOT TUNED"})") == TunerPill::Bypass
+                   && pillOf(R"({"mode": "OFF", "setup": "NOT TUNED"})") == TunerPill::Off);
+        report("ATU NO TUNE is red and still allows a tune",
+               tunerPillLabel(TunerPill::NotTuned) == "ATU NO TUNE" && !tunerPillInUse(TunerPill::NotTuned)
+                   && tunerPillIsAlert(TunerPill::NotTuned)
+                   && tuneAllowed(*parseTuner(R"({"mode": "AUTO", "setup": "NOT TUNED"})")));
         report("an unknown mode gives the neutral pill", pillOf(R"({"mode": "WARP"})") == TunerPill::Unknown);
-        report("pill labels are the amplifier's own wording",
-               tunerPillLabel(TunerPill::On) == "TUNER ON" && tunerPillLabel(TunerPill::Manual) == "TUNER MANUAL"
-                   && tunerPillLabel(TunerPill::ManualBypass) == "TUNER MANUAL BYPASS"
-                   && tunerPillLabel(TunerPill::Bypass) == "TUNER BYPASS"
-                   && tunerPillLabel(TunerPill::Off) == "TUNER OFF");
+        report("pill labels use the KPA1500's ATU wording",
+               tunerPillLabel(TunerPill::On) == "ATU IN" && tunerPillLabel(TunerPill::Manual) == "ATU MAN"
+                   && tunerPillLabel(TunerPill::ManualBypass) == "ATU MAN BYP"
+                   && tunerPillLabel(TunerPill::Bypass) == "ATU BYP"
+                   && tunerPillLabel(TunerPill::Off) == "ATU OFF");
         report("green only when the tuner is in use (On, Manual)",
                tunerPillInUse(TunerPill::On) && tunerPillInUse(TunerPill::Manual)
                    && !tunerPillInUse(TunerPill::ManualBypass) && !tunerPillInUse(TunerPill::Bypass)
                    && !tunerPillInUse(TunerPill::Off) && !tunerPillInUse(TunerPill::Unknown));
+        report("only NO TUNE is an alert; BYP, MAN BYP, OFF and the in-use states are not",
+               !tunerPillIsAlert(TunerPill::On) && !tunerPillIsAlert(TunerPill::Manual)
+                   && !tunerPillIsAlert(TunerPill::ManualBypass) && !tunerPillIsAlert(TunerPill::Bypass)
+                   && !tunerPillIsAlert(TunerPill::Off) && !tunerPillIsAlert(TunerPill::Unknown));
         report("a tune is allowed in manual bypass but not in BYPASS or OFF",
                tuneAllowed(*parseTuner(R"({"mode": "MANUAL", "setup": "BYPASS"})"))
                    && !tuneAllowed(*parseTuner(R"({"mode": "BYPASS"})"))
@@ -204,6 +221,25 @@ int main()
                tuneAllowed(mk(TunerMode::Auto)) && tuneAllowed(mk(TunerMode::Manual))
                    && !tuneAllowed(mk(TunerMode::Off)) && !tuneAllowed(mk(TunerMode::Bypass))
                    && !tuneAllowed(mk(TunerMode::AutoTuning)) && !tuneAllowed(mk(TunerMode::Unknown)));
+    }
+
+    // ── Tune drive window (manual section 7.2: 4 to 39 W, 10 W recommended) ─
+    {
+        const auto driveAt = [](int watts, const char* unit = "W") {
+            Power p;
+            p.forward.value = watts;
+            p.forward.unit = QString::fromLatin1(unit);
+            return tuneDrive(p);
+        };
+        report("3 W is outside the tuning range", driveAt(3) == TuneDrive::Outside);
+        report("4 W is the bottom of the range, flagged low", driveAt(4) == TuneDrive::Low);
+        report("9 W is in range but under the recommended 10 W", driveAt(9) == TuneDrive::Low);
+        report("10 W is recommended", driveAt(10) == TuneDrive::Good);
+        report("39 W is the top of the range", driveAt(39) == TuneDrive::Good);
+        report("40 W is outside the tuning range", driveAt(40) == TuneDrive::Outside);
+        report("an idle amplifier (0 W) is outside the range", driveAt(0) == TuneDrive::Outside);
+        report("an unexpected unit gives no verdict", driveAt(13, "kW") == TuneDrive::Unknown);
+        report("an unset unit is read as watts", driveAt(13, "") == TuneDrive::Good);
     }
 
     // ── /operate-mode ─────────────────────────────────────────────────────

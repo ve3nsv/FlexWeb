@@ -1,4 +1,5 @@
 #include "webserver.h"
+#include "serverload.h"
 #include "rfkitconnection.h"
 #include "freedvprocessor.h"
 #include <QtMath>
@@ -499,6 +500,16 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
     connect(statusTimer, &QTimer::timeout, this, &webServer::sendPeriodicStatus);
     statusTimer->start(200);
 
+    // Server CPU / memory for the page's CPU chip (punch list 17), every 2 s
+    // while a browser is connected.
+    serverLoadTimer = new QTimer(this);
+    connect(serverLoadTimer, &QTimer::timeout, this, [this]() {
+        const QJsonObject o = serverLoad.sample();
+        if (!wsClients.isEmpty())
+            sendJsonToAll(o);
+    });
+    serverLoadTimer->start(2000);
+
     // Fingerprint the embedded SPA so an already-open tab can detect a
     // server upgrade.  The SPA's WebSocket auto-reconnects across server
     // restarts, so without this a tab keeps running pre-upgrade JS forever
@@ -807,7 +818,15 @@ void webServer::onHttpReadyRead()
             sendRedirect(socket, loginOn ? "/login" : "/", webAuth::clearCookieHeader());
             return;
         }
-        if (loginOn && requestUser(socket, headerSection).isEmpty()) {
+        const QString reqUser = loginOn ? requestUser(socket, headerSection) : QString();
+        if (reqUser == QLatin1String(webAuth::kGuest) && method != "GET") {
+            // View only: the page and its files, never a change through /api/.
+            QJsonObject err;
+            err["error"] = "view only";
+            sendRestResponse(socket, 403, err);
+            return;
+        }
+        if (loginOn && reqUser.isEmpty()) {
             if (path.startsWith("/api/")) {
                 QJsonObject err;
                 err["error"] = "login required";
@@ -1806,6 +1825,8 @@ void webServer::onWsNewConnection()
     if (webAuth::hasUsers()) {
         const QByteArray cookie = pSocket->request().rawHeader("Cookie");
         user = webAuth::sessionUser(webAuth::cookieToken("Cookie: " + cookie));
+        if (user == QLatin1String(webAuth::kGuest) && !guestView_)
+            user.clear();
         if (user.isEmpty()) {
             qWarning() << "Web: refused a browser without a valid login from" << pSocket->peerAddress().toString();
             pSocket->close(QWebSocketProtocol::CloseCodePolicyViolated, "login required");
@@ -1915,6 +1936,9 @@ void webServer::onWsDisconnected()
 void webServer::onWsBinaryMessage(QByteArray message)
 {
     if (message.size() < 6) return;
+    // A guest sends nothing that reaches the radio or the other browsers
+    // (mic, intercom talk, packet / digital TX audio).
+    if (isGuest(qobject_cast<QWebSocket *>(sender()))) return;
 
     quint8 msgType = static_cast<quint8>(message[0]);
 
@@ -2170,6 +2194,14 @@ static bool labelIsRigCapture(const QString &label, const QString &rigName)
 void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
 {
     QString type = cmd["cmd"].toString();
+
+    if (isGuest(client) && !guestAllowed(type)) {
+        QJsonObject r;
+        r["type"] = "guestRefused";
+        r["cmd"] = type;
+        sendJsonTo(client, r);
+        return;
+    }
 
     if (type == "qsoLogged") {
         QsoRecord r = QsoRecord::fromJson(cmd["qso"].toObject());
@@ -3808,6 +3840,11 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         // in view sends none).
         applyStationCallsign(cmd["callsign"].toString(), cmd["grid"].toString(), true);
     }
+    else if (type == "setSstvSettings") {
+        // SSTV band list and / or picture templates, edited in a browser:
+        // persisted and pushed to every browser.
+        applySstvSettings(cmd, "browser");
+    }
     else if (type == "setCWMacros") {
         // A browser edited a CW macro: the whole set comes back and
         // replaces the server's (persisted, pushed to every browser).
@@ -3868,6 +3905,8 @@ QJsonObject webServer::buildInfoJson() const
     info["stationCallsign"] = reporterCallsign;
     info["stationGrid"] = reporterGrid;
     info["cwMacros"] = cwMacrosJson();
+    info["sstvFreqs"] = sstvFreqs_;
+    info["sstvTemplates"] = sstvTemplates_;
     info["version"] = QString(FLEXWEB_VERSION);
     info["baseVersion"] = QString(WFWEB_VERSION);
     // Instance tag from --name; empty means "show the rig model".
@@ -4035,7 +4074,8 @@ void webServer::sendCurrentState(QWebSocket *client)
     info["logbookCount"] = logbook_.count();
     info["logbookPersistent"] = logbookPersistent_;
     // Web login: who this browser is signed in as ("" when login is off).
-    info["webUser"] = wsUser.value(client);
+    info["webUser"] = isGuest(client) ? QStringLiteral("guest") : wsUser.value(client);
+    info["guest"] = isGuest(client);
     info["webLogin"] = webAuth::hasUsers();
     info["txOpus"] = true;      // accepts 0x09 Opus voice frames (onWsBinaryMessage)
     // The browser adopts these on connect instead of pushing its own copy.
@@ -4825,9 +4865,15 @@ void webServer::sendPeriodicStatus()
     QJsonObject status;
     status["type"] = "meters";
 
-    cacheItem smeter = queue->getCache(funcSMeter, 0);
-    if (smeter.value.isValid()) {
-        status["sMeter"] = smeter.value.toDouble();
+    // A Flex pushes every S-meter reading as it arrives (the 'update'
+    // message). Re-sending the cached one here put an older reading between
+    // the live ones and made the meter stutter (punch list 18); polled rigs
+    // still get theirs from this tick.
+    if (!(rigCaps && rigCaps->manufacturer == manufFlexRadio)) {
+        cacheItem smeter = queue->getCache(funcSMeter, 0);
+        if (smeter.value.isValid()) {
+            status["sMeter"] = smeter.value.toDouble();
+        }
     }
 
     cacheItem power = queue->getCache(funcPowerMeter, 0);
@@ -7142,6 +7188,47 @@ void webServer::applyCwMacros(const QJsonObject &macros, const char *who)
     sendJsonToAll(QJsonObject{{"type", "cwMacrosChanged"}, {"macros", cwMacrosJson()}});
 }
 
+// SSTV calling frequencies and picture templates. The panel defines and
+// checks their contents; the server keeps them as JSON arrays, bounded in
+// size, so every browser shows the same list.
+static const int kSstvSettingMaxBytes = 32768;
+
+static QJsonArray sstvArrayFromSetting(const QVariant &v)
+{
+    const QByteArray raw = v.toString().toUtf8();
+    if (raw.isEmpty() || raw.size() > kSstvSettingMaxBytes) return QJsonArray();
+    const QJsonDocument d = QJsonDocument::fromJson(raw);
+    return d.isArray() ? d.array() : QJsonArray();
+}
+
+void webServer::loadSstvSettings()
+{
+    auto settings = openSettings();
+    sstvFreqs_ = sstvArrayFromSetting(settings->value("SSTV/Frequencies"));
+    sstvTemplates_ = sstvArrayFromSetting(settings->value("SSTV/Templates"));
+}
+
+void webServer::applySstvSettings(const QJsonObject &in, const char *who)
+{
+    auto settings = openSettings();
+    bool changed = false;
+    const auto take = [&](const char *key, const char *settingKey, QJsonArray &cur) {
+        if (!in.contains(QLatin1String(key)) || !in.value(QLatin1String(key)).isArray()) return;
+        const QJsonArray next = in.value(QLatin1String(key)).toArray();
+        const QByteArray raw = QJsonDocument(next).toJson(QJsonDocument::Compact);
+        if (raw.size() > kSstvSettingMaxBytes || next == cur) return;
+        cur = next;
+        if (next.isEmpty()) settings->remove(QLatin1String(settingKey));
+        else settings->setValue(QLatin1String(settingKey), QString::fromUtf8(raw));
+        changed = true;
+    };
+    take("freqs", "SSTV/Frequencies", sstvFreqs_);
+    take("templates", "SSTV/Templates", sstvTemplates_);
+    if (!changed) return;
+    qInfo().noquote() << "SSTV settings saved, from" << who;
+    sendJsonToAll(QJsonObject{{"type", "sstvSettings"}, {"freqs", sstvFreqs_}, {"templates", sstvTemplates_}});
+}
+
 void webServer::configureLogbook(const QString &logbookOverride,
                                  const QString &remoteLogOverride,
                                  bool noRemoteLog, bool remoteLogDecodes)
@@ -7154,6 +7241,7 @@ void webServer::configureLogbook(const QString &logbookOverride,
                          settings->value("Station/Grid").toString(), false);
     reporterMessage = settings->value("Station/ReporterMessage").toString().left(80);
     loadCwMacros();
+    loadSstvSettings();
 
     // --logbook wins over Logbook= in the settings file.  A relative path in
     // a named profile resolves next to that profile, so contest.conf can
@@ -7449,6 +7537,11 @@ void webServer::configureRfkit(const QString &target)
             o["temp"] = double(Rfkit::temperatureCelsius(p.temperature));
             o["volts"] = double(p.voltage.value);
             o["amps"] = double(p.current.value);
+            // TUNE drive hint (RF2K-S manual 7.2: 4-39 W, 10 W or more
+            // recommended): "outside" / "low" / "good" / "unknown".
+            const Rfkit::TuneDrive d = Rfkit::tuneDrive(p);
+            o["tuneDrive"] = d == Rfkit::TuneDrive::Good ? "good" : d == Rfkit::TuneDrive::Low ? "low"
+                           : d == Rfkit::TuneDrive::Outside ? "outside" : "unknown";
         }
         if (st.data) {
             o["band"] = Rfkit::formatBand(st.data->band);
@@ -7456,11 +7549,13 @@ void webServer::configureRfkit(const QString &target)
             o["status"] = st.data->status;
         }
         if (st.tuner) {
-            // The header badge (AetherSDR's TunerPill): TUNER ON / MANUAL in
-            // use (green), MANUAL BYPASS / BYPASS / OFF (red).
+            // The ATU badge (AetherSDR's TunerPill, KPA1500 wording): ATU IN /
+            // ATU MAN in use (green), ATU NO TUNE (red: the amp blocks TX),
+            // ATU MAN BYP / BYP / OFF neutral (the operator's own setting).
             const Rfkit::TunerPill pill = Rfkit::tunerPill(*st.tuner);
             o["tunerPill"] = Rfkit::tunerPillLabel(pill);
             o["tunerInUse"] = Rfkit::tunerPillInUse(pill);
+            o["tunerAlert"] = Rfkit::tunerPillIsAlert(pill);
             o["tunerKnown"] = pill != Rfkit::TunerPill::Unknown;
             o["tuneAllowed"] = Rfkit::tuneAllowed(*st.tuner);
             o["tuner"] = Rfkit::tunerModeLabel(st.tuner->mode);
@@ -8974,6 +9069,7 @@ QString webServer::clientLabel(QWebSocket *c) const
 {
     if (!c) return QString();
     const QString user = wsUser.value(c);
+    if (user == QLatin1String(webAuth::kGuest)) return QStringLiteral("guest");
     if (!user.isEmpty()) return user;
     QString addr = c->peerAddress().toString();
     if (addr.startsWith("::ffff:")) addr = addr.mid(7);
@@ -9075,12 +9171,42 @@ void webServer::setRestLan(bool lan)
     restLan = lan;
 }
 
+void webServer::setGuestView(bool on)
+{
+    guestView_ = on;
+    if (on) {
+        qInfo() << "Web: guest view-only is on (the login page offers \"View only\")";
+    } else {
+        // Turned off: guest sessions end, open guest browsers are closed.
+        webAuth::endUserSessions(QLatin1String(webAuth::kGuest));
+        const QList<QWebSocket *> clients = wsClients;
+        for (QWebSocket *c : clients)
+            if (isGuest(c))
+                c->close(QWebSocketProtocol::CloseCodePolicyViolated, "guest view is off");
+    }
+}
+
+// What a guest may send: receive audio for itself, read-only requests. Every
+// other command changes the radio, the amplifier, the station or the log.
+bool webServer::guestAllowed(const QString &cmd)
+{
+    static const QSet<QString> ok = {
+        QStringLiteral("enableAudio"), QStringLiteral("setAudioCodec"), QStringLiteral("getStatus"),
+        QStringLiteral("timePing"), QStringLiteral("aprsRequestSnapshot"), QStringLiteral("termList"),
+        QStringLiteral("termHistory"), QStringLiteral("getMemories"),
+    };
+    return ok.contains(cmd);
+}
+
 // ─── Web login ─────────────────────────────────────────────────────────────
 
 QString webServer::requestUser(QTcpSocket *socket, const QByteArray &headers)
 {
     Q_UNUSED(socket)
-    return webAuth::sessionUser(webAuth::cookieToken(headers));
+    const QString user = webAuth::sessionUser(webAuth::cookieToken(headers));
+    if (user == QLatin1String(webAuth::kGuest) && !guestView_)
+        return QString();
+    return user;
 }
 
 bool webServer::restAuthorized(QTcpSocket *socket, const QByteArray &headers)
@@ -9152,6 +9278,10 @@ input:focus{outline:2px solid #00b4d8;outline-offset:1px}
 button{margin-top:18px;width:100%;padding:11px;border:0;border-radius:4px;background:#00b4d8;color:#041019;
  font-weight:700;font-size:15px;cursor:pointer}
 .err{margin-top:14px;padding:8px 10px;border-radius:4px;background:#3a1418;color:#ffb4b4;font-size:13px}
+body{flex-direction:column;gap:12px}
+form.guest{padding:14px 24px}
+form.guest button{margin-top:0;background:#1d2b3a;color:#c8d8e8;border:1px solid #304050}
+form.guest p.sub{margin:8px 0 0;text-align:center}
 </style></head><body>
 <form method="post" action="/login" autocomplete="on">
 <h1>%1</h1><p class="sub">Sign in to use the radio</p>
@@ -9159,10 +9289,15 @@ button{margin-top:18px;width:100%;padding:11px;border:0;border-radius:4px;backgr
 <label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required>
 <label class="row"><input type="checkbox" name="remember" value="1" checked> Keep me signed in on this device</label>
 <button type="submit">Sign in</button>%2
-</form></body></html>
+</form>%3</body></html>
 )HTML");
     const QString err = error.isEmpty() ? QString() : QString("<div class=\"err\" role=\"alert\">%1</div>").arg(error.toHtmlEscaped());
-    page = page.arg(title.toHtmlEscaped(), err);
+    // Guest view-only (setGuestView): a second form, no password.
+    const QString guest = !guestView_ ? QString() : QStringLiteral(
+        "<form method=\"post\" action=\"/login\" class=\"guest\"><input type=\"hidden\" name=\"guest\" value=\"1\">"
+        "<button type=\"submit\">View only (no password)</button>"
+        "<p class=\"sub\">See and hear the radio; nothing can be changed or transmitted.</p></form>");
+    page = page.arg(title.toHtmlEscaped(), err, guest);
     sendHttpResponse(socket, status, status == 200 ? "OK" : (status == 429 ? "Too Many Requests" : "Unauthorized"),
                      "text/html; charset=utf-8", page.toUtf8());
 }
@@ -9178,6 +9313,17 @@ void webServer::handleLogin(QTcpSocket *socket, const QByteArray &body)
     if (auth.lockedOut(address, &left)) {
         serveLoginPage(socket, 429, QString("Too many wrong passwords from this address. Try again in %1 min.")
                                         .arg((left + 59) / 60));
+        return;
+    }
+    if (form.queryItemValue("guest") == "1") {
+        if (!guestView_) {
+            serveLoginPage(socket, 401, "View only is not available on this server.");
+            return;
+        }
+        qInfo().noquote() << "Web: guest (view only) from" << address;
+        QByteArray cookie = webAuth::setCookieHeader(webAuth::createSession(QLatin1String(webAuth::kGuest), false), false);
+        if (!sslEnabled) cookie.replace("; Secure", "");
+        sendRedirect(socket, "/", cookie);
         return;
     }
     // PBKDF2 off the web thread: audio keeps flowing to the other browsers.

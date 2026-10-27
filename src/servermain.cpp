@@ -113,6 +113,10 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
         }
         QMetaObject::invokeMethod(web, "setRestLan", Qt::QueuedConnection,
                                   Q_ARG(bool, cliOverrides.restLan));
+        // Guest view-only login: --guest-view, else [Web] GuestView=true.
+        QMetaObject::invokeMethod(web, "setGuestView", Qt::QueuedConnection,
+                                  Q_ARG(bool, cliOverrides.guestView
+                                              || (settings && settings->value("Web/GuestView", false).toBool())));
         QMetaObject::invokeMethod(web, "configureLogbook", Qt::QueuedConnection,
                                   Q_ARG(QString, cliOverrides.logbook),
                                   Q_ARG(QString, cliOverrides.remoteLogTarget),

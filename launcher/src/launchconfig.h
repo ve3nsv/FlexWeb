@@ -46,6 +46,7 @@ struct LaunchConfig {
     QString ampHost;             // --rfkit host[:port]; empty = no amplifier
     int onDemandSeconds = 0;     // --on-demand N; 0 = stay connected
     bool restLan = false;        // --rest
+    bool guestView = false;      // --guest-view: "View only" on the login page
 
     bool isNetwork() const { return transport != Usb; }
 

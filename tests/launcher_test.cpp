@@ -68,6 +68,7 @@ int main()
         require(valueOf(args, "--smartlink") == "1234-5678", "--smartlink carries the radio");
         require(valueOf(args, "--flex-audio") == "none", "--flex-audio when not auto");
         require(indexOfFlag(args, "--rest") >= 0, "--rest when asked");
+        require(indexOfFlag(args, "--guest-view") < 0, "no --guest-view unless asked");
         require(indexOfFlag(args, "--lan") < 0, "no --lan for SmartLink");
         require(indexOfFlag(args, "--manufacturer") < 0, "--smartlink implies the Flex");
     }

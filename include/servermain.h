@@ -82,6 +82,7 @@ struct cmdLineOverrides {
     bool noRemoteLog = false;
     bool remoteLogDecodes = false;
     QString rfkit;             // --rfkit host[:port]: RF-KIT (RF2K-S) amplifier
+    bool guestView = false;    // --guest-view: "View only" button on the login page
 };
 
 class servermain : public QObject

@@ -114,6 +114,35 @@ html, body {
     overflow: hidden; text-overflow: ellipsis;
 }
 #rigTag:empty { display: none; }
+/* Server CPU (punch list 17): the whole machine's load, amber above 70 %,
+   red above 90 %; tap for FlexWeb's own share, cores and memory. */
+/* Guest view-only: radio controls greyed (the server refuses them anyway);
+   this browser's own volume / mute stay live. */
+body.guest-view input[type=range]:not(.rx-vol-slider) { opacity: 0.4; pointer-events: none; }
+body.guest-view .gain-row:not(.rx-vol-row) .gain-bar-fill { opacity: 0.4; }
+#userBtn.guest::after { content: ' \00b7  VIEW ONLY'; color: #e0a020; }
+#guestNotice {
+    position: fixed; left: 50%; top: 52px; transform: translateX(-50%); z-index: 500;
+    padding: 7px 14px; border-radius: 5px; background: #2b2110; color: #ffd27a;
+    border: 1px solid #8a6a20; font: bold 13px var(--font-ui, system-ui, sans-serif);
+    opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+#guestNotice.show { opacity: 1; }
+#cpuChip {
+    font-family: var(--font-mono); font-size: 11px; font-weight: bold;
+    padding: 1px 6px; border-radius: 3px; white-space: nowrap; cursor: pointer;
+    color: var(--text-faint, #8aa); border: 1px solid var(--border-col, #234);
+}
+body.ae-phone #cpuChip .cpu-lbl { display: none; }
+#cpuChip.warn { color: #1a1200; background: #e0a020; border-color: #e0a020; }
+#cpuChip.hot { color: #fff; background: #c62828; border-color: #e53935; }
+#cpuPop {
+    position: fixed; z-index: 400; min-width: 210px; padding: 8px 10px;
+    background: #0f1822; color: #c9d6e2; border: 1px solid #2a3c4e; border-radius: 6px;
+    font: 12px var(--font-mono, monospace); line-height: 1.6; box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+#cpuPop.hidden { display: none; }
+#cpuPop b { color: #e6f3ff; font-weight: bold; }
 .qso-log-btn {
     padding: 2px 8px;
     background: #00161a;
@@ -2137,6 +2166,7 @@ body.digi-open #bottomBar { grid-row: 5; }
 .amp-ctl.op-standby { background: #8a5c00; border-color: #f5b400; color: #fff; }
 .amp-ctl.amp-tune-btn { background: #101820; color: #5c7086; border-color: #22303e; }
 .amp-ctl.amp-tune-btn.ready { background: #0d4f8a; border-color: #3aa0ff; color: #fff; }
+.amp-ctl.amp-tune-btn.drive-ok { box-shadow: 0 0 0 2px #3aa0ff; }
 .amp-ctl.amp-tune-btn.tuning { background: #8a5c00; border-color: #f5b400; color: #fff; animation: aeTunerBlink 0.8s ease-in-out infinite; }
 .amp-ctl.reset-clear { background: #143d22; border-color: #2a7a45; color: #9fe3b4; }
 .amp-ctl.reset-fault { background: #8c1f1f; border-color: #e53935; color: #fff; }
@@ -2301,6 +2331,7 @@ body.digi-open #bottomBar { grid-row: 5; }
        tighter gap + padding keep the whole bar inside the viewport. */
     #topBar { gap: 4px; }
     #rigTag { display: none; }   /* no room at 360px; the tab title still carries it */
+    #cpuChip { padding: 1px 3px; }
     #modeBtn { padding: 3px 5px; font-size: 11px; letter-spacing: 0; white-space: nowrap; }
     /* QSO log: the 10-column grid is ~500px wide. On a phone drop Band
        and both RST columns (band is implied by freq) and let Call flex. */
@@ -2446,6 +2477,7 @@ try {
         <span id="filterText" onclick="openFilterModal()">FIL1</span>
         <span id="dspIndicators"></span>
         <span class="flex-space"></span>
+        <span id="cpuChip" hidden role="button" tabindex="0" onclick="toggleCpuPop()">CPU --</span>
         <span id="rigTag" title="Rig"></span>
         <button id="recBtn" class="rec-btn" title="Record">REC</button>
         <button id="qsoLogBtn" class="qso-log-btn" title="Log QSO">LOG</button>
@@ -2915,6 +2947,14 @@ try {
                 <div class="gain-bar-bg"><div class="gain-bar-fill" id="rfPowerFill" style="width:50%"></div>
                     <input type="range" id="rfPowerSlider" min="0" max="255" value="128"></div>
                 <span class="gain-val" id="rfPowerVal">50%</span>
+            </div>
+            <!-- TUNE carrier power (Flex tunePower, punch list 1); shown once
+                 the radio has reported it (syncTunePwrRow). -->
+            <div class="gain-row tx" id="tunePwrRow" style="display:none" title="Power of the TUNE carrier, kept in the radio">
+                <span class="gain-label">TUNE</span>
+                <div class="gain-bar-bg"><div class="gain-bar-fill" id="tunePwrFill" style="width:10%"></div>
+                    <input type="range" id="tunePwrSlider" min="0" max="100" value="10"></div>
+                <span class="gain-val" id="tunePwrVal">10%</span>
             </div>
             <div class="gain-row tx">
                 <span class="gain-label" id="micGainLabel">USB MIC</span>
@@ -3664,6 +3704,35 @@ function setWebUser(name) {
     b.textContent = webUser;
     b.classList.remove('confirm');
 }
+// Guest view-only (rigInfo.guest, punch list 2): the server refuses every
+// command that would change the radio ('guestRefused'); the page says so,
+// greys the controls and resyncs whatever it changed locally.
+var guestView = false;
+function setGuestView(on) {
+    guestView = !!on;
+    document.body.classList.toggle('guest-view', guestView);
+    var b = document.getElementById('userBtn');
+    if (b && guestView) { b.title = 'View only. Tap to sign out'; b.classList.add('guest'); }
+}
+var guestNoticeTimer = null, guestResyncTimer = null;
+function guestNotice() {
+    var n = document.getElementById('guestNotice');
+    if (!n) {
+        n = document.createElement('div');
+        n.id = 'guestNotice';
+        n.setAttribute('role', 'status');
+        n.textContent = 'View only - sign in to change or key the radio';
+        document.body.appendChild(n);
+    }
+    n.classList.add('show');
+    clearTimeout(guestNoticeTimer);
+    guestNoticeTimer = setTimeout(function () { n.classList.remove('show'); }, 2200);
+    // Whatever the page changed locally (frequency, mode, sliders) comes back
+    // from the server.
+    clearTimeout(guestResyncTimer);
+    guestResyncTimer = setTimeout(function () { send({ cmd: 'getStatus' }); }, 300);
+}
+
 function userBtnClick() {
     var b = document.getElementById('userBtn');
     if (b.classList.contains('confirm')) {
@@ -3698,7 +3767,20 @@ function scheduleReconnect() {
     }
 }
 
+// What a guest may send: the server's webServer::guestAllowed list.
+var GUEST_CMDS = { enableAudio: 1, setAudioCodec: 1, getStatus: 1, timePing: 1,
+    aprsRequestSnapshot: 1, termList: 1, termHistory: 1, getMemories: 1 };
+var lastUserGestureMs = 0;
+['pointerdown', 'keydown', 'wheel'].forEach(function (ev) {
+    window.addEventListener(ev, function () { lastUserGestureMs = performance.now(); }, true);
+});
 function send(obj) {
+    if (guestView && obj && !GUEST_CMDS[obj.cmd]) {
+        // Not sent: the server would refuse it. Say so only when the user
+        // did something (not for the page's own background messages).
+        if (performance.now() - lastUserGestureMs < 1500) guestNotice();
+        return;
+    }
     if (obj && obj.cmd === 'setPTT') micTxWanted = !!obj.value;
     if (wsTransport) wsTransport.sendCommand(obj);
 }
@@ -3745,6 +3827,7 @@ function handleMessage(msg) {
             break;
         case 'flexDsp':
             flexDsp = msg;
+            syncTunePwrRow();
             updatePreampAttIndicator();
             if (isFlexRig) updateRfGainIndicator(0);
             flexFmSync(msg);
@@ -3755,12 +3838,19 @@ function handleMessage(msg) {
             if (document.getElementById('flexAntOverlay').classList.contains('visible')) renderFlexAntOverlay();
             if (currentPanel === 'func') renderFuncOverlay();
             break;
+        case 'serverLoad':
+            serverLoad = msg;
+            renderCpuChip();
+            break;
         case 'amp':
             ampState = msg;
             ampTunePending = false;
             renderAmpIndicator();
             if (document.getElementById('ampOverlay').classList.contains('visible')) renderAmpOverlay();
             if (currentPanel === 'func') renderFuncOverlay();
+            break;
+        case 'guestRefused':
+            if (performance.now() - lastUserGestureMs < 1500) guestNotice();
             break;
         case 'ampRefused':
             ampRefusedReason = msg.reason || '';
@@ -3786,6 +3876,7 @@ function handleMessage(msg) {
             break;
         case 'rigInfo':
             if (msg.webUser !== undefined) setWebUser(msg.webUser);
+            if (msg.guest !== undefined) setGuestView(msg.guest);
             if (msg.webLogin !== undefined) webLoginOn = !!msg.webLogin;
             if (msg.txOpus !== undefined) serverTxOpus = !!msg.txOpus;
             if (msg.reporterMessage !== undefined) setReporterMessageField(msg.reporterMessage);
@@ -3814,6 +3905,11 @@ function handleMessage(msg) {
                 if (msg.stationGrid) adoptStationGrid(msg.stationGrid);
             }
             if (msg.cwMacros !== undefined) adoptCWMacros(msg.cwMacros, true);
+            if (msg.sstvFreqs !== undefined) {
+                // SSTV band list + templates live on the server (sstv-panel.mjs)
+                window.sstvServerSettings = { freqs: msg.sstvFreqs || [], templates: msg.sstvTemplates || [] };
+                if (typeof window.sstvApplySettings === 'function') window.sstvApplySettings(window.sstvServerSettings);
+            }
             if (msg.remoteLogTarget !== undefined) {
                 remoteLogStatus = { enabled: !!msg.remoteLogEnabled, target: msg.remoteLogTarget || '', decodes: !!msg.remoteLogDecodes };
                 updateRemoteLogStatus();
@@ -4079,6 +4175,10 @@ function handleMessage(msg) {
             // Another browser (or a script) changed the station callsign/grid.
             window.App.callsign.adopt(msg.callsign || '');
             if (msg.grid) adoptStationGrid(msg.grid);
+            break;
+        case 'sstvSettings':
+            window.sstvServerSettings = { freqs: msg.freqs || [], templates: msg.templates || [] };
+            if (typeof window.sstvApplySettings === 'function') window.sstvApplySettings(window.sstvServerSettings);
             break;
         case 'cwMacrosChanged':
             // A browser (or a script) edited the CW macros.
@@ -4817,7 +4917,9 @@ function modeCleanCheck() {
     if (!p) return;
     // Sideband: data modes stay on USB; FreeDV follows the band.
     // SSTV, like FreeDV, is LSB below 10 MHz (3.845, 7.171) and USB above.
-    var want = p === 'digi' ? 'USB' : (p === 'fdv' || p === 'sstv') ? freedvSideband() : null;
+    // An SSTV frequency entry may name its own sideband (sstv-panel.mjs).
+    var sstvSb = (p === 'sstv' && typeof window.sstvSidebandFor === 'function') ? window.sstvSidebandFor(currentFreq) : '';
+    var want = p === 'digi' ? 'USB' : sstvSb ? sstvSb : (p === 'fdv' || p === 'sstv') ? freedvSideband() : null;
     if (want && currentMode !== want && /^(USB|LSB|DIGU|DIGL|USB-D|LSB-D|AM|FM|NFM|CW|CW-R|RTTY|RTTY-R|SAM|DFM)$/.test(currentMode)) {
         if (modeCleanLastSide === want + currentMode) return;   // one request per change; the reply settles it
         modeCleanLastSide = want + currentMode;
@@ -5067,9 +5169,7 @@ var METER_RED  = '#ff4d4d';     // segments above S9
 var METER_SCALE_RED = '#ff6a6a';// +20/+40/+60dB scale text and ticks
 var METER_DARK = '#1a2330';     // inactive segment
 var METER_BASELINE = '#506070'; // thin line under segments
-var METER_PEAK_HOLD_MS = 800;   // IC-7300 style peak-hold segment
-var meterPeakCount = 0;         // held peak fill level (in segments)
-var meterPeakTs = 0;
+var METER_PEAK_HOLD_MS = 800;   // TX bars: IC-7300 style peak-hold segment
 var txPoPeakCount = 0;          // TX Po bar peak hold
 var txPoPeakTs = 0;
 var txAuxPeakCount = 0;         // TX bottom-bar peak hold
@@ -5091,7 +5191,38 @@ var ALC_MAX_GAIN = 0.5;
 var ALC_SMOOTHED = 0;          // EMA-filtered ALC reading
 var ALC_EMA_ALPHA = 0.15;      // EMA smoothing factor (lower = smoother)
 
-function updateSMeter(val) { meterVal = val; if (!isTransmitting) drawMeter(); }
+// The bar face moves like AetherSDR's S-meter (SMeterWidget): each reading
+// is a target, the shown level follows it every frame - fast up (45 ms),
+// slower down (180 ms) - and the peak tile falls 0.5 dB per 50 ms and is
+// reset to the level every 10 s. The needle face has its own ballistics
+// (needle-meter.js) and takes meterVal directly.
+var METER_ATTACK_S = 0.045, METER_RELEASE_S = 0.180;
+var METER_PEAK_FALL_DB_S = 10, METER_PEAK_RESET_MS = 10000;
+var meterShown = -54, meterPeakDb = -54, meterPeakResetTs = 0;
+var meterAnimRaf = 0, meterAnimTs = 0;
+function updateSMeter(val) {
+    meterVal = val;
+    if (isTransmitting) return;
+    if (needleActive()) { drawMeter(); return; }
+    if (!meterAnimRaf) {
+        meterAnimTs = performance.now();
+        meterAnimRaf = requestAnimationFrame(meterAnimStep);
+    }
+}
+function meterAnimStep(now) {
+    meterAnimRaf = 0;
+    var dt = Math.max(0, Math.min(1, (now - meterAnimTs) / 1000));
+    meterAnimTs = now;
+    var d = meterVal - meterShown;
+    meterShown += d * (1 - Math.exp(-dt / (d >= 0 ? METER_ATTACK_S : METER_RELEASE_S)));
+    if (Math.abs(meterVal - meterShown) < 0.05) meterShown = meterVal;
+    if (now - meterPeakResetTs > METER_PEAK_RESET_MS) { meterPeakDb = meterShown; meterPeakResetTs = now; }
+    meterPeakDb = Math.max(meterShown, meterPeakDb - METER_PEAK_FALL_DB_S * dt);
+    if (isTransmitting || needleActive()) return;
+    drawMeter();
+    if (meterShown !== meterVal || meterPeakDb > meterShown)
+        meterAnimRaf = requestAnimationFrame(meterAnimStep);
+}
 // Every S-meter reading goes through scope sync, so it lines up with the
 // spectrum and the audio. The 'update' push (each new reading, ~10 Hz on a
 // Flex) used to bypass it while the periodic 'meters' message was delayed,
@@ -5362,6 +5493,31 @@ function dspSlider(input, onValue) {
     input.addEventListener('pointercancel', done);
     input.addEventListener('input', function () { onValue(parseInt(input.value, 10), false); });
     input.addEventListener('change', function () { done(); onValue(parseInt(input.value, 10), true); });
+}
+
+// TUNE row in the TX gain rows (sidebar / GAIN panel): the radio's TUNE
+// carrier power, the PROC overlay's TUNE PWR.
+var tunePwrWired = false;
+function syncTunePwrRow() {
+    var row = document.getElementById('tunePwrRow');
+    if (!row) return;
+    var known = !!flexDsp && flexDsp.tunePower !== undefined;
+    row.style.display = known ? '' : 'none';
+    if (!known) return;
+    var slider = document.getElementById('tunePwrSlider');
+    var show = function (v) {
+        document.getElementById('tunePwrFill').style.width = v + '%';
+        document.getElementById('tunePwrVal').textContent = v + '%';
+    };
+    if (!tunePwrWired) {
+        tunePwrWired = true;
+        dspSlider(slider, function (v, final) {
+            show(v);
+            if (flexDsp) flexDsp.tunePower = v;
+            sendFlexDsp('tunePower', 0, v, final);
+        });
+    }
+    if (!dspDragging(slider)) { slider.value = flexDsp.tunePower; show(flexDsp.tunePower); }
 }
 
 function dspBackButton() {
@@ -5849,6 +6005,67 @@ function updateALCMeter(val) {
     }
 }
 
+// ---- Server CPU chip (punch list 17) -------------------------------------
+// The server sends {type:'serverLoad'} every 2 s: sysPct (whole machine),
+// procPct / procCorePct (FlexWeb, of the machine / of one core), cores,
+// memory in MB, uptime.
+var serverLoad = null;
+var cpuChipOn = true;
+try { cpuChipOn = localStorage.getItem('wfCpuChip') !== 'off'; } catch (e) {}
+function fmtUptime(sec) {
+    var d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+    return (d ? d + 'd ' : '') + (d || h ? h + 'h ' : '') + m + 'm';
+}
+function cpuDetailsHtml(l) {
+    function pct(v) { return (v === undefined) ? '-' : (Math.round(v) + ' %'); }
+    var rows = [
+        ['Whole machine', pct(l.sysPct)],
+        ['FlexWeb', pct(l.procPct) + (l.procCorePct !== undefined ? ' (' + Math.round(l.procCorePct) + ' % of one core)' : '')],
+        ['Cores', l.cores || '-']
+    ];
+    if (l.memTotalMb) rows.push(['Memory', (l.memUsedMb !== undefined ? (l.memUsedMb / 1024).toFixed(1) + ' / ' : '') + (l.memTotalMb / 1024).toFixed(1) + ' GB']);
+    if (l.procMemMb !== undefined) rows.push(['FlexWeb memory', l.procMemMb + ' MB']);
+    if (l.uptimeS !== undefined) rows.push(['FlexWeb up', fmtUptime(l.uptimeS)]);
+    return '<b>Server CPU</b><br>' + rows.map(function (r) { return r[0] + ': <b>' + r[1] + '</b>'; }).join('<br>');
+}
+function renderCpuChip() {
+    var el = document.getElementById('cpuChip');
+    if (!el) return;
+    var l = serverLoad;
+    var show = cpuChipOn && l && l.sysPct !== undefined;
+    el.hidden = !show;
+    if (!show) { closeCpuPop(); return; }
+    el.innerHTML = '<span class="cpu-lbl">CPU </span>' + Math.round(l.sysPct) + '%';
+    el.classList.toggle('warn', l.sysPct > 70 && l.sysPct <= 90);
+    el.classList.toggle('hot', l.sysPct > 90);
+    el.title = cpuDetailsHtml(l).replace(/<br>/g, '\n').replace(/<[^>]+>/g, '');
+    var pop = document.getElementById('cpuPop');
+    if (pop && !pop.classList.contains('hidden')) pop.innerHTML = cpuDetailsHtml(l);
+}
+function toggleCpuPop() {
+    var pop = document.getElementById('cpuPop');
+    if (pop && !pop.classList.contains('hidden')) { closeCpuPop(); return; }
+    if (!serverLoad) return;
+    if (!pop) {
+        pop = document.createElement('div');
+        pop.id = 'cpuPop';
+        pop.onclick = closeCpuPop;
+        document.body.appendChild(pop);
+    }
+    pop.innerHTML = cpuDetailsHtml(serverLoad);
+    pop.classList.remove('hidden');
+    var r = document.getElementById('cpuChip').getBoundingClientRect();
+    pop.style.top = Math.round(r.bottom + 4) + 'px';
+    pop.style.left = Math.max(4, Math.min(window.innerWidth - pop.offsetWidth - 4, Math.round(r.left))) + 'px';
+}
+function closeCpuPop() {
+    var pop = document.getElementById('cpuPop');
+    if (pop) pop.classList.add('hidden');
+}
+document.addEventListener('click', function (e) {
+    if (e.target && e.target.id !== 'cpuChip' && !(e.target.closest && e.target.closest('#cpuPop'))) closeCpuPop();
+});
+
 function drawMeter() {
     var canvas = document.getElementById('meterCanvas');
     if (needleActive()) {
@@ -5961,17 +6178,14 @@ function drawSMeter(ctx, cw, ch, barX, barW) {
     }
 
     // --- Fill level: the tile aligned with the current reading is the last lit ---
-    var idx = (meterVal <= 0)
-        ? Math.round((meterVal + 54) / 54 * s9tile)
-        : s9tile + Math.round(Math.min(60, meterVal) / 60 * s9tile);
-    var fillCount = Math.max(0, Math.min(tiles, idx + 1));
-
-    // IC-7300 style peak hold: the highest segment lingers briefly
-    var now = performance.now();
-    if (fillCount >= meterPeakCount || now - meterPeakTs > METER_PEAK_HOLD_MS) {
-        meterPeakCount = fillCount;
-        meterPeakTs = now;
+    // meterShown / meterPeakDb are animated by meterAnimStep
+    function tilesFor(v) {
+        var idx = (v <= 0) ? Math.round((v + 54) / 54 * s9tile)
+                           : s9tile + Math.round(Math.min(60, v) / 60 * s9tile);
+        return Math.max(0, Math.min(tiles, idx + 1));
     }
+    var fillCount = tilesFor(meterShown);
+    var meterPeakCount = Math.max(fillCount, tilesFor(meterPeakDb));
 
     // --- Tile bar (the S9 boundary tile itself is blue) ---
     for (var i = 0; i < tiles; i++) {
@@ -6672,14 +6886,6 @@ function renderApplets() {
         ah.appendChild(nm);
         var right = document.createElement('span');
         right.className = 'ae-amp-head';
-        var ts = ampTunerState(a);
-        if (up) {
-            var chip = document.createElement('span');
-            chip.className = 'ae-tuner-chip' + (ts.cls ? ' ' + ts.cls : '');
-            chip.textContent = ts.text;
-            chip.title = ts.title;
-            right.appendChild(chip);
-        }
         var st = document.createElement('span');
         st.className = 'ae-tuner-chip ' + (up ? 'on' : 'off');
         st.textContent = up ? 'CONNECTED' : 'OFFLINE';
@@ -6689,7 +6895,8 @@ function renderApplets() {
         amp.appendChild(ah);
         if (up && a.ampError) {
             var eb = document.createElement('div'); eb.className = 'amp-error-banner';
-            eb.textContent = 'ERROR: ' + a.ampError;
+            eb.textContent = 'Error: ' + a.ampError;
+            eb.title = AMP_ERROR_HELP;
             amp.appendChild(eb);
         }
         var body = document.createElement('button');
@@ -6730,12 +6937,17 @@ function renderApplets() {
             c.appendChild(b); tiles.appendChild(c);
         });
         body.appendChild(tiles);
-        // Tuner status (read-only): mode, network, stored L/C, tuned frequency.
+        // Tuner line (read-only), led by the ATU indicator as in the AetherSDR
+        // applet: indicator, network, stored L/C, tuned frequency.
         if (up && a.tuner) {
             var tn = document.createElement('span'); tn.className = 'ae-amp-tuner';
-            var tuning = a.tuner === 'TUNING';
-            var parts = [['TUNER', a.tuner, tuning ? 'ae-warn' : ''],
-                         ['NET', a.tunerSetup || '—', ''],
+            var ts = ampTunerState(a);
+            var pill = document.createElement('span');
+            pill.className = 'ae-tuner-chip' + (ts.cls ? ' ' + ts.cls : '');
+            pill.textContent = ts.text;
+            pill.title = ts.title;
+            tn.appendChild(pill);
+            var parts = [['NET', a.tunerSetup || '—', ''],
                          ['L', a.tunerL || '—', ''],
                          ['C', a.tunerC || '—', ''],
                          ['@', a.tunerFreq || '—', '']];
@@ -7122,6 +7334,16 @@ function renderFuncOverlay() {
         renderFuncOverlay();
     }));
 
+    // Server CPU chip in the top bar
+    var cpuBtn = makeFuncBtn('CPU', cpuChipOn ? 'SHOW' : 'HIDE', cpuChipOn, function() {
+        cpuChipOn = !cpuChipOn;
+        try { localStorage.setItem('wfCpuChip', cpuChipOn ? 'on' : 'off'); } catch (e) {}
+        renderCpuChip();
+        renderFuncOverlay();
+    });
+    cpuBtn.title = 'Show the server computer\'s CPU load in the top bar';
+    grid.appendChild(cpuBtn);
+
     // RX audio / TX audio / jitter buffer: the AUDIO / TX overlay, which is
     // otherwise only reachable while audio is off.
     if (audioAvailable || txAudioAvailable) {
@@ -7194,6 +7416,7 @@ function ampTile(label, value, bad) {
 // users the amp is read-only. Returns '' when allowed, else the reason.
 var ampTunePending = false, ampRefusedReason = '';
 function ampLockReason() {
+    if (guestView) return 'View only';
     if (!webLoginOn) return 'Read-only: create a web user to control the amp';
     if (!webUser) return 'Sign in to control the amp';
     if (txOtherBy) return 'TX: ' + txOtherBy + ' has the radio';
@@ -7222,13 +7445,18 @@ function ampTuneButton(a, lock) {
     var b = document.createElement('button');
     b.type = 'button';
     var ready = !lock && !!a.tuneAllowed && !tuning && !ampTunePending;
-    b.className = 'amp-ctl amp-tune-btn' + (tuning ? ' tuning' : ready ? ' ready' : '');
+    // Drive hint (RF2K-S manual 7.2): outlined blue while the forward power
+    // is in the 4-39 W tune range. A hint only; the amplifier decides.
+    var drive = a.tuneDrive === 'good' || a.tuneDrive === 'low';
+    b.className = 'amp-ctl amp-tune-btn' + (tuning ? ' tuning' : ready ? ' ready' : '') + (drive && !tuning ? ' drive-ok' : '');
     b.textContent = tuning ? 'TUNING' : 'TUNE';
     b.disabled = !ready;
     b.title = lock ? lock
             : tuning ? 'The amplifier is tuning'
             : !a.tuneAllowed ? 'Tune needs the tuner in AUTO or MANUAL (not OFF or BYPASS)'
-            : !isTransmitting ? 'Key TUNE first: the amplifier tunes on a carrier'
+            : !isTransmitting ? 'Key TUNE first: the amplifier tunes on a carrier of 4-39 W (10 W or more recommended)'
+            : a.tuneDrive === 'low' ? 'Start the amplifier\'s autotune. Drive is in range; 10 W or more gives a more precise tune'
+            : a.tuneDrive === 'outside' ? 'Start the amplifier\'s autotune. The amplifier tunes only with 4-39 W of drive'
             : 'Start the amplifier\'s autotune';
     b.onclick = function (e) {
         e.stopPropagation();
@@ -7246,21 +7474,38 @@ function ampControlRows(a, lock) {
     var box = document.createElement('div'); box.className = 'amp-ctl-rows';
     var r1 = document.createElement('div'); r1.className = 'amp-ctl-row';
     var op = document.createElement('button'); op.type = 'button';
-    op.className = 'amp-ctl ' + (up ? (a.operate ? 'op-on' : 'op-standby') : '');
-    op.textContent = up ? (a.operate ? 'OPERATE' : 'STANDBY') : 'OPERATE';
-    op.disabled = !up || !!lock;
-    op.title = lock || (up ? (a.operate ? 'In OPERATE: tap for STANDBY' : 'In STANDBY: tap for OPERATE') : 'Amplifier offline');
+    // Unknown ("\u2014", disabled) until /operate-mode has answered. The amp
+    // can drop to STANDBY by itself (its sleep timer, or a fault).
+    var opKnown = up && a.operate !== undefined;
+    op.className = 'amp-ctl ' + (opKnown ? (a.operate ? 'op-on' : 'op-standby') : '');
+    op.textContent = opKnown ? (a.operate ? 'OPERATE' : 'STANDBY') : '\u2014';
+    op.disabled = !opKnown || !!lock;
+    op.title = lock || (!up ? 'Amplifier offline' : !opKnown ? 'Amplifier state unknown'
+             : a.operate ? 'In OPERATE: tap for STANDBY' : 'In STANDBY: tap for OPERATE');
     op.onclick = function (e) { e.stopPropagation(); send({ cmd: 'ampOperate', value: !(ampState && ampState.operate) }); };
     r1.appendChild(op);
     var tb = ampTuneButton(a, lock);
     if (tb) r1.appendChild(tb);
     var fault = up && a.ampError ? String(a.ampError) : '';
     var rs = document.createElement('button'); rs.type = 'button';
-    rs.className = 'amp-ctl ' + (up ? (fault ? 'reset-fault' : 'reset-clear') : '');
-    rs.textContent = 'RESET';
+    // Enabled (red) only while the amp reports an error; asks once more
+    // before sending (a second tap within 3 s), as the AetherSDR applet does.
+    rs.className = 'amp-ctl ' + (up && fault ? 'reset-fault' : '');
+    var confirming = ampResetConfirmUntil > Date.now() && fault;
+    rs.textContent = confirming ? 'CONFIRM?' : 'RESET';
     rs.disabled = !up || !fault || !!lock;
-    rs.title = lock || (fault ? 'Reset the amplifier\'s error (' + fault + '); it returns in STANDBY' : 'No error to reset');
-    rs.onclick = function (e) { e.stopPropagation(); send({ cmd: 'ampErrorReset' }); };
+    rs.title = lock || (fault ? 'Reset the amplifier\'s error (' + fault + '). It comes back in STANDBY.' : 'No error to reset');
+    rs.onclick = function (e) {
+        e.stopPropagation();
+        if (ampResetConfirmUntil > Date.now()) {
+            ampResetConfirmUntil = 0;
+            send({ cmd: 'ampErrorReset' });
+        } else {
+            ampResetConfirmUntil = Date.now() + 3000;
+            setTimeout(function () { ampResetConfirmUntil = 0; ampRerender(); }, 3100);
+        }
+        ampRerender();
+    };
     r1.appendChild(rs);
     box.appendChild(r1);
     var r2 = document.createElement('div'); r2.className = 'amp-ctl-row';
@@ -7276,12 +7521,13 @@ function ampControlRows(a, lock) {
             var btn = document.createElement('button'); btn.type = 'button';
             var active = !!(info && info.state === 'active');
             btn.className = 'amp-ctl amp-ant' + (active ? ' ant-active' : '');
-            btn.textContent = ext ? 'EXT' : String(num);
+            btn.textContent = ext ? (info && info.label ? info.label : 'EXT') : String(num);
             // EXT is shown, never switched (the API cannot say whether an
             // external switch exists); internal antennas only after the amp
             // lists them, and only an available one.
             btn.disabled = ext || !up || !info || info.state === 'disabled' || active || !!lock;
-            btn.title = ext ? 'External antenna (indicator)' : 'ANT ' + num + (info ? ' (' + info.state + ')' : '');
+            btn.title = ext ? 'External antenna (indicator)'
+                      : 'ANT ' + num + (info ? ' (' + info.state + ')' : ' (not enabled on this band)');
             btn.onclick = function (e) { e.stopPropagation(); send({ cmd: 'ampAntenna', value: num }); };
             r2.appendChild(btn);
         })(n, info);
@@ -7299,12 +7545,25 @@ function ampControlRows(a, lock) {
 // OFF (red) when the amplifier reports it bypassed or off. Read-only: the
 // amplifier's API has no tuner control.
 function ampTunerState(a) {
-    // AetherSDR's tuner pill (rfkitprotocol tunerPill): green while the tuner
-    // is in the signal path (TUNER ON / MANUAL), red when bypassed or off.
+    // AetherSDR's ATU indicator (rfkitprotocol tunerPill, KPA1500 wording):
+    // green while the tuner is in the path and usable (ATU IN / ATU MAN), red
+    // only for ATU NO TUNE (the amp blocks TX), neutral for the operator's
+    // own BYP / MAN BYP / OFF.
     if (!a || !a.connected || !a.tunerKnown)
-        return { text: 'TUNER \u2014', cls: '', on: false, title: 'Tuner state unknown' };
-    return { text: a.tunerPill, cls: a.tunerInUse ? 'on' : 'off', on: !!a.tunerInUse,
-             title: (a.tunerInUse ? 'Tuner in the signal path' : 'Tuner not in the signal path') + ' (status)' };
+        return { text: 'ATU \u2014', cls: '', on: false, title: 'Tuner state unknown' };
+    var title = a.tunerAlert
+        ? 'Not Tuned: the tuner is in line with no stored tuning for this frequency, and the amplifier blocks TX. Tune it: STANDBY, tuner AUTO, key a carrier (TUNE), then TUNE.'
+        : a.tunerInUse ? 'Tuner in the signal path' : 'Tuner not in the signal path (set on the amplifier)';
+    return { text: a.tunerPill, cls: a.tunerAlert ? 'off' : a.tunerInUse ? 'on' : '', on: !!a.tunerInUse, title: title + ' (status)' };
+}
+// The RF2K-S's error messages are shown as it reports them; RESET clears one
+// once its cause is gone and leaves the amplifier in STANDBY.
+var AMP_ERROR_HELP = 'Error reported by the amplifier (e.g. high SWR, overheating, overdrive, wrong frequency). Fix the cause, then RESET: the amplifier comes back in STANDBY.';
+var ampResetConfirmUntil = 0;
+function ampRerender() {
+    renderAmpIndicator();
+    if (document.getElementById('ampOverlay').classList.contains('visible')) renderAmpOverlay();
+    if (typeof aeTick === 'function') { aeLastSig = ''; aeTick(); }
 }
 
 function renderAmpOverlay() {
@@ -7315,7 +7574,7 @@ function renderAmpOverlay() {
     var lock = up ? ampLockReason() : '';
     var html = '<div class="amp-head"><b>' + ampEsc(a.device || 'RF-KIT') + '</b><span>' +
         (up ? 'connected ' : 'offline ') + ampEsc(a.target || '') + '</span></div>';
-    if (up && a.ampError) html += '<div class="amp-error-banner">ERROR: ' + ampEsc(a.ampError) + '</div>';
+    if (up && a.ampError) html += '<div class="amp-error-banner" title="' + ampEsc(AMP_ERROR_HELP) + '">Error: ' + ampEsc(a.ampError) + '</div>';
     if (!up && a.error) html += '<div class="amp-head"><span style="color:#e33">' + ampEsc(a.error) + '</span></div>';
 
     // Fixed scales matching the amplifier's own display (see AetherSDR's
@@ -7343,9 +7602,8 @@ function renderAmpOverlay() {
         ampTile('TEMP', up && a.temp !== undefined ? a.temp.toFixed(0) + ' \u00b0C' : undefined, a.temp >= 60) +
         ampTile('VOLTS', up && a.volts !== undefined ? a.volts.toFixed(1) + ' V' : undefined) +
         ampTile('CURRENT', up && a.amps !== undefined ? a.amps.toFixed(1) + ' A' : undefined) +
-        ampTile('TUNER', up ? String(a.tunerPill || a.tuner || '').replace(/^TUNER /, '') : undefined) +
+        ampTile('ATU', up ? String(a.tunerPill || a.tuner || '').replace(/^ATU /, '') : undefined, up && !!a.tunerAlert) +
         ampTile('INTERFACE', up ? a.iface : undefined) +
-        ampTile('STATUS', up ? a.status : undefined) +
         '</div>';
     body.innerHTML = html;
 
@@ -8758,6 +9016,7 @@ var talkOffTimer = null;
 var talkPlay = {};          // talker id -> next start time
 var talkCtx = null;
 function toggleTalk() {
+    if (guestView) { guestNotice(); return; }
     // Needs the microphone: start it (TALK sends once it is open).
     if (!talkOn && !micEnabled && typeof startMic === 'function') startMic();
     setTalk(!talkOn);
@@ -8844,6 +9103,7 @@ function txBusyRefused() {
 }
 
 function handlePTTPress() {
+    if (guestView) { guestNotice(); return false; }
     if (txOtherBy) { flashTxOther(); return false; }
     // Skip audio/mic checks for CW mode (uses radio's internal keyer)
     var isCW = (currentMode === 'CW' || currentMode === 'CW-R');
@@ -9549,6 +9809,7 @@ function updateTxAudioAvailable(available) {
 }
 
 function toggleMic() {
+    if (guestView) { guestNotice(); return; }
     if (!txAudioAvailable || !window.isSecureContext) return;
     if (micStarting) return;   // already on its way: a second start would open a second mic
     if (micEnabled) { stopMic(); return; }
@@ -9979,7 +10240,7 @@ function playRxFloat(floatData) {
         floatData[i] = v;
         pcm[i] = Math.round(v * 32767);
     }
-    Recorder.feedRx(pcm, audioSampleRate);
+    recFeedRx(pcm, audioSampleRate);
     if (audioUseWorklet && audioWorkletNode) audioWorkletNode.port.postMessage(floatData, [floatData.buffer]);
     else if (audioJb) audioJb.push(floatData);
 }
@@ -10002,7 +10263,7 @@ function handleAudioData(buffer) {
         if (typeof window._sstvProcessAudioChunk === 'function') window._sstvProcessAudioChunk(pcmData);
         if (toneScanDetector) feedToneScan(pcmData);
     }
-    Recorder.feedRx(pcmData, audioSampleRate);
+    recFeedRx(pcmData, audioSampleRate);
 
     if (audioUseWorklet && audioWorkletNode) audioWorkletNode.port.postMessage(floatData, [floatData.buffer]);
     else if (audioJb) audioJb.push(floatData);
@@ -10488,6 +10749,31 @@ function scopeSyncFlush() {
     scopeSyncReleasing = false;
     scopeSyncCur = 0;
     scopeSyncLastDue = 0;
+    recRxFlush();
+}
+// The recorder gets RX audio as it arrives, but the canvases it films are
+// held back by scope sync until that audio is heard. Hold the recorded RX
+// audio by the same delay (scopeSyncCur), so a recording plays the sound
+// with the picture that went with it (punch list 18a).
+var recRxQ = [], recRxLastDue = 0, recRxTimer = null;
+function recFeedRx(pcm, rate) {
+    if (!Recorder.isRecording()) { recRxQ.length = 0; return; }
+    var d = (scopeSyncOn && !isTransmitting) ? scopeSyncCur : 0;
+    if (d <= 0 && !recRxQ.length) { Recorder.feedRx(pcm, rate); return; }
+    var due = Math.max(performance.now() + d, recRxLastDue);
+    recRxLastDue = due;
+    recRxQ.push({ due: due, pcm: new Int16Array(pcm), rate: rate });
+    if (!recRxTimer) recRxTimer = setInterval(recRxRun, 10);
+}
+function recRxRun() {
+    var now = performance.now();
+    while (recRxQ.length && recRxQ[0].due <= now) { var c = recRxQ.shift(); Recorder.feedRx(c.pcm, c.rate); }
+    if (!recRxQ.length) { clearInterval(recRxTimer); recRxTimer = null; recRxLastDue = 0; }
+}
+function recRxFlush() {
+    while (recRxQ.length) { var c = recRxQ.shift(); Recorder.feedRx(c.pcm, c.rate); }
+    if (recRxTimer) { clearInterval(recRxTimer); recRxTimer = null; }
+    recRxLastDue = 0;
 }
 function toggleScopeSync() {
     scopeSyncOn = !scopeSyncOn;

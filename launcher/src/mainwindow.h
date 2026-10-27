@@ -161,6 +161,7 @@ private:
     QSpinBox *m_onDemandSpin = nullptr;
     QList<QWidget *> m_networkWidgets;
     QCheckBox *m_restLanCheck = nullptr;
+    QCheckBox *m_guestViewCheck = nullptr;
 
     // Web users
     QListWidget *m_userList = nullptr;

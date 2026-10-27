@@ -327,6 +327,10 @@ void MainWindow::buildUi()
     m_restLanCheck = new QCheckBox(QStringLiteral("Open the REST API for scripts to this network (next port up; needs a web user's name and password when users exist)"), m_serverGroup);
     m_restLanCheck->setToolTip("Off: the REST port answers on this computer only (127.0.0.1). Never forward it on the router.");
     srv->addWidget(m_restLanCheck, row, 0, 1, 5);
+    ++row;
+    m_guestViewCheck = new QCheckBox(QStringLiteral("Offer \"View only (no password)\" on the sign-in page"), m_serverGroup);
+    m_guestViewCheck->setToolTip("Guests see the scope and meters and hear the audio, but cannot change or key the radio, use the amplifier or talk on the intercom (--guest-view).");
+    srv->addWidget(m_guestViewCheck, row, 0, 1, 5);
 #ifndef Q_OS_WIN
     m_autostartCheck->hide();
 #endif
@@ -497,6 +501,7 @@ void MainWindow::applyConfigToForm()
     m_ampEdit->setText(m_cfg.ampHost);
     m_onDemandSpin->setValue(m_cfg.onDemandSeconds);
     m_restLanCheck->setChecked(m_cfg.restLan);
+    m_guestViewCheck->setChecked(m_cfg.guestView);
     updateSmartLinkStatus();
     refreshUsers();
     refreshSerialPorts();
@@ -540,6 +545,7 @@ void MainWindow::applyFormToConfig()
     m_cfg.ampHost = m_ampEdit->text().trimmed();
     m_cfg.onDemandSeconds = m_onDemandSpin->value();
     m_cfg.restLan = m_restLanCheck->isChecked();
+    m_cfg.guestView = m_guestViewCheck->isChecked();
     m_cfg.serialPort = m_serialCombo->currentData().toString();
     m_cfg.manufacturer = LaunchConfig::Manufacturer(m_manufacturerCombo->currentData().toInt());
     m_cfg.civAddress = m_civEdit->text().trimmed();

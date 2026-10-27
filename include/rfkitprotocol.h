@@ -1,8 +1,8 @@
 #pragma once
 
 // Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
-// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
-// 94b0496), GPLv3. "Constitution principle" references are AetherSDR's
+// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune-pr,
+// 934dcd6), GPLv3. "Constitution principle" references are AetherSDR's
 // project rules.
 
 
@@ -100,8 +100,9 @@ struct FloatValue {
     QString unit;
 };
 
-// maxValue is the device's own full-scale for the reading and is what the
-// applet sizes its gauge to. 0 means "not reported".
+// maxValue is the device's reported max_value (the present power limit, not a
+// meter range); parsed for completeness, not used for scaling. 0 means "not
+// reported".
 struct IntWithMax {
     int value{0};
     int maxValue{0};
@@ -248,17 +249,35 @@ TuneApi classifyTuneProbe(int httpStatus);
 // amplifier reports. A real RF2K-S gives AUTO, MANUAL (setup CL or LC, or
 // BYPASS when the network is bypassed), BYPASS and OFF; AUTO_TUNING_* counts as
 // On because the tuner is working.
-enum class TunerPill { Unknown, On, Manual, ManualBypass, Bypass, Off };
+enum class TunerPill { Unknown, On, Manual, ManualBypass, Bypass, Off, NotTuned };
 TunerPill tunerPill(const Tuner& tuner);
 QString tunerPillLabel(TunerPill pill);
-// True when the tuner is in the signal path (On, Manual); the pill is green
-// then, red for Bypass, ManualBypass and Off.
+// NotTuned: the tuner is in the path (AUTO or MANUAL) but the amplifier reports
+// setup NOT TUNED, and the manual says transmission is blocked until a valid
+// tuning is stored.
+// True when the tuner is in the signal path and usable (On, Manual): green.
 bool tunerPillInUse(TunerPill pill);
+// True only for NotTuned: the one state the amplifier itself reports as a
+// problem (red). Bypass, ManualBypass and Off are the operator's own settings
+// and stay neutral.
+bool tunerPillIsAlert(TunerPill pill);
 
 // A tune is worth asking for only with the tuner in the signal path and idle:
 // automatic or manual mode. Off, bypassed, already tuning, or not yet read are
 // refused.
 bool tuneAllowed(const Tuner& tuner);
+
+// The RF2K-S manual (section 7.2): tuning needs 4 to 39 W of drive; outside that
+// range the amplifier's own Tune button stays inactive. At least 10 W is
+// recommended for a precise tune. Used only as a hint on the TUNE button, never
+// to block a tune: the amplifier makes the final decision.
+inline constexpr int kTuneMinWatts = 4;
+inline constexpr int kTuneMaxWatts = 39;
+inline constexpr int kTuneRecommendedWatts = 10;
+enum class TuneDrive { Unknown, Outside, Low, Good };
+// Unknown when forward power is not reported in watts; Low is inside the range
+// but under the recommended 10 W.
+TuneDrive tuneDrive(const Power& power);
 
 // ── Presentation helpers ─────────────────────────────────────────────────
 

@@ -56,6 +56,10 @@ public:
     static constexpr int kMaxFailures = 5;
     static constexpr int kWindowSecs = 15 * 60;
     static constexpr const char* kCookie = "wfweb_session";
+    // The guest's session user (the login page's "View only" button). Not a
+    // valid user name, so it can never be a real account; the web server
+    // accepts it only while guest view is on.
+    static constexpr const char* kGuest = "*guest";
 
 private:
     struct failures { int count = 0; QDateTime first; QDateTime lockedUntil; };

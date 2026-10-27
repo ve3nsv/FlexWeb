@@ -1,8 +1,8 @@
 #pragma once
 
 // Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
-// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
-// 94b0496), GPLv3. "Constitution principle" references are AetherSDR's
+// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune-pr,
+// 934dcd6), GPLv3. "Constitution principle" references are AetherSDR's
 // project rules.
 
 
@@ -90,6 +90,7 @@ private:
         QString path;
         QByteArray body;
         bool probe{false};  // the connect handshake (GET /info)
+        bool command{false};  // operator-issued; kept in issue order ahead of polls
         bool tuneProbe{false};  // PUT /tuner {} : does this server have the route?
     };
 
@@ -144,6 +145,10 @@ private:
     // unreachable address reports failure here rather than after the OS TCP
     // connect timeout (~21s on Windows).
     static constexpr int kRequestTimeoutMs = 4000;
+    // The transfer timeout above only fires when no bytes move; this bounds the
+    // whole request, so a peer that trickles bytes cannot hold the one serialized
+    // slot (and every command queued behind it) indefinitely. Principle VII.
+    static constexpr int kRequestDeadlineMs = 10000;
 
     QTimer m_reconnectTimer;
     static constexpr int kReconnectIntervalMs = 5000;
@@ -151,6 +156,7 @@ private:
     // /power and /data every tick; one of the slower, configuration-style
     // endpoints per tick in rotation (see poll()).
     QTimer m_pollTimer;
+    QTimer m_deadlineTimer;
     static constexpr int kPollIntervalMs = 250;
     int m_slowPollIndex{0};
 

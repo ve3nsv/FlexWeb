@@ -26,6 +26,7 @@
 #include <atomic>
 #include "logbook.h"
 #include "webauth.h"
+#include "serverload.h"
 namespace AetherSDR { class RfkitConnection; }
 
 #if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
@@ -149,6 +150,7 @@ public slots:
     // interface. Default: 127.0.0.1 only, so it can never be port forwarded.
     // With web users set up, LAN requests to it need HTTP Basic auth.
     void setRestLan(bool lan);
+    void setGuestView(bool on);
     // Logbook path and remote-logging (WSJT-X UDP) setup from settings +
     // command-line overrides; runs once on the web thread at startup.
     void configureLogbook(const QString &logbookOverride,
@@ -313,6 +315,11 @@ private:
     webAuth auth;
     QHash<QWebSocket *, QString> wsUser;
     bool restLan = false;
+    // Guest view-only (punch list 2): the login page's "View only" button.
+    // A guest's commands are refused except the read-only ones (guestAllowed).
+    bool guestView_ = false;
+    bool isGuest(QWebSocket *c) const { return c && wsUser.value(c) == QLatin1String(webAuth::kGuest); }
+    static bool guestAllowed(const QString &cmd);
     QHash<QByteArray, qint64> restBasicOk;   // sha256(user:pass) -> valid until (ms)
     QString requestUser(QTcpSocket *socket, const QByteArray &headers);
     // TX lock: who holds PTT ("user" or the browser's address).
@@ -530,6 +537,12 @@ private:
     QString reporterGrid;
     QString reporterMessage;             // FreeDV Reporter "Message" column
     QMap<int, QString> cwMacros_;       // slot (1..10) -> macro text
+    // SSTV panel settings shared by every browser (punch list 9 / 10):
+    // [SSTV] Frequencies and Templates in the settings file, each a JSON
+    // array the panel owns (empty = the panel's defaults).
+    QJsonArray sstvFreqs_, sstvTemplates_;
+    void loadSstvSettings();
+    void applySstvSettings(const QJsonObject &in, const char *who);
     bool reporterEnabled = false;       // FreeDV Reporter toggle
     bool pskReporterEnabled = false;    // pskreporter.info toggle (FT8/FT4)
     bool digiActive = false;            // browser DIGI panel open (FT8/FT4)
@@ -835,6 +848,8 @@ private:
     // mode, so the folded value is briefly nonsense — TONE on its way to TSQL
     // reads as TONE(T)/TSQL(R) in between. Clients are told once things settle.
     int slowPollTick = 0;        // 5 s tick in sendPeriodicStatus (duplex offset, tuner status)
+    ServerLoad serverLoad;       // CPU / memory sampler for the CPU chip
+    QTimer *serverLoadTimer = nullptr;
     QTimer *toneModeNotifyTimer = nullptr;
     void scheduleToneModeNotify();
     void addToneCaps(QJsonObject &o) const;

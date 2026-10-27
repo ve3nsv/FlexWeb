@@ -239,6 +239,7 @@ def test_page_needs_login(server):
     assert r.status_code == 303 and r.headers["Location"] == "/login"
     r = requests.get(base + "/login", verify=False, timeout=5)
     assert r.status_code == 200 and 'name="password"' in r.text
+    assert "View only" not in r.text   # guest view is off unless asked
     assert requests.get(base + "/api/v1/radio/info", verify=False, timeout=5).status_code == 401
     status, sock, _ = _ws(port, None)
     sock.close()
@@ -521,3 +522,73 @@ def test_lockout(server):
     # Even the right password is refused while locked out.
     r = _login(base, "tom", PASSWORD)
     assert r.status_code == 429 and "Try again" in r.text
+
+
+def test_guest_view(tmp_path):
+    """--guest-view: the login page's "View only" button gives a session that
+    sees everything but is refused every command that changes the radio, keys
+    it or reaches other browsers (punch list 2)."""
+    if not WFWEB_BIN.exists():
+        pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
+    home = str(tmp_path)
+    env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=f"{home}/.config", WFWEB_NO_TUI="1",
+               WFWEB_CONFIG_DIR=home)
+    add = subprocess.run([str(WFWEB_BIN), "--add-user", "tom"], input=(PASSWORD + "\n").encode(),
+                         capture_output=True, env=env, timeout=20)
+    assert add.returncode == 0
+    loop = asyncio.new_event_loop()
+    radio = MockFlexRadio()
+    loop.run_until_complete(radio.start())
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    port = _free_port()
+    proc = subprocess.Popen([str(WFWEB_BIN), "-p", str(port), "--manufacturer", "3", "--lan", "127.0.0.1",
+                             "--lan-control", str(radio.control_port), "--lan-audio", str(radio.vita_port),
+                             "--guest-view"],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    base = f"https://127.0.0.1:{port}"
+    try:
+        assert _wait(lambda: requests.get(f"http://127.0.0.1:{port + 1}/api/v1/radio/info", timeout=2).ok)
+        page = requests.get(base + "/login", verify=False, timeout=5)
+        assert "View only (no password)" in page.text and 'name="guest"' in page.text
+        r = requests.post(base + "/login", data={"guest": "1"}, verify=False, allow_redirects=False, timeout=10)
+        assert r.status_code == 303 and r.headers["Location"] == "/"
+        token = r.cookies["wfweb_session"]
+        jar = {"wfweb_session": token}
+        assert requests.get(base + "/", cookies=jar, verify=False, timeout=5).status_code == 200
+        assert requests.get(base + "/api/v1/radio/info", cookies=jar, verify=False, timeout=5).ok
+        # nothing changes through the API on the web port
+        assert requests.put(base + "/api/v1/radio/frequency", json={"value": 7100000}, cookies=jar,
+                            verify=False, timeout=5).status_code == 403
+
+        st, sock, buf = _ws(port, token)
+        assert " 101" in st, st
+        rd = _Reader(sock, buf)
+        try:
+            info = _drain_until(rd, lambda m: m.get("type") == "rigInfo")
+            assert info and info.get("guest") is True and info.get("webUser") == "guest"
+            before = list(radio.commands)
+            for cmd in ({"cmd": "setFrequency", "value": 7100000}, {"cmd": "setPTT", "value": True},
+                        {"cmd": "setMode", "value": "CW"}, {"cmd": "ampOperate", "value": True},
+                        {"cmd": "flexDsp", "key": "tune", "index": 0, "value": 1}):
+                _ws_send(sock, cmd)
+                ref = _drain_until(rd, lambda m: m.get("type") == "guestRefused")
+                assert ref and ref["cmd"] == cmd["cmd"], (cmd, ref)
+            # binary (mic / intercom) is dropped
+            _ws_send(sock, bytes([0x03, 0, 0, 0, 0, 0]) + bytes(960), opcode=2)
+            # read-only requests still answer
+            _ws_send(sock, {"cmd": "timePing", "t0": 1})
+            assert _drain_until(rd, lambda m: m.get("type") == "timePong")
+            time.sleep(0.5)
+            new = [c for c in radio.commands[len(before):] if "xmit" in c or "freq" in c or "mode" in c]
+            assert new == [], new
+        finally:
+            sock.close()
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)

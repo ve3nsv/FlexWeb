@@ -1,6 +1,6 @@
 // Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
-// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune,
-// 94b0496), GPLv3. "Constitution principle" references are AetherSDR's
+// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune-pr,
+// 934dcd6), GPLv3. "Constitution principle" references are AetherSDR's
 // project rules.
 
 #include "rfkitconnection.h"
@@ -63,6 +63,15 @@ RfkitConnection::RfkitConnection(QObject* parent)
 
     m_pollTimer.setInterval(kPollIntervalMs);
     connect(&m_pollTimer, &QTimer::timeout, this, &RfkitConnection::poll);
+
+    m_deadlineTimer.setSingleShot(true);
+    m_deadlineTimer.setInterval(kRequestDeadlineMs);
+    connect(&m_deadlineTimer, &QTimer::timeout, this, [this]() {
+        if (m_reply) {
+            m_reply->setProperty("rfkitDeadline", true);
+            m_reply->abort();  // finished() follows and counts it as a transport failure
+        }
+    });
 }
 
 RfkitConnection::~RfkitConnection()
@@ -140,6 +149,7 @@ void RfkitConnection::resetSession()
 {
     ++m_epoch;
     m_pollTimer.stop();
+    m_deadlineTimer.stop();
     m_queue.clear();
     m_inFlight = false;
     if (m_reply) {
@@ -160,7 +170,15 @@ void RfkitConnection::resetSession()
 void RfkitConnection::enqueue(const Request& request, bool front)
 {
     if (front) {
-        m_queue.prepend(request);
+        // Ahead of queued polls, behind earlier commands: two clicks must
+        // reach the amplifier in the order they were made.
+        Request command = request;
+        command.command = true;
+        qsizetype at = 0;
+        while (at < m_queue.size() && m_queue.at(at).command) {
+            ++at;
+        }
+        m_queue.insert(at, command);
     } else {
         m_queue.enqueue(request);
     }
@@ -202,10 +220,12 @@ void RfkitConnection::pump()
 
     m_inFlight = true;
     m_reply = reply;
+    m_deadlineTimer.start();
     const int epoch = m_epoch;
 
     // Principle VII: bound what a LAN peer can make us buffer. The transfer
-    // timeout bounds the time; this bounds the size.
+    // timeout only aborts a transfer that goes silent for its interval; this
+    // bounds the size.
     connect(reply, &QNetworkReply::downloadProgress, reply, [reply](qint64 received, qint64) {
         if (received > Rfkit::kMaxBodyBytes) {
             reply->setProperty("rfkitOversize", true);
@@ -228,15 +248,26 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
     if (isTuneStart(request)) {
         m_tuneStartPending = false;
     }
+    m_deadlineTimer.stop();
 
     const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const bool oversize = reply->property("rfkitOversize").toBool();
     const QByteArray body = oversize ? QByteArray() : reply->read(Rfkit::kMaxBodyBytes + 1);
 
     // No HTTP status at all means the exchange never completed: refused,
-    // timed out, unresolvable, reset, or aborted for size.
-    if (oversize || http == 0) {
-        onTransportFailure(oversize ? tr("Response too large") : reply->errorString(), request);
+    // timed out, unresolvable, reset, or aborted for size or time. A transfer
+    // that broke after the headers (reset or timeout mid-body) has a status of
+    // 200 but a network-level error, so that counts too. HTTP error statuses
+    // set a content/protocol error (201 and up) and are the device answering,
+    // not link loss.
+    const bool deadline = reply->property("rfkitDeadline").toBool();
+    const QNetworkReply::NetworkError netError = reply->error();
+    const bool brokeInTransit = netError != QNetworkReply::NoError
+        && netError < QNetworkReply::ContentAccessDenied;
+    if (oversize || deadline || http == 0 || brokeInTransit) {
+        onTransportFailure(oversize ? tr("Response too large")
+                           : deadline ? tr("Response took too long")
+                                      : reply->errorString(), request);
         return;
     }
 
@@ -317,24 +348,25 @@ bool RfkitConnection::applyReply(const Request& request, const QByteArray& body)
     if (request.method == Request::Method::Post) {
         // POST /error/reset. Nothing in the reply is needed; re-read what an
         // error can have changed.
-        enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false});
-        enqueue(Request{Request::Method::Get, path(Rfkit::kPathInterface), {}, false, false});
+        enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false, false});
+        enqueue(Request{Request::Method::Get, path(Rfkit::kPathInterface), {}, false, false, false});
         return false;
     }
     if (request.method == Request::Method::Put && p == QLatin1String(Rfkit::kPathTuner)) {
         // PUT /tuner {"tuner_mode":"START"}. The reply is not trusted as the
         // new state (Principle II): read the tuner and the status text back.
-        enqueue(Request{Request::Method::Get, path(Rfkit::kPathTuner), {}, false, false});
-        enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false});
+        enqueue(Request{Request::Method::Get, path(Rfkit::kPathTuner), {}, false, false, false});
+        enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false, false});
         return false;
     }
     if (request.method == Request::Method::Put && p == QLatin1String(Rfkit::kPathAntennaActive)) {
+        // The reply names only the new active antenna; the per-antenna states
+        // come from the list. Re-read it whatever the reply looks like: a 2xx
+        // means the switch was accepted, and the highlight must follow it.
+        enqueue(Request{Request::Method::Get, path(Rfkit::kPathAntennas), {}, false, false, false});
         if (!Rfkit::parseAntenna(body)) {
             return malformed();
         }
-        // The reply names only the new active antenna; the per-antenna states
-        // come from the list.
-        enqueue(Request{Request::Method::Get, path(Rfkit::kPathAntennas), {}, false, false});
         return false;
     }
 
@@ -393,7 +425,7 @@ void RfkitConnection::enqueueFullRefresh()
         Rfkit::kPathAntennas, Rfkit::kPathTuner, Rfkit::kPathInterface,
     };
     for (const char* literal : kPaths) {
-        enqueue(Request{Request::Method::Get, path(literal), {}, false, false});
+        enqueue(Request{Request::Method::Get, path(literal), {}, false, false, false});
     }
     maybeProbeTuneApi();
 }
@@ -465,10 +497,10 @@ void RfkitConnection::poll()
     if (!m_connected || m_inFlight || !m_queue.isEmpty()) {
         return;
     }
-    enqueue(Request{Request::Method::Get, path(Rfkit::kPathPower), {}, false, false});
-    enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false});
+    enqueue(Request{Request::Method::Get, path(Rfkit::kPathPower), {}, false, false, false});
+    enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false, false});
     const QStringList& slow = slowPollPaths();
-    enqueue(Request{Request::Method::Get, slow.at(m_slowPollIndex % slow.size()), {}, false, false});
+    enqueue(Request{Request::Method::Get, slow.at(m_slowPollIndex % slow.size()), {}, false, false, false});
     m_slowPollIndex = (m_slowPollIndex + 1) % slow.size();
     maybeProbeTuneApi();
 }

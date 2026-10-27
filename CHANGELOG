@@ -10,6 +10,15 @@ Unreleased
 ----------
 
 Web access:
+- View only (no password): --guest-view (or [Web] GuestView=true, or the
+  launcher's checkbox) adds a button to the sign-in page. A guest sees the
+  scope, meters and decoders and hears the audio, but the server refuses
+  every command that changes or keys the radio, the amp, the station or
+  the log, and drops its microphone and intercom; the top bar shows
+  "guest - VIEW ONLY". Turning the setting off ends guest sessions.
+- Server CPU chip in the top bar: the server computer's CPU load (amber
+  above 70 %, red above 90 %); tap for FlexWeb's own share, cores, memory
+  and uptime. FUNC > CPU hides it.
 - Web login with named users. wfweb --add-user / --passwd / --remove-user
   / --list-users (or the launcher's Web users tab) manage them; only
   PBKDF2-SHA256 hashes are stored. With one user the page, its files, the
@@ -50,6 +59,22 @@ Web access:
   upstream wfweb version it is based on.
 
 FlexRadio:
+- S-meter lag: meter readings go to the browser as they arrive (the
+  server held them up to 100 ms, and a 200 ms tick re-sent an older
+  reading between them). The bar meter now moves like AetherSDR's: it
+  follows each reading every frame, up in ~45 ms and down in ~180 ms; the
+  peak tile falls 0.5 dB per 50 ms and resets every 10 s. Recordings delay
+  the received audio by the scope-sync delay, so sound and picture match.
+- TUNE power slider in the TX rows (sidebar and GAIN), as PROC > TUNE PWR.
+- RF-KIT, as AetherSDR's rfkit-tune-pr (934dcd6): KPA1500-style ATU
+  indicator at the start of the tuner line - ATU IN / ATU MAN green, ATU
+  NO TUNE red (the amp blocks TX), ATU MAN BYP / BYP / OFF neutral - with
+  the tune help from the RF2K-S manual. TUNE is outlined blue while the
+  forward power is in the amp's 4-39 W tune range. "Error: <text>" banner;
+  RESET only while there is an error, and it asks to confirm. OPERATE shows
+  "-" until the amp has answered. Commands reach the amp in the order
+  clicked, a request has a 10 s overall deadline, and a reply broken after
+  its headers counts as a link failure.
 - Leaving 2 m puts back the antennas last used below 2 m, now tracked all
   along, and defends them for 3 s against the radio's own band antenna
   recall, which could land after wfweb's command and leave TX on the wrong
@@ -86,6 +111,26 @@ FlexRadio:
 - A tab at the scope's edge points to the VFO when it is off screen (A,
   frequency, mode, distance); tap it to bring the scope back.
 - SSTV keeps the spectrum and waterfall above its panel (and in recordings).
+- SSTV band buttons in the panel's top bar (the current one lit) replace
+  the drop-down; the pencil edits the list - band, frequency and an
+  optional sideband, e.g. 7.170, 6 m or 2 m - kept on the server
+  ([SSTV] Frequencies) for every browser.
+- SSTV templates: CQ, Reply / QSL (TNX / call . RSV / 73 header, the
+  received picture as an inset, QSL, call, locator, RSV, 73) and 73, with
+  QSSTV-style fields (%m %l %f %c %o %g %r %t %d %x %y %z) filled when
+  sending; an editor for text, position, size, colour, boxes and the
+  picture inset (drag on the preview). REPLY in the gallery viewer picks
+  the picture and the template. Kept on the server ([SSTV] Templates).
+- SSTV FSK ID (MMSSTV / QSSTV / PySSTV format): the sender's callsign after
+  a picture is decoded onto the gallery entry, the status line and THEIR
+  CALL; ours is sent after every picture (FSK ID chip, on by default).
+- SSTV: lines after the last sync pulse are left black instead of noise
+  (sender stopped or faded, FSK ID or the next transmission), and the
+  picture reports the lines it really got. The SNR is measured inside the
+  receive passband (it read -157 dB behind a 2.7 kHz filter).
+- SSTV: a "Receiving <mode>... line n / N" banner with a live thumbnail
+  over the full-size viewer when a new picture starts; tap it to see the
+  picture, "New picture received" when it completes.
 - RF-KIT (RF2K-S): TUNE for amplifiers whose REST server has the tune
   command (found by asking PUT /tuner {} on connect: 400 / 2xx yes, 405 no);
   it starts the amp's autotune only from AUTO or MANUAL, shows TUNING from

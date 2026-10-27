@@ -107,7 +107,7 @@ linux:LIBS += -lpulse -lpulse-simple -lrtaudio -lpthread
 
 win32:INCLUDEPATH += ../portaudio/include
 
-win32:LIBS += -lopus -lole32 -luser32
+win32:LIBS += -lopus -lole32 -luser32 -lpsapi
 !win32:LIBS += -lportaudio
 
 # The following define makes your compiler emit warnings if you use
@@ -373,6 +373,7 @@ SOURCES += \
     src/radio/flexprotocol.cpp \
     src/rfkitconnection.cpp \
     src/rfkitprotocol.cpp \
+    src/serverload.cpp \
     src/radio/yaesuserver.cpp \
     src/radio/yaesuudpaudio.cpp \
     src/radio/yaesuudpbase.cpp \
@@ -455,6 +456,7 @@ HEADERS  += \
     include/flexprotocol.h \
     include/rfkitconnection.h \
     include/rfkitprotocol.h \
+    include/serverload.h \
     include/yaesuserver.h \
     include/yaesuudpaudio.h \
     include/yaesuudpbase.h \
