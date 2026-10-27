@@ -729,3 +729,24 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     AUDIO, PROC..., NNR..., EQ, RX DSP, ANT, BAND, AMP, SPAN and the
     frequency entry - one helper, togglePanel(name), used by all of them.
     Show the button lit while its panel is open.
+28. CLICK TO START needs several clicks (user, 2026-10-27; easy). The
+    splash (#startupOverlay, index.html ~2428) is drawn before ten
+    synchronous scripts (rig-transport.js ... cw-keyer.js, ~3171-3181) and
+    the main inline script; the click listener is attached at the very end
+    (~16189). Over the WAN each script is a round trip, so clicks in the
+    first seconds hit a button with no listener and are lost. Fix: the
+    button reads "LOADING..." (dimmed) until the main script runs, then
+    "CLICK TO START"; an inline onclick records an early click and the
+    start handler runs it as soon as it is attached (the click gives the
+    page user activation, so the AudioContext may still start). One click
+    always works.
+29. Launcher shows the rig connected after --on-demand released it (user,
+    2026-10-27; easy). LogParser only knows "Loading Rig: ..." (RigModel);
+    nothing classifies "On-demand: no browser for N s, releasing the rig"
+    or "On-demand: browser connected, connecting to the rig", so the
+    launcher keeps the radio shown as connected until restart. Add both
+    lines to LogParser::classify (new events, e.g. RigReleased /
+    RigReconnecting) and show "Released - waiting for a browser" / the
+    radio again in the main window; tests in tests/launcher_test.cpp. Note
+    for the user: any open FlexWeb tab holds the rig, even one on the
+    CLICK TO START splash (the WebSocket connects before the click).
