@@ -702,3 +702,17 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
        is counted as an underrun ("[Audio] underrun #15: 61 ms gap, buffer
        132 -> 135 ms"), so the target creeps up a little every over. Do not
        count a flush (or the TX gap after it) as an underrun.
+    Follow-up after build 66 (user's log and screen recording, 15:21-15:23):
+    h. Key-up time polluted by TUNE: TUNE (and anything else that keys the
+       radio without our xmit 1) logged "on the air 3190 / 5510 / 6635 /
+       9211 ms after xmit 1" - timed from the last MOX. Those readings go
+       into keyDelayMs (capped 2000), which drives txTailMs (MOX release up
+       to 500 ms) and the FT8 / JS8 TX lead (up to 1.5 s early). Time only
+       a key-up we asked for (txRequested), once, then invalidate the timer.
+    i. Blip still there, smaller and later: RX audio cuts at the press,
+       then ~150-300 ms later a 50-100 ms burst of RX, then silence. The
+       Flex's RX audio stream runs behind its interlock, so a few RX packets
+       still arrive after TRANSMITTING. Keep RX silent through the whole TX
+       when MON is off (the stream carries only zeros then); with MON on,
+       open 250 ms after on-air. End the gate on unkey, on onAir false and
+       on the rig's own return to RX (TX timeout).
