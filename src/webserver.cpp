@@ -2162,6 +2162,7 @@ void webServer::disableFreeDV()
 {
     if (!freedvEnabled) return;
     freedvEnabled = false;
+    emit freedvRxActive(false);
     freedvSync = false;
     freedvSNR = 0.0f;
     freedvTxBuffer.clear();
@@ -3292,6 +3293,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
                                               Qt::QueuedConnection,
                                               Q_ARG(QString, reporterCallsign));
                 }
+                emit freedvRxActive(true);
                 qInfo() << "Web: RADE enabled";
             } else if (freedvProcessor) {
                 int mode = -1;
@@ -3306,6 +3308,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
                         QMetaObject::invokeMethod(radeProcessor, "cleanup", Qt::QueuedConnection);
                     }
                     emit setupFreeDV(mode, rigSampleRate);
+                    emit freedvRxActive(true);
                     qInfo() << "Web: FreeDV enabled, mode=" << modeName;
                 }
             }
@@ -4113,6 +4116,12 @@ void webServer::sendCurrentState(QWebSocket *client)
     }
     if (nnrForThisRig())
         sendJsonTo(client, nnrStateJson());
+    if (!fdvHeard_.isEmpty()) {
+        QJsonObject h;
+        h["type"] = "freedvHeard";
+        h["list"] = fdvHeard_;
+        sendJsonTo(client, h);
+    }
     if (haveFlexMemories_) {
         QJsonObject m;
         m["type"] = "flexMemories";
@@ -6365,9 +6374,32 @@ void webServer::onFreeDVStats(float snr, bool sync)
         }
     }
 }
+// A callsign decoded in either FreeDV family: kept in the heard list and
+// shown on every page (classic modes during the over, RADE after its EOO).
+void webServer::noteFreeDVCallsign(const QString &callsign)
+{
+    QJsonObject e;
+    e["callsign"] = callsign;
+    e["mode"] = freedvModeName;
+    e["snr"] = double(qRound(freedvSNR * 10.0f)) / 10.0;
+    e["at"] = double(QDateTime::currentMSecsSinceEpoch());
+    for (int i = fdvHeard_.size() - 1; i >= 0; --i)
+        if (fdvHeard_.at(i).toObject().value("callsign").toString() == callsign) fdvHeard_.removeAt(i);
+    fdvHeard_.prepend(e);
+    while (fdvHeard_.size() > 10) fdvHeard_.removeLast();
+    QJsonObject o = e;
+    o["type"] = "freedvCallsign";
+    sendJsonToAll(o);
+}
+
 void webServer::onFreeDVRxCallsign(const QString &callsign)
 {
     qInfo() << "FreeDV: decoded callsign:" << callsign;
+    // The text channel repeats the callsign through the over: tell the page
+    // once per change, not on every repeat.
+    if (fdvHeard_.isEmpty() || fdvHeard_.first().toObject().value("callsign").toString() != callsign
+        || QDateTime::currentMSecsSinceEpoch() - qint64(fdvHeard_.first().toObject().value("at").toDouble()) > 5000)
+        noteFreeDVCallsign(callsign);
     lastReportedCallsign = callsign;
     if (freedvReporter && freedvSync)
         freedvReporter->updateRxSpot(callsign, freedvModeName, (int)freedvSNR);
@@ -6554,6 +6586,7 @@ void webServer::onRadeStats(float snr, bool sync, float freqOffset)
 void webServer::onRadeRxCallsign(const QString &callsign)
 {
     radeRxCallsign = callsign;
+    noteFreeDVCallsign(callsign);
 
     // Send to browser
     QJsonObject notify;

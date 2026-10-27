@@ -371,6 +371,7 @@ void servermain::makeRig()
                     connect(flex, &flexCommander::flexMemories, web, &webServer::onFlexMemories, Qt::QueuedConnection);
                     connect(flex, &flexCommander::flexNnrGain, web, &webServer::onFlexNnrGain, Qt::QueuedConnection);
                     connect(flex, &flexCommander::onAirChanged, web, &webServer::onFlexOnAir, Qt::QueuedConnection);
+                    connect(web, &webServer::freedvRxActive, flex, &flexCommander::setNnrHold, Qt::QueuedConnection);
                     connect(web, &webServer::flexMemorySet, flex, &flexCommander::flexMemoryCommand, Qt::QueuedConnection);
                 }
             }

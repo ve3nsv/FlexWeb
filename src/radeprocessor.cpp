@@ -14,6 +14,10 @@ extern "C" {
 
 #include <QTime>
 #include <QtMath>
+#include <QFile>
+#include <QtEndian>
+#include <cmath>
+#include <cstdio>
 #include <cstring>
 
 // Constants from rade_dsp.h
@@ -253,9 +257,21 @@ void RadeProcessor::processRx(audioPacket audio)
 
         int nOut = rade_rx(r, featOut.data(), &hasEoo, eooBits.data(), rxIn);
 
-        // Decode callsign from EOO bits
-        if (hasEoo && radeText)
+        // Decode callsign from EOO bits. Say what happened either way, so a
+        // missing callsign in the log tells "no end of over seen" from "seen
+        // but did not decode" (punch list 34c).
+        if (hasEoo && radeText) {
+            double mag = 0.0;
+            for (float b : eooBits) mag += std::fabs(b);
+            eooDecoded_ = false;
             rade_text_rx(radeText, eooBits.data(), nEooBits);
+            if (eooDecoded_)
+                ;   // radeTextRxCallback logged it
+            else
+                qInfo() << "RADE: end of over seen, callsign did not decode (none sent, or too weak); mean |sym|"
+                        << QString::number(nEooBits ? mag / nEooBits : 0.0, 'f', 2)
+                        << "SNR" << QString::number(rade_snrdB_3k_est(r), 'f', 1);
+        }
 
         // Remove consumed samples
         rxAccumulator.remove(0, nin * sizeof(RADE_COMP));
@@ -542,7 +558,54 @@ void RadeProcessor::radeTextRxCallback(rade_text_t, const char *txt,
     RadeProcessor *self = static_cast<RadeProcessor *>(state);
     QString callsign = QString::fromLatin1(txt, length).trimmed();
     if (!callsign.isEmpty()) {
+        self->eooDecoded_ = true;
         qInfo() << "RADE: decoded callsign from EOO:" << callsign;
         emit self->rxCallsign(callsign);
     }
+}
+
+int RadeProcessor::runWavTest(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) { std::fprintf(stderr, "rade-rx-test: cannot open %s\n", qPrintable(path)); return 2; }
+    const QByteArray wav = f.readAll();
+    // RIFF / WAVE, PCM 16-bit mono: find "fmt " and "data"
+    if (wav.size() < 44 || !wav.startsWith("RIFF") || wav.mid(8, 4) != "WAVE") { std::fprintf(stderr, "rade-rx-test: not a WAV file\n"); return 2; }
+    int pos = 12, rate = 0, channels = 0, bits = 0, dataPos = -1, dataLen = 0;
+    while (pos + 8 <= wav.size()) {
+        const QByteArray id = wav.mid(pos, 4);
+        const int len = qFromLittleEndian<qint32>(reinterpret_cast<const uchar *>(wav.constData() + pos + 4));
+        if (id == "fmt ") {
+            const uchar *p = reinterpret_cast<const uchar *>(wav.constData() + pos + 8);
+            channels = qFromLittleEndian<quint16>(p + 2);
+            rate = qFromLittleEndian<qint32>(p + 4);
+            bits = qFromLittleEndian<quint16>(p + 14);
+        } else if (id == "data") {
+            dataPos = pos + 8;
+            dataLen = qMin(len, wav.size() - dataPos);
+            break;
+        }
+        pos += 8 + len + (len & 1);
+    }
+    if (dataPos < 0 || channels != 1 || bits != 16 || rate <= 0) {
+        std::fprintf(stderr, "rade-rx-test: need 16-bit mono PCM (got %d ch, %d bit, %d Hz)\n", channels, bits, rate);
+        return 2;
+    }
+    RadeProcessor rp;
+    QStringList calls;
+    QObject::connect(&rp, &RadeProcessor::rxCallsign, [&calls](const QString &c) {
+        calls << c;
+        std::printf("callsign %s\n", qPrintable(c));
+        std::fflush(stdout);
+    });
+    if (!rp.init(quint32(rate))) { std::fprintf(stderr, "rade-rx-test: RADE init failed\n"); return 2; }
+    const int chunk = rate / 50 * 2;   // 20 ms, as the radio's audio arrives
+    for (int off = 0; off + chunk <= dataLen; off += chunk) {
+        audioPacket pkt;
+        pkt.data = wav.mid(dataPos + off, chunk);
+        rp.processRx(pkt);
+    }
+    std::printf("rade-rx-test: %d callsign(s) decoded\n", int(calls.size()));
+    rp.cleanup();
+    return calls.isEmpty() ? 1 : 0;
 }

@@ -123,7 +123,7 @@ body.guest-view .gain-row:not(.rx-vol-row) .gain-bar-fill { opacity: 0.4; }
 #userBtn.guest::after { content: ' \00b7  VIEW ONLY'; color: #e0a020; }
 #discBtn.confirm { color: #f0a020; border-color: #f0a020; max-width: none; }
 /* DISCONNECT (punch list 30): the screen shown after this browser left */
-#discScreen { position: fixed; inset: 0; z-index: 9998; display: flex; flex-direction: column;
+#discScreen { position: fixed; inset: 0; z-index: 10001; /* over #powerOffOverlay (10000), which the released radio brings up */ display: flex; flex-direction: column;
     align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
     background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
     color: #8aa; font: 14px system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
@@ -4417,6 +4417,21 @@ function handleMessage(msg) {
             radeRxCallsign = msg.callsign || '';
             updateFreeDVStatus({});
             break;
+        case 'freedvCallsign':
+            fdvHeard = fdvHeard.filter(function (h) { return h.callsign !== msg.callsign; });
+            fdvHeard.unshift({ callsign: msg.callsign, mode: msg.mode, snr: msg.snr, at: Date.now() });
+            fdvHeard = fdvHeard.slice(0, 10);
+            fdvHeardTick();
+            break;
+        case 'freedvHeard': {
+            // server times are its own clock: keep their ages, not their stamps
+            var srvNow = Math.max.apply(null, (msg.list || []).map(function (h) { return h.at; }).concat([0]));
+            fdvHeard = (msg.list || []).map(function (h) {
+                return { callsign: h.callsign, mode: h.mode, snr: h.snr, at: Date.now() - Math.max(0, srvNow - h.at) - 1000 };
+            });
+            fdvHeardTick();
+            break;
+        }
         case 'micWarning':
             // The server matched our mic label against the rig's own USB
             // capture device: we'd be sending the receiver audio back out.
@@ -9827,6 +9842,8 @@ function refreshPowerOffButtons() {
 }
 
 function toggleLanConnection() {
+    // After DISCONNECT the page has no connection to send this on.
+    if (sessionClosed) { reconnectSession(); return; }
     if (lanConnected) {
         send({ cmd: 'disconnectLan' });
     } else {
@@ -9898,6 +9915,49 @@ function cycleFreeDVMode() {
     send({ cmd: 'setFreeDVTxGain', value: freedvTxGain });
 }
 
+// FreeDV / RADE stations heard (punch list 34): {callsign, mode, snr, at}.
+var fdvHeard = [];
+var FDV_HEARD_SHOW_MS = 10 * 60 * 1000;
+var fdvHeardTimer = null;
+function fdvAge(ms) {
+    var s = Math.round(ms / 1000);
+    return s < 60 ? s + 's' : Math.round(s / 60) + 'm';
+}
+// Redraw now, and while the newest one is shown, every 5 s so it dims and ages.
+function fdvHeardTick() {
+    if (freedvEnabled) updateFreeDVStatus({});
+    var pop = document.getElementById('fdvHeardPop');
+    if (pop && !pop.hidden) renderFdvHeardPop();
+    clearTimeout(fdvHeardTimer);
+    if (fdvHeard[0] && Date.now() - fdvHeard[0].at < FDV_HEARD_SHOW_MS) fdvHeardTimer = setTimeout(fdvHeardTick, 5000);
+}
+function renderFdvHeardPop() {
+    var pop = document.getElementById('fdvHeardPop');
+    if (!pop) return;
+    pop.innerHTML = '<b>Heard on FreeDV</b>' + (fdvHeard.length ? fdvHeard.map(function (h) {
+        var t = new Date(h.at);
+        return '<div><b>' + ampEsc(h.callsign) + '</b> ' + ampEsc(h.mode || '') +
+            (h.snr !== undefined ? ' \u00b7 SNR ' + Number(h.snr).toFixed(0) : '') +
+            ' \u00b7 ' + ('0' + t.getHours()).slice(-2) + ':' + ('0' + t.getMinutes()).slice(-2) + ' (' + fdvAge(Date.now() - h.at) + ' ago)</div>';
+    }).join('') : '<div>none yet</div>');
+}
+function toggleFdvHeardPop() {
+    var pop = document.getElementById('fdvHeardPop');
+    if (!pop) {
+        pop = document.createElement('div');
+        pop.id = 'fdvHeardPop';
+        pop.hidden = true;
+        pop.style.cssText = 'position:absolute; right:8px; top:34px; z-index:320; padding:8px 12px; border-radius:4px; font-size:12px; line-height:1.6;' +
+            'background:rgba(10,16,24,0.96); border:1px solid #234; color:#cde; max-width:90%;';
+        document.getElementById('scopeArea').appendChild(pop);
+        document.addEventListener('pointerdown', function (e) {
+            if (!pop.hidden && !pop.contains(e.target) && e.target.id !== 'freedvCallsign') pop.hidden = true;
+        });
+    }
+    pop.hidden = !pop.hidden;
+    if (!pop.hidden) renderFdvHeardPop();
+}
+
 function updateFreeDVStatus(msg) {
     if (msg.enabled !== undefined) freedvEnabled = msg.enabled;
     if (msg.freedv !== undefined) freedvEnabled = msg.freedv;
@@ -9933,9 +9993,19 @@ function updateFreeDVStatus(msg) {
             var rc = reporterState === 'connected' ? '#0c6' : reporterState === 'error' ? '#f44' : '#fa0';
             rptDot = '<span style="width:6px;height:6px;border-radius:50%;background:' + rc + ';display:inline-block" title="Reporter: ' + (reporterState || 'off') + '"></span>';
         }
-        var csHtml = (freedvModeName === 'RADE' && radeRxCallsign)
-            ? '<span id="freedvCallsign" style="color:#0ff; min-width:60px; display:inline-block; text-align:center;">' + radeRxCallsign + '</span>'
-            : '';
+        // Last station heard (punch list 34): bright for 10 s after its
+        // callsign decoded (RADE: at the end of each over; 700D/E/1600:
+        // during it), then dimmed with its age for 10 minutes; a tap lists
+        // the last 10.
+        var csHtml = '';
+        var last = fdvHeard[0];
+        var lastAge = last ? Date.now() - last.at : Infinity;
+        if (last && lastAge < FDV_HEARD_SHOW_MS) {
+            var fresh = lastAge < 10000;
+            csHtml = '<span id="freedvCallsign" title="Stations heard (tap)" style="cursor:pointer; color:' + (fresh ? '#0ff' : '#5a8a92') +
+                '; min-width:60px; display:inline-block; text-align:center;">' + ampEsc(last.callsign) +
+                (fresh ? '' : ' <small style="opacity:.8">' + fdvAge(lastAge) + '</small>') + '</span>';
+        }
         // RADE encodes the user's callsign into the EOO frame on PTT-off.
         // If the user hasn't set one, show a clickable warning that opens
         // the shared station-callsign dialog.
@@ -9953,6 +10023,8 @@ function updateFreeDVStatus(msg) {
             + rptDot
             + '<span id="freedvMonBtn" style="cursor:pointer; padding:1px 5px; border:1px solid var(--text-faint); border-radius:3px; font-size:10px;">MON</span>';
         indicator.style.display = 'flex';
+        var csEl = document.getElementById('freedvCallsign');
+        if (csEl) csEl.onclick = function (e) { e.stopPropagation(); toggleFdvHeardPop(); };
         // Mode cycle on click
         var modeLink = document.getElementById('freedvModeLink');
         if (modeLink) modeLink.onclick = function(e) { e.stopPropagation(); cycleFreeDVMode(); };

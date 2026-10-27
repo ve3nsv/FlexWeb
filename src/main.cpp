@@ -40,6 +40,7 @@
 #include "logcategories.h"
 
 #include "direwolfprocessor.h"
+#include "radeprocessor.h"
 #include "smartlinkclient.h"
 #include "webauth.h"
 
@@ -449,6 +450,7 @@ int main(int argc, char *argv[])
         "  -d --debug [file]       Enable verbose debug logging (optionally to file)\n"
         "  -c --clearconfig CONFIRM  Clear all settings\n"
         "  --packet-self-test      Run Dire Wolf encode/decode loopback and exit\n"
+        "  --rade-rx-test <wav>    Decode RADE (and its end-of-over callsigns) from a 16-bit mono WAV and exit\n"
         "  -v --version            Show version\n"
         "  -? --help               Show this help\n");
 #ifdef BUILD_WFSERVER
@@ -485,6 +487,9 @@ int main(int argc, char *argv[])
     for (int c = 1; c < argc; c++) {
         if (QString(argv[c]) == "--packet-self-test") {
             return DireWolfProcessor::runSelfTest();
+        }
+        if (QString(argv[c]) == "--rade-rx-test" && c + 1 < argc) {
+            return RadeProcessor::runWavTest(QString::fromLocal8Bit(argv[c + 1]));
         }
     }
 

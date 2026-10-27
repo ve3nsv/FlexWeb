@@ -282,6 +282,14 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 70 (2026-10-27): item 34 a, b, c done. Item 6 (RADE from
+freedv/rade_c c8a3dc1, with the V1 phase renormalisation) was already done
+in build 63. 34c: our decoder reads the off-air freedv-gui EOO (VK5KVA in
+FDV_offair.wav) at any level, so the user's missing callsigns were not a
+decoder incompatibility; the new log lines will tell whether those stations'
+EOOs arrived. Also fixed: RECONNECT after DISCONNECT (30) was under
+#powerOffOverlay.
+
 Build 69 (2026-10-27): items 32 (RF2K-S peak hold) and 33 (narrow
 window: sidebar / drawer) are done.
 

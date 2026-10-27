@@ -28,6 +28,12 @@ public:
     explicit RadeProcessor(QObject *parent = nullptr);
     ~RadeProcessor();
 
+    // --rade-rx-test <wav>: run a 16-bit mono recording through the same
+    // receive path as the radio's audio (resampler, Hilbert, rade_rx, the
+    // EOO text decoder) and print every callsign; exit 0 when at least one
+    // decoded. tests/test_rade_eoo.py uses the RADE repo's off-air sample.
+    static int runWavTest(const QString &path);
+
 public slots:
     bool init(quint32 radioSampleRate);
     void processRx(audioPacket audio);
@@ -83,6 +89,7 @@ private:
     QByteArray txAccumulator;   // int16 speech samples at 16kHz for LPCNet
 
     // Hilbert transform (RX: real -> IQ)
+    bool eooDecoded_ = false;       // set by radeTextRxCallback during rade_text_rx
     static const int HILBERT_NTAPS = 127;
     static const int HILBERT_DELAY = 63;  // (NTAPS-1)/2
     float hilbertCoeffs[HILBERT_NTAPS];

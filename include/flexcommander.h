@@ -48,6 +48,9 @@ public:
     ~flexCommander();
 
 public slots:
+    // FreeDV / RADE decoding the receive audio: a speech model must not
+    // touch the modem signal, whatever the page asked (punch list 34c).
+    void setNnrHold(bool hold) { nnrHold = hold; }
     void process() override;
     void commSetup(rigTypedef rigList, quint16 rigCivAddr, QString rigSerialPort, quint32 rigBaudRate, QString vsp, quint16 tcp, quint8 wf) override;
     void commSetup(rigTypedef rigList, quint16 rigCivAddr, udpPreferences prefs, audioSetup rxSetup, audioSetup txSetup, QString vsp, quint16 tcp) override;
@@ -394,6 +397,7 @@ private:
     // (interlock TRANSMITTING) is held, not sent: the radio drops DAX audio
     // until it is on the air, which cut the start of every FT8/JS8 frame
     // (and a voice over's first syllable). Sent as soon as it is on the air.
+    bool nnrHold = false;           // setNnrHold: FreeDV / RADE is decoding
     bool txRequested = false;       // we sent xmit 1, no xmit 0 since
     bool onAir = false;             // interlock state TRANSMITTING
     QVector<QByteArray> txPending;

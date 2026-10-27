@@ -98,6 +98,9 @@ public:
     QString browserNames() const { QMutexLocker l(&browserNamesMutex_); return browserNames_; }
 
 signals:
+    // FreeDV / RADE started / stopped decoding the receive audio (the Flex's
+    // NNR stays off the modem signal while it does).
+    void freedvRxActive(bool active);
     void closed();
     void requestPowerOn();
     void requestPowerOff();
@@ -580,6 +583,11 @@ private:
     QThread *radeThread = nullptr;
     float freedvFreqOffset = 0.0f;  // RADE frequency offset estimate
     QString radeRxCallsign;          // last decoded callsign from EOO
+    // FreeDV / RADE stations heard, newest first, at most 10 (punch list 34):
+    // {callsign, mode, snr, at (ms since epoch)}, pushed as {type:'freedvCallsign'}
+    // on each decode and as {type:'freedvHeard'} to a browser that connects.
+    QJsonArray fdvHeard_;
+    void noteFreeDVCallsign(const QString &callsign);
     bool radeEooDraining = false;    // true while draining EOO frame to ALSA
     QTimer *radeCallsignClearTimer = nullptr;  // delayed UI clear after decode
 

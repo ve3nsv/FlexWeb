@@ -9,7 +9,26 @@ upstream wfview history.
 Unreleased
 ----------
 
+FreeDV:
+- The last station's callsign stays on screen: bright for 10 s after it
+  decodes, then dimmed with its age for 10 minutes (RADE sends it only at
+  the end of each over, and it used to vanish after 5 s); tap it for the
+  last 10 stations heard (mode, SNR, time). A browser that connects later
+  gets the list.
+- Classic FreeDV (700D / 700E / 1600) callsigns now reach the page, live
+  during the over (they were only logged and reported).
+- RADE log: "end of over seen, callsign did not decode" when an EOO
+  arrives without a readable callsign, so a missing callsign in the log
+  can be told apart from a missing end of over.
+- The Flex's NNR stays off the receive audio while FreeDV / RADE decodes
+  it, whatever the page asked.
+- wfweb --rade-rx-test <wav> decodes a recording; CI checks that the
+  freedv-gui callsign in the RADE repo's off-air sample (VK5KVA) decodes.
+
 Page:
+- RECONNECT after DISCONNECT works: the "Disconnected from radio" screen
+  the released radio brings up covered it (refresh was the only way back);
+  its Connect button now reconnects too.
 - The sidebar stays when the window is narrow: the desktop layout now runs
   from 700 x 420 in either orientation (it needed 1100 x 560 landscape and
   fell back to the classic layout). Under 1280 px the sidebar narrows;

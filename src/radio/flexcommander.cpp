@@ -1701,7 +1701,7 @@ void flexCommander::handleRxAudio(const QByteArray& d, const vitaPacket& p)
     // and not while transmitting: the stream then carries the radio's monitor
     // of our own TX audio, which TX LISTEN ON-AIR relays to other browsers
     // and which must reach them as sent.
-    const bool nnrActive = nnrCfg.on && nnrModeOk() && !transmitting
+    const bool nnrActive = nnrCfg.on && nnrModeOk() && !transmitting && !nnrHold
                            && nnrFilter::rateSupported(int(outRate));
     if (nnrActive) {
         if (!nnrF || nnrF->rate() != int(outRate)) {
