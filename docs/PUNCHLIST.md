@@ -767,3 +767,15 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     - Guests get the same button (it only affects their own session).
     - RECONNECT reopens the WebSocket; with --on-demand that reconnects the
       radio as today.
+31. Movable divider between spectrum and waterfall (user, 2026-10-27;
+    easy-medium). Today the split is fixed: #spectrumCanvas 35 % / waterfall
+    65 % in CSS (index.html ~478-495, #spanEdgeLeft/Right at top: 35 %)
+    and resizeCanvases() (~10887, spectH = availH * 0.35, also used with
+    the CW bar). Add a drag bar on the line between them (a few px tall,
+    row-resize cursor, a grip mark; touch too): drag sets the spectrum
+    share, clamped 15-80 %, kept per browser (localStorage wfSpecSplit);
+    double-click resets to 35 %. One variable drives the CSS (a --spec-split
+    custom property), resizeCanvases and the span-edge labels, and the CW
+    bar case keeps working. As AetherSDR's panadapter / waterfall splitter.
+    Also under FUNC > SPAN as a tile (SPLIT 25 / 35 / 50 / 65 %) for
+    keyboard-only use.
