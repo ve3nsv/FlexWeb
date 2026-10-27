@@ -649,3 +649,7 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     trade the user chose. Inputs that do not change what the radio
     receives (volume, mute, panels) leave sync alone. The audio delay itself
     stays (it is the jitter buffer that stops dropouts).
+    Switchable (user, 2026-10-27): FUNC > AUDIO > LIVE TUNING ON (default) /
+    OFF, per browser (localStorage), next to SYNC SCOPE and SYNC TRIM; OFF =
+    today's behaviour (always in sync). SYNC SCOPE OFF still turns sync off
+    altogether, as in wfweb / AetherSDR.
