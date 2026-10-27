@@ -832,3 +832,17 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
        the page (one {type:'freedvCallsign'} for both modes, replacing
        'radeCallsign') and show it the same way, live during the over.
     The recorder's freedvView reads radeRxCallsign: keep it working.
+    c. Not decoded at all (user's log 18:39-18:43, 7.186 MHz, RADEV1): three
+       overs synced at SNR 11-23 dB, the reporter sent rx_report with an
+       empty callsign each time, and no "RADE: decoded callsign" line ever
+       appeared - so the EOO callsign failed, not only its display. Our
+       loopback test passes (same encoder and decoder on both sides), so a
+       real-world difference is likely: (1) the RADE C code is 89 commits
+       behind rade_c, including a2d77e8 "V1 rx: enable phase
+       renormalization to prevent long-run drift" - these overs were
+       ~30 s, and the EOO comes last, after any drift (do item 6 with
+       this); (2) the station may not send a callsign. Add diagnostics:
+       log "RADE: end of over seen" when rade_rx flags hasEoo, and "RADE:
+       EOO callsign did not decode" when no text follows, so the log says
+       which; then test against freedv-gui's own all_radev1.wav and an
+       on-air station known to send its call.
