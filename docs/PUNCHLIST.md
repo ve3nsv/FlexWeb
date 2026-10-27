@@ -664,3 +664,36 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     OFF, per browser (localStorage), next to SYNC SCOPE and SYNC TRIM; OFF =
     today's behaviour (always in sync). SYNC SCOPE OFF still turns sync off
     altogether, as in wfweb / AetherSDR.
+26. TX / RX switching delays and the MOX blip (user, 2026-10-27; medium).
+    Seen on the FLEX-6400 + RF2K-S, 3.578 USB JS8 (video
+    FlexWeb_VE3NSV_20261027_181956_3578kHz_USB.mp4) and the server log
+    (radio on the air 47-127 ms after xmit 1). Seven parts:
+    a. TUNE: toggleTuneCarrier does not call flushAudio, so 200-400 ms of
+       buffered RX audio keeps playing after TUNE starts. Flush there too.
+    b. MOX release: releasePTT waits a fixed 300 ms before setPTT false.
+       Wait only for the mic audio actually still in flight (what was sent
+       minus what the radio has played), then unkey.
+    c. RX after TX: the jitter buffer refills to its full target before RX
+       audio is heard again. On TX -> RX flush and fast-start with a short
+       fade-in.
+    d. MOX blip: on PTT press the page flushes, but the radio keeps
+       streaming RX audio until it is on the air (47-127 ms), and that
+       slice plays alone as a blip. Server tells the page when the
+       interlock reports TRANSMITTING (and when it drops); the page mutes
+       RX audio from the PTT press until then and through the TX.
+    e. Held mic audio: flexCommander holds DAX TX audio until on the air,
+       then sends it at once. One press held 336 ms for a 100 ms key-up
+       (mic started before xmit 1), leaving the voice ~1/3 s behind for the
+       whole over and risking a cut tail at unkey. Keep only the last
+       key-up's worth (drop older held packets).
+    f. JS8 trailing silence: js8.mjs synthesize() returns a full slot, so
+       the last frame of every TX carries ~2 s of silence (Normal 15 s slot,
+       signal ends 13.1 s; Fast / JS8 40 ~2 s; Slow ~4.4 s), plus the 200 ms
+       wait in streamDigiAudio's finish(), before setPTT false and the
+       panel's return to RX. Trim the silence after the last frame's final
+       symbol (keep the gaps between frames, they hold slot alignment).
+       JS8Call unkeys right after the last tone.
+    g. Jitter buffer growth: the deliberate flush on PTT / TUNE / digital TX
+       is counted as an underrun ("[Audio] underrun #15: 61 ms gap, buffer
+       132 -> 135 ms"), so the target creeps up a little every over. Do not
+       count a flush (or the TX gap after it) as an underrun.
