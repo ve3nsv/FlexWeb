@@ -721,9 +721,11 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
        on the rig's own return to RX (TX timeout).
 27. Panel buttons toggle (user, 2026-10-27; easy). The AUDIO button in the
     TX applet (desktop layout) opens FUNC > AUDIO / TX, but clicking it
-    again does nothing - only the panel's exit button closes it. Make the
-    button a toggle: open when closed, close (back to the default view)
-    when that panel is already open; the exit button keeps working. Same
-    for the other buttons that open a panel the same way (PROC..., NNR...,
-    and the like), so every panel button behaves alike. Show the button lit
-    while its panel is open.
+    again does nothing - only the panel's exit button closes it. Make it a
+    toggle: open when closed, close (back to the default view) when that
+    panel is already open; the exit button keeps working. Every tab /
+    button that opens a panel behaves alike (user: "other tabs also").
+    Already toggle: MODE..., FUNC, the gain tile, MEMORIES. To change:
+    AUDIO, PROC..., NNR..., EQ, RX DSP, ANT, BAND, AMP, SPAN and the
+    frequency entry - one helper, togglePanel(name), used by all of them.
+    Show the button lit while its panel is open.
