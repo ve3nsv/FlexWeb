@@ -782,3 +782,14 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     bar case keeps working. As AetherSDR's panadapter / waterfall splitter.
     Also under FUNC > SPAN as a tile (SPLIT 25 / 35 / 50 / 65 %) for
     keyboard-only use.
+32. RF2K-S forward power peak marker (user, 2026-10-27; easy). The FWD
+    bar in the AMP applet (aeRenderAmp, index.html ~7181) and in FUNC > AMP
+    (ampBar, ~7867) shows only the latest reading, so on SSB it jumps
+    around and the peaks are hard to read. Add a peak marker like the
+    S-meter's: a thin bright tick at the highest FWD seen, held ~1.5 s,
+    then falling smoothly (about 400 W/s) toward the current reading;
+    cleared at unkey (FWD back under 1 W). Show the peak in the value too
+    ("620 W  pk 980"). Page-only: the peak is kept from each {type:'amp'}
+    update (the server polls the amp every kPollIntervalMs), and the
+    marker is drawn on its own element so it can fall between updates
+    without rebuilding the applet. Same marker on REF.
