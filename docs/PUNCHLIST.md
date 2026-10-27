@@ -617,3 +617,12 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     TX", "2 guests". Guests see the count and the named users but not other
     guests' addresses. Also on the terminal status page (names instead of
     just the browser count).
+23. Guests hear the transmitting operator (user, 2026-10-27; easy). Today a
+    guest hears nothing while someone transmits: TX LISTEN is set by the
+    page's setTxListen, which guests may not send, and the server's default
+    for a browser that never sent it is OFF. Fix: a guest starts on
+    OPERATOR (the operator's microphone straight through) at its own LISTEN
+    VOL, like a signed-in user's default; guests may send setTxListen with
+    OPERATOR or OFF (added to guestAllowed / GUEST_CMDS) but not ON-AIR,
+    which switches the radio's monitor on. LISTEN VOL and DIGI LISTEN stay
+    local to the guest's browser.
