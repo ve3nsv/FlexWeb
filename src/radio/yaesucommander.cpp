@@ -1851,7 +1851,11 @@ void yaesuCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
             else if(!strcmp(value.typeName(),"bool") || !strcmp(value.typeName(),"uchar") || !strcmp(value.typeName(),"int"))
             {
                 // This is a simple number
-                if(func==funcTunerStatus) {
+                if (func == funcSplitStatus && cmd.data == "FT") {
+                    // FT-991A: split = transmit on VFO B. FT reads 0 / 1 but
+                    // is set with 2 (TX on VFO A) / 3 (TX on VFO B).
+                    payload.append(value.value<uchar>() ? '3' : '2');
+                } else if(func==funcTunerStatus) {
                     switch(value.value<uchar>()) {
                     case 0:
                         // Turn it off

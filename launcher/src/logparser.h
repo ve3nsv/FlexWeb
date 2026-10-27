@@ -38,6 +38,9 @@ struct LogEvent {
         RigModel,           // detail = model name
         LanLoginFailed,
         LanFailed,          // detail = reason
+        RigOnDemand,        // --on-demand: the rig is connected only while a browser is on
+        RigReleased,        // --on-demand: no browser, the rig was let go
+        RigReconnecting,    // --on-demand: a browser came, connecting to the rig
         AudioWarning,       // detail = message
         Note                // detail = message (CLI override, settings path)
     };

@@ -25,6 +25,7 @@ ConsoleSnapshot fullSnapshot()
     s.restUrl = "http://192.168.1.42:8081/";
     s.rigctld = "127.0.0.1:4532";
     s.browsers = 2;
+    s.browserNames = "ve3nsv, 1 guest";
     s.model = "IC-7300";
     s.transport = "/dev/ttyUSB0 @ 115200";
     s.rigConnected = true;
@@ -75,6 +76,7 @@ int main()
         require(contains(lines, "IC-7300 on /dev/ttyUSB0 @ 115200  CONNECTED"), "rig line");
         require(contains(lines, "14.074.000 USB  RX"), "frequency line");
         require(contains(lines, "2 connected"), "browser count");
+        require(contains(lines, "2 connected: ve3nsv, 1 guest"), "who is connected, by name");
         require(contains(lines, "http://192.168.1.42:8081/"), "REST URL");
         require(contains(lines, "127.0.0.1:4532"), "rigctld");
         require(contains(lines, "/tmp/wfweb-20261004101500.log"), "log file");

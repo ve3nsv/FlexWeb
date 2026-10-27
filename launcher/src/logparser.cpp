@@ -100,6 +100,11 @@ LogEvent classify(const QString &message)
     if (s.contains("Radio not responding")) return event(LogEvent::LanFailed, "radio not responding");
     if (s.contains("Got radio disconnected")) return event(LogEvent::LanFailed, "radio disconnected");
 
+    // --on-demand (src/webserver.cpp onDemand*, src/servermain.cpp)
+    if (s.startsWith("On-demand: no browser for")) return event(LogEvent::RigReleased);
+    if (s.startsWith("On-demand: browser connected")) return event(LogEvent::RigReconnecting);
+    if (s.startsWith("On-demand: connecting to the rig when a browser")) return event(LogEvent::RigOnDemand);
+
     // Audio (src/webserver.cpp, src/servermain.cpp)
     if (s.startsWith("Web: No rig audio device found")
         || s.startsWith("No local audio devices found")

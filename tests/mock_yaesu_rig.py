@@ -58,6 +58,9 @@ class MockYaesuRig:
         for k in sorted(self.widths, key=len, reverse=True):
             if c.startswith(k) and len(c) > len(k):   # a set
                 self.values[k] = c[len(k):]
+                if k == "FT":
+                    # set with FT2 / FT3, read back as FT0 / FT1 (FT-991A)
+                    self.values["FT"] = "1" if c[len(k):] in ("1", "3") else "0"
                 if k == "TX":
                     # keyed: some power and a good match on the meters
                     keyed = self.values["TX"] != "0"

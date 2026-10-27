@@ -45,11 +45,16 @@ def mk(**kv):
 
 DROP = {"Data Off Mod Input", "USB Mod Level", "ACC1 Mod Level", "Anti-Vox Gain", "RIT Frequency",
         "System Date", "System Time", "Memory Tag", "Scope Speed", "Scope Span", "Scope Mode",
-        "Split/Duplex", "VFO A Select", "VFO B Select", "Meter Type"}
+        "VFO A Select", "VFO B Select", "Meter Type"}
 cmds = []
 for c in entries("Commands"):
     if c["Type"] in DROP or c["String"].startswith("EX"):
         continue
+    if c["Type"] == "Split/Duplex":
+        # The FT-991A has no ST: split is the TX VFO, FT. It reads FT0 (TX on
+        # VFO A) / FT1 (TX on VFO B) and is set with FT2 / FT3;
+        # yaesuCommander maps the set (punch list: FT-991A split).
+        c.update(String="FT", Min="0", Max="1", Bytes="1", PadRight="false")
     if c["Type"] == "RIT Status":
         c.update(String="RT", Bytes="1", PadRight="false")
     if c["Type"] == "Band Stacking Reg":

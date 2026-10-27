@@ -181,7 +181,9 @@ QStringList ConsoleStatus::render(const ConsoleSnapshot &snap, int cols, int row
     if (snap.rigConnected && !snap.frequency.isEmpty())
         field(Frequency, "Frequency", snap.frequency + " " + snap.mode + (snap.transmitting ? "  TX" : "  RX"));
     if (snap.web == ConsoleSnapshot::WebListening)
-        field(Browsers, "Browsers", snap.browsers > 0 ? QString("%1 connected").arg(snap.browsers) : "none connected");
+        field(Browsers, "Browsers", snap.browsers > 0
+              ? QString("%1 connected").arg(snap.browsers) + (snap.browserNames.isEmpty() ? QString() : ": " + snap.browserNames)
+              : "none connected");
     if (!snap.restUrl.isEmpty())
         field(Rest, "REST API", snap.restFailed ? "FAILED to listen (" + snap.restUrl + ")" : snap.restUrl);
     if (!snap.rigctld.isEmpty())

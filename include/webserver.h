@@ -2,6 +2,8 @@
 #define WEBSERVER_H
 
 #include <QObject>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QFile>
@@ -91,6 +93,9 @@ public:
     ListenState restListenState() const { return ListenState(restListen_.load()); }
     bool httpsActive() const { return httpsActive_.load(); }
     int browserCount() const { return browserCount_.load(); }
+    // Who is connected, for the terminal status page (main thread): names,
+    // addresses when login is off, guests counted together.
+    QString browserNames() const { QMutexLocker l(&browserNamesMutex_); return browserNames_; }
 
 signals:
     void closed();
@@ -414,6 +419,8 @@ private:
     std::atomic<int> restListen_{ListenPending};
     std::atomic<bool> httpsActive_{false};
     std::atomic<int> browserCount_{0};
+    mutable QMutex browserNamesMutex_;
+    QString browserNames_;
 
     // SSL
     bool sslEnabled = false;

@@ -224,6 +224,15 @@ int main()
         e = classified("icomUdpHandler : Got radio disconnected.");
         require(e.kind == LogEvent::LanFailed, "LAN disconnected");
 
+        e = classified("On-demand: no browser for 30 s, releasing the rig");
+        require(e.kind == LogEvent::RigReleased, "on-demand release");
+        e = classified("On-demand: browser connected, connecting to the rig");
+        require(e.kind == LogEvent::RigReconnecting, "on-demand reconnect");
+        e = classified("On-demand: connecting to the rig when a browser opens the page, releasing it 30 s after the last one closes");
+        require(e.kind == LogEvent::RigOnDemand, "on-demand at startup");
+        e = classified("On-demand: last browser closed, releasing the rig in 30 s unless one comes back");
+        require(e.kind == LogEvent::Plain, "the release countdown is plain");
+
         e = classified("Web: No rig audio device found for direct capture");
         require(e.kind == LogEvent::AudioWarning, "audio warning (web capture)");
         e = classified("No local audio devices found for \"IC-7300\" - skipping local audio setup (LAN audio unaffected)");

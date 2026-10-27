@@ -9160,6 +9160,18 @@ void webServer::scheduleClientsBroadcast()
 // guest is never shown another browser's address.
 void webServer::broadcastClients()
 {
+    {
+        QStringList names;
+        int guests = 0;
+        for (QWebSocket *c : wsClients) {
+            if (isGuest(c)) { guests++; continue; }
+            const QString user = wsUser.value(c);
+            names << (user.isEmpty() ? clientLabel(c) : user) + (c == pttClient ? QStringLiteral(" (TX)") : QString());
+        }
+        if (guests) names << QString("%1 guest%2").arg(guests).arg(guests > 1 ? "s" : "");
+        QMutexLocker l(&browserNamesMutex_);
+        browserNames_ = names.join(QStringLiteral(", "));
+    }
     for (QWebSocket *to : wsClients) {
         const bool toGuest = isGuest(to);
         QJsonArray list;

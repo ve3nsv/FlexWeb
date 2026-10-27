@@ -446,6 +446,7 @@ ConsoleSnapshot servermain::consoleSnapshot()
         snap.webPort = (cliOverrides.webPort > 0) ? cliOverrides.webPort : prefs.webPort;
         snap.https = web->httpsActive();
         snap.browsers = web->browserCount();
+        snap.browserNames = web->browserNames();
         switch (web->webListenState()) {
         case webServer::ListenPending: snap.web = ConsoleSnapshot::WebStarting; break;
         case webServer::ListenOk:      snap.web = ConsoleSnapshot::WebListening; break;

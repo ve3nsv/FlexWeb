@@ -282,6 +282,9 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 68 (2026-10-27): items 27, 28, 29, 30, 31, 22's terminal names and
+the FT-991A split are done (the split needs the user's test on the radio).
+
 Build 67 (2026-10-27): 26h and 26i are done (TUNE no longer timed as a
 key-up; RX stays muted through TX unless MON is on).
 

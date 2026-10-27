@@ -27,6 +27,7 @@ struct ConsoleSnapshot {
     bool restFailed = false;
     QString rigctld;            // "127.0.0.1:4532", empty when disabled
     int browsers = 0;
+    QString browserNames;       // "ve3nsv, amy, 2 guests" (punch list 22), empty when unknown
 
     QString model;              // empty until the rig is identified
     QString transport;          // "/dev/ttyUSB0 @ 115200" or "LAN 192.168.1.50"

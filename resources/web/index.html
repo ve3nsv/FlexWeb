@@ -121,6 +121,15 @@ html, body {
 body.guest-view input[type=range]:not(.rx-vol-slider) { opacity: 0.4; pointer-events: none; }
 body.guest-view .gain-row:not(.rx-vol-row) .gain-bar-fill { opacity: 0.4; }
 #userBtn.guest::after { content: ' \00b7  VIEW ONLY'; color: #e0a020; }
+#discBtn.confirm { color: #f0a020; border-color: #f0a020; max-width: none; }
+/* DISCONNECT (punch list 30): the screen shown after this browser left */
+#discScreen { position: fixed; inset: 0; z-index: 9998; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 14px; padding: 24px; text-align: center;
+    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #0a0a0a 100%);
+    color: #8aa; font: 14px system-ui, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; }
+#discScreen b { font-size: 22px; color: #0aa; }
+#discScreen button { padding: 14px 44px; font-size: 18px; font-weight: bold; color: #000; border: none;
+    border-radius: 8px; cursor: pointer; background: linear-gradient(135deg, #0aa 0%, #088 100%); }
 #guestNotice {
     position: fixed; left: 50%; top: 52px; transform: translateX(-50%); z-index: 500;
     padding: 7px 14px; border-radius: 5px; background: #2b2110; color: #ffd27a;
@@ -490,6 +499,19 @@ body.no-scope #aeZoom, body.no-scope #spanEdgeLeft, body.no-scope #spanEdgeRight
     background: var(--bg);
     image-rendering: pixelated;
 }
+/* Spectrum / waterfall divider (punch list 31), placed by resizeCanvases */
+#specDivider {
+    position: absolute; left: 0; right: 0; top: 35%; height: 8px;
+    transform: translateY(-50%); z-index: 4; cursor: row-resize; touch-action: none;
+}
+#specDivider::after {
+    content: ''; position: absolute; left: 50%; top: 50%; width: 36px; height: 3px;
+    transform: translate(-50%, -50%); border-radius: 2px;
+    background: rgba(160, 200, 220, 0.35);
+}
+#specDivider:hover::after, #specDivider.dragging::after { background: rgba(0, 204, 204, 0.9); width: 60px; }
+#specDivider:hover, #specDivider.dragging { background: rgba(0, 170, 170, 0.12); }
+body.digi-open #specDivider, body.js8-open #specDivider, body.no-scope #specDivider { display: none; }
 /* Span labels at edges of spectrum */
 #spanEdgeLeft, #spanEdgeRight {
     position: absolute; top: 35%;
@@ -2430,8 +2452,12 @@ try {
         <div style="font-size: 48px; font-weight: bold; color: #0aa; margin-bottom: 8px; text-shadow: 0 0 20px rgba(0, 170, 170, 0.5);">FlexWeb</div>
         <div id="splashTagline" style="font-size: 14px; color: #888; margin-bottom: 28px;">Remote Control &amp; Web Interface</div>
 
-        <button id="startBtn" style="padding: 20px 60px; font-size: 24px; font-weight: bold; color: #000; background: linear-gradient(135deg, #0aa 0%, #088 100%); border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 15px rgba(0, 170, 170, 0.4); transition: all 0.3s ease;" onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 6px 20px rgba(0, 170, 170, 0.6)';" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 4px 15px rgba(0, 170, 170, 0.4)';">
-            CLICK TO START
+        <!-- Punch list 28: drawn before the page's scripts have loaded (over
+             the WAN that takes seconds). Until the start handler is attached
+             it reads LOADING..., and a click then is remembered (wfStartEarly)
+             and carried out as soon as the handler is ready. -->
+        <button id="startBtn" style="padding: 20px 60px; font-size: 24px; font-weight: bold; color: #000; background: linear-gradient(135deg, #0aa 0%, #088 100%); border: none; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 15px rgba(0, 170, 170, 0.4); transition: all 0.3s ease; opacity: 0.6;" onmouseover="this.style.transform='scale(1.05)'; this.style.boxShadow='0 6px 20px rgba(0, 170, 170, 0.6)';" onmouseout="this.style.transform='scale(1)'; this.style.boxShadow='0 4px 15px rgba(0, 170, 170, 0.4)';" onclick="if (!window.wfStartReady) { window.wfStartEarly = true; this.textContent = 'STARTING\u2026'; }">
+            LOADING&hellip;
         </button>
         <div id="splashHint" style="margin-top: 20px; font-size: 12px; color: #666;">Enable RX Audio</div>
         <div id="splashError"  style="margin-top: 16px; min-height: 18px; font-size: 12px; color: #f88;"></div>
@@ -2502,6 +2528,7 @@ try {
         <button id="recBtn" class="rec-btn" title="Record">REC</button>
         <button id="qsoLogBtn" class="qso-log-btn" title="Log QSO">LOG</button>
         <button id="userBtn" class="user-btn" hidden title="Signed in. Tap to sign out" onclick="userBtnClick()"></button>
+        <button id="discBtn" class="user-btn" title="Disconnect this browser (tap twice)" onclick="discBtnClick()">&#x23CF;</button>
         <span id="clock">--:--</span>
         <button id="fullscreenBtn" title="Full Screen" onclick="toggleFullscreen()">&#x26F6;</button>
         <button id="powerBtn" class="on" title="Power" onclick="togglePower()">&#x23FB;</button>
@@ -2528,7 +2555,7 @@ try {
 
     <!-- Row 3: Scope info bar -->
     <div id="scopeInfoBar">
-        <span id="spanIndicator" onclick="setPanel('span')"></span>
+        <span id="spanIndicator" onclick="togglePanel('span')"></span>
         <span id="scopeLabel">SPECTRUM SCOPE</span>
         <span id="otherVfoFreq">---.---.---</span>
     </div>
@@ -2537,6 +2564,7 @@ try {
     <div id="scopeArea">
         <canvas id="spectrumCanvas" width="800" height="150"></canvas>
         <canvas id="waterfallCanvas" width="800" height="200"></canvas>
+        <div id="specDivider" role="separator" aria-orientation="horizontal" title="Drag to resize the spectrum and waterfall; double-click for the default"></div>
         <!-- AetherSDR layout, desktop: span zoom on the panadapter -->
         <div id="aeZoom">
             <button type="button" aria-label="Zoom out (wider span)" onclick="aeZoom(1)">&#x2212;</button>
@@ -3144,7 +3172,7 @@ try {
         <div id="toneIndicator" class="spectrum-warning" style="display: none;" onclick="openToneModal()"></div>
         <div id="rfGainIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('gain')"></div>
         <div id="rxVolIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('gain')"></div>
-        <div id="ampIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('amp')" title="RF-KIT amplifier"></div>
+        <div id="ampIndicator" class="spectrum-warning" style="display: none;" onclick="togglePanel('amp')" title="RF-KIT amplifier"></div>
     </div>
 
     <!-- Row 5: Bottom bar -->
@@ -3722,6 +3750,7 @@ function onTransportClose() {
     audioAvailable = false;
     txAudioAvailable = false;
     updateWarningVisibility();
+    if (sessionClosed) return;   // DISCONNECT: stay off until RECONNECT
     scheduleReconnect();
     // Web login: a refused or expired session ends here too. The page itself
     // came through the login, so a 401 now means the session is gone.
@@ -3785,6 +3814,58 @@ function userBtnClick() {
     userBtnTimer = setTimeout(function () { setWebUser(webUser); }, 3000);
 }
 
+// DISCONNECT (punch list 30). Tap twice: this browser unkeys, stops its
+// audio and mic and closes its connection, so it no longer holds the radio
+// for --on-demand. The last browser on the server also releases the radio at
+// once (disconnectLan) instead of after the on-demand wait; with others on,
+// only this browser leaves. RECONNECT on the screen it leaves comes back.
+var sessionClosed = false, discBtnTimer = null;
+function discOthers() { return peopleList.filter(function (p) { return !p.you; }).length; }
+function discBtnClick() {
+    var b = document.getElementById('discBtn');
+    if (b.classList.contains('confirm')) { disconnectSession(); return; }
+    var n = discOthers();
+    b.classList.add('confirm');
+    b.textContent = n ? 'LEAVE? ' + n + ' other' + (n > 1 ? 's' : '') + ' stay' : 'DISCONNECT?';
+    clearTimeout(discBtnTimer);
+    discBtnTimer = setTimeout(function () { b.classList.remove('confirm'); b.innerHTML = '&#x23CF;'; }, 3000);
+}
+function disconnectSession() {
+    var b = document.getElementById('discBtn');
+    clearTimeout(discBtnTimer);
+    b.classList.remove('confirm'); b.innerHTML = '&#x23CF;';
+    if (pttLatched) { pttLatched = false; clearTimeout(pttLatchTimer); pttLatchTimer = null; }
+    if (pttReleaseTimer) { clearTimeout(pttReleaseTimer); pttReleaseTimer = null; }
+    try { if (typeof haltDigiTx === 'function') haltDigiTx(); } catch (e) {}
+    if (cwKeyer) try { cwKeyer.stop(); } catch (e) {}
+    if (isTransmitting && !txOtherBy && !guestView) send({ cmd: 'setPTT', value: false });
+    if (talkOn && typeof toggleTalk === 'function') try { toggleTalk(); } catch (e) {}
+    if (micEnabled || micStarting) stopMic();
+    if (audioEnabled) stopAudio();
+    var release = !guestView && discOthers() === 0 && lanConnected;
+    if (release) send({ cmd: 'disconnectLan' });
+    sessionClosed = true;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    // let the commands above leave before the socket closes
+    setTimeout(function () { if (wsTransport) wsTransport.close(); }, 300);
+    var sc = document.createElement('div');
+    sc.id = 'discScreen';
+    sc.innerHTML = '<b>Disconnected</b><div>' + (release ? 'The radio was released.' :
+        'This browser left; the radio stays with the others.') + '</div>' +
+        '<button type="button" id="discReconnect">RECONNECT</button>';
+    document.body.appendChild(sc);
+    document.getElementById('discReconnect').onclick = reconnectSession;
+}
+function reconnectSession() {
+    var sc = document.getElementById('discScreen');
+    if (sc) sc.remove();
+    sessionClosed = false;
+    connect();
+    // this click is the gesture the audio needs; it starts once the server
+    // says audio is available (as CLICK TO START)
+    if (!audioCtx) { audioCtx = createRxAudioCtx(); audioStartPending = true; }
+}
+
 function ensureWsTransport() {
     if (wsTransport) return;
     wsTransport = new WebSocketRigTransport();
@@ -3802,6 +3883,7 @@ function connect() {
 }
 
 function scheduleReconnect() {
+    if (sessionClosed) return;
     if (!reconnectTimer) {
         reconnectTimer = setTimeout(function () { reconnectTimer = null; connect(); }, 3000);
     }
@@ -5858,7 +5940,7 @@ function renderRxDspOverlay() {
     grid.appendChild(makeFuncBtn('+ NOTCH', 'AT VFO', false, function () { sendFlexDsp('tnfAdd', 0, 0, true); }));
     if (flexDsp.nnr !== undefined)
         grid.appendChild(makeFuncBtn('NNR\u2026', flexDsp.nnr ? (flexDsp.nnrModel ? 'PREMIUM' : 'STANDARD') : 'OFF', !!flexDsp.nnr,
-            function () { setPanel('nnr'); }));
+            function () { togglePanel('nnr'); }));
     grid.appendChild(dspBackButton());
     wrap.appendChild(grid);
     function row(label, key, min, max, enabled) {
@@ -6491,6 +6573,9 @@ function drawTxMeters(ctx, cw, ch, barX, barW) {
 // BOTTOM BAR + PANEL SYSTEM
 // ============================================================
 
+// Punch list 27: a button that opens a panel closes it when that panel is
+// already open (the panel's own exit button keeps working).
+function togglePanel(name) { setPanel(currentPanel === name ? 'default' : name); }
 function setPanel(name) {
     hideAllOverlays();
     currentPanel = name;
@@ -6623,11 +6708,11 @@ function getBottomButtons() {
             if (aeDesktop) return aeDesktopButtons(isCW);
             if (aePhone) return aePhoneButtons(isCW);
             return [
-                { label: 'MODE', active: currentPanel === 'mode', action: function() { setPanel('mode'); } },
-                { label: 'BAND', active: currentPanel === 'band', action: function() { setPanel('band'); } },
-                { label: 'FUNC', active: currentPanel === 'func', action: function() { setPanel('func'); } },
+                { label: 'MODE', active: currentPanel === 'mode', action: function() { togglePanel('mode'); } },
+                { label: 'BAND', active: currentPanel === 'band', action: function() { togglePanel('band'); } },
+                { label: 'FUNC', active: currentPanel === 'func', action: function() { togglePanel('func'); } },
 
-                { label: 'GAIN', active: currentPanel === 'gain', action: function() { setPanel('gain'); } },
+                { label: 'GAIN', active: currentPanel === 'gain', action: function() { togglePanel('gain'); } },
                 { label: isCW ? 'KEY' : 'PTT', txActive: isTransmitting, cls: isCW ? 'key-btn' : 'ptt-btn', disabled: currentPanel !== 'default', action: currentPanel !== 'default' ? null : (isCW ? toggleCWBar : function() { handlePTTPress(); }) }
             ];
         case 'audiomiс':
@@ -6949,7 +7034,7 @@ function renderApplets() {
     var pa = getPreampAttState();
     fe.appendChild(aeBtn('P.AMP/ATT ' + pa.label, pa.active, function() { cyclePreampAtt(); }));
     if (flexDsp && flexDsp.rxAntList && flexDsp.rxAntList.length) {
-        fe.appendChild(aeBtn('ANT ' + (flexDsp.rxAnt || '?'), false, function() { setPanel('flexant'); }));
+        fe.appendChild(aeBtn('ANT ' + (flexDsp.rxAnt || '?'), currentPanel === 'flexant', function() { togglePanel('flexant'); }));
     } else if (availableAntennas.length >= 2) {
         fe.appendChild(aeBtn('ANT ' + antennaName(currentAntenna), false, cycleAntenna));
     }
@@ -6958,7 +7043,7 @@ function renderApplets() {
     var rx2 = document.createElement('div'); rx2.className = 'ae-grid ae-grid-2';
     if (currentAgc !== null) rx2.appendChild(aeBtn('AGC ' + agcLabel(currentAgc), currentAgc !== 0, cycleAgc));
     if (flexDsp && typeof renderRxDspOverlay === 'function')
-        rx2.appendChild(aeBtn('DSP\u2026', false, function() { setPanel('rxdsp'); }));
+        rx2.appendChild(aeBtn('DSP\u2026', currentPanel === 'rxdsp', function() { togglePanel('rxdsp'); }));
     if (rx2.children.length) rx.appendChild(rx2);
     // TX: speech processor (Flex), tuner, audio
     if (flexDsp) {
@@ -6973,8 +7058,8 @@ function renderApplets() {
     var tk = document.createElement('div'); tk.className = 'ae-grid ' + (tuneCarrier ? 'ae-grid-4' : 'ae-grid-3');
     if (tuneCarrier) tk.appendChild(aeBtn('TUNE', !!flexDsp.tune, toggleTuneCarrier, flexDsp.tune ? 'ae-tuning' : ''));
     if (hasTuner) tk.appendChild(aeBtn(tunerState === 2 ? 'TUNING' : 'ATU ' + (tunerState ? 'ON' : 'OFF'), tunerState > 0, handleTunerPress));
-    tk.appendChild(aeBtn('AUDIO', false, function() { setPanel('audiomiс'); }));
-    if (flexDsp) tk.appendChild(aeBtn('PROC…', false, function() { setPanel('proc'); }));
+    tk.appendChild(aeBtn('AUDIO', currentPanel === 'audiomiс', function() { togglePanel('audiomiс'); }));
+    if (flexDsp) tk.appendChild(aeBtn('PROC…', currentPanel === 'proc', function() { togglePanel('proc'); }));
     tx.appendChild(tk);
     // AM carrier level, in AM / SAM.
     if (flexDsp && flexDsp.amCarrier !== undefined && /^(AM|SAM)$/.test(currentMode || '')) {
@@ -7034,7 +7119,7 @@ function renderApplets() {
         bars.type = 'button';
         bars.className = 'ae-eq';
         bars.setAttribute('aria-label', 'Open the equaliser');
-        bars.onclick = function() { setPanel('eq'); };
+        bars.onclick = function() { togglePanel('eq'); };
         flexDsp[side].bands.forEach(function(v, i) {
             var col = document.createElement('span');
             col.className = 'ae-eq-col';
@@ -7081,7 +7166,7 @@ function renderApplets() {
         body.type = 'button';
         body.className = 'ae-amp';
         body.setAttribute('aria-label', 'Open the amplifier panel');
-        body.onclick = function() { setPanel('amp'); };
+        body.onclick = function() { togglePanel('amp'); };
         function meter(label, val, max, text) {
             var row = document.createElement('span'); row.className = 'ae-meter';
             var l = document.createElement('span'); l.textContent = label;
@@ -7186,19 +7271,19 @@ function aePhoneButtons(isCW) {
     out.push({ label: 'TX', sub: flexDsp ? (flexDsp.proc ? ['NOR', 'DX', 'DX+'][flexDsp.procLevel] : 'PROC OFF') : 'AUDIO',
                cls: 'ae-tile', action: function() { setPanel(flexDsp ? 'proc' : 'audiomiс'); } });
     if (flexDsp) out.push({ label: 'EQ', sub: flexDsp.rxEq.on ? (flexDsp.txEq.on ? 'RX+TX' : 'RX') : (flexDsp.txEq.on ? 'TX' : 'OFF'),
-               cls: 'ae-tile', action: function() { setPanel('eq'); } });
+               cls: 'ae-tile', active: currentPanel === 'eq', action: function() { togglePanel('eq'); } });
     if (ampConfigured) {
         var a = ampState || {};
         out.push({ label: 'AMP', sub: !a.connected ? 'OFFLINE' : (a.operate ? 'OPR ' : 'STBY ') + (a.fwd || 0) + ' W',
-                   cls: 'ae-tile', action: function() { setPanel('amp'); } });
+                   cls: 'ae-tile', active: currentPanel === 'amp', action: function() { togglePanel('amp'); } });
     }
     if (flexMemList !== null)
         out.push({ label: 'MEM', sub: String(flexMemList.length), cls: 'ae-tile', active: currentPanel === 'flexmem',
                    action: function() { setPanel(currentPanel === 'flexmem' ? 'default' : 'flexmem'); } });
     out.push({ spacer: true, cls: 'ae-break' });
-    out.push({ label: 'MODE', active: currentPanel === 'mode', action: function() { setPanel('mode'); } });
-    out.push({ label: 'BAND', active: currentPanel === 'band', action: function() { setPanel('band'); } });
-    out.push({ label: 'FUNC', active: currentPanel === 'func', action: function() { setPanel('func'); } });
+    out.push({ label: 'MODE', active: currentPanel === 'mode', action: function() { togglePanel('mode'); } });
+    out.push({ label: 'BAND', active: currentPanel === 'band', action: function() { togglePanel('band'); } });
+    out.push({ label: 'FUNC', active: currentPanel === 'func', action: function() { togglePanel('func'); } });
     out.push({ label: isCW ? 'KEY' : 'PTT', txActive: isTransmitting, cls: isCW ? 'key-btn' : 'ptt-btn',
                disabled: currentPanel !== 'default', action: currentPanel !== 'default' ? null : (isCW ? toggleCWBar : function() { handlePTTPress(); }) });
     return out;
@@ -7352,7 +7437,7 @@ function renderBandOverlay() {
             var finp = document.createElement('button');
             finp.className = 'ov-btn';
             finp.textContent = 'F-INP';
-            finp.onclick = function() { setPanel('freqinp'); };
+            finp.onclick = function() { togglePanel('freqinp'); };
             grid.appendChild(finp);
         } else if (r < rows - 1) {
             grid.appendChild(spacer());
@@ -7411,7 +7496,7 @@ function renderFuncOverlay() {
     if (flexDsp && flexDsp.rxAntList && flexDsp.rxAntList.length) {
         // A Flex: separate RX and TX antennas from the radio's own lists.
         grid.appendChild(makeFuncBtn('ANT', (flexDsp.rxAnt || '?') + (flexDsp.txAnt && flexDsp.txAnt !== flexDsp.rxAnt ? ' / ' + flexDsp.txAnt : ''),
-            false, function() { setPanel('flexant'); }));
+            false, function() { togglePanel('flexant'); }));
     } else if (availableAntennas.length >= 2) {
         grid.appendChild(makeFuncBtn('ANT', antennaName(currentAntenna), false, cycleAntenna));
         if (hasRxAnt) {
@@ -7443,9 +7528,16 @@ function renderFuncOverlay() {
     if (ampConfigured) {
         var ampSt = !ampState || !ampState.connected ? 'OFFLINE' : (ampState.operate ? 'OPERATE' : 'STANDBY');
         grid.appendChild(makeFuncBtn('AMP', ampSt, !!(ampState && ampState.connected && ampState.operate), function() {
-            setPanel('amp');
+            togglePanel('amp');
         }));
     }
+
+    // DISCONNECT (punch list 30): this browser leaves; the last one also
+    // releases the radio. Asks with the top-bar button's two-tap confirm.
+    grid.appendChild(makeFuncBtn('DISCONNECT', (discOthers() || guestView) ? 'THIS BROWSER' : 'RELEASE RADIO', false, function() {
+        setPanel('default');
+        discBtnClick();
+    }));
 
     // PTT: HOLD (press and hold) or LATCH (tap on, tap off).
     grid.appendChild(makeFuncBtn('PTT', pttLatchMode ? 'LATCH' : 'HOLD', pttLatchMode, function() {
@@ -7464,16 +7556,16 @@ function renderFuncOverlay() {
     if (flexDsp) {
         var eqOn = flexDsp.rxEq.on || flexDsp.txEq.on;
         grid.appendChild(makeFuncBtn('EQ', (flexDsp.rxEq.on ? 'RX' : '') + (flexDsp.rxEq.on && flexDsp.txEq.on ? '+' : '') +
-            (flexDsp.txEq.on ? 'TX' : '') || 'OFF', eqOn, function() { setPanel('eq'); }));
+            (flexDsp.txEq.on ? 'TX' : '') || 'OFF', eqOn, function() { togglePanel('eq'); }));
         grid.appendChild(makeFuncBtn('PROC', flexDsp.proc ? ['NOR', 'DX', 'DX+'][flexDsp.procLevel] || 'ON' : 'OFF',
-            !!flexDsp.proc, function() { setPanel('proc'); }));
+            !!flexDsp.proc, function() { togglePanel('proc'); }));
         grid.appendChild(makeFuncBtn('RX DSP', (flexDsp.tnfs && flexDsp.tnfs.length ? flexDsp.tnfs.length + ' TNF' : 'LEVELS'),
-            !!(flexDsp.apf || flexDsp.wnb), function() { setPanel('rxdsp'); }));
+            !!(flexDsp.apf || flexDsp.wnb), function() { togglePanel('rxdsp'); }));
     }
     var nnrF = nnrObj();
     if (nnrF && nnrF.nnr !== undefined)
         grid.appendChild(makeFuncBtn('NNR', nnrF.nnr ? (nnrF.nnrModel ? 'PREMIUM' : 'STANDARD') : 'OFF', !!nnrF.nnr,
-            function() { setPanel('nnr'); }));
+            function() { togglePanel('nnr'); }));
 
     // FIL opens the FILTER window (FIL1/2/3, width, twin PBT, shape) the way
     // DUP and TONE open theirs; the tile carries the passband it's set to.
@@ -8679,6 +8771,12 @@ function renderSpanOverlay() {
         }; })(i);
         grid.appendChild(btn);
     }
+    var sp = document.createElement('button');
+    sp.className = 'ov-btn';
+    sp.title = 'Spectrum share of the scope (drag the bar between spectrum and waterfall)';
+    sp.textContent = 'SPLIT ' + Math.round(specSplit * 100) + '%';
+    sp.onclick = cycleSpecSplit;
+    grid.appendChild(sp);
     var mg = document.getElementById('scopeModeGrid');
     mg.innerHTML = '';
     for (var m = 0; m < availableScopeModes.length; m++) {
@@ -10860,6 +10958,69 @@ function updateScopeRefUi() {
     if (auto) auto.classList.toggle('active', scopeRefDb === null);
 }
 
+// Spectrum / waterfall divider (punch list 31): drag the bar between them
+// (mouse or touch) to give the spectrum 15-80 % of the scope; double-click
+// for the default 35 %. Kept per browser (wfSpecSplit); FUNC > SPAN cycles
+// 25 / 35 / 50 / 65 %. While dragging only the CSS sizes move (the canvases
+// stretch); the backing stores are rebuilt once on release.
+var SPEC_SPLIT_DEFAULT = 0.35;
+var specSplit = SPEC_SPLIT_DEFAULT;
+try { var _ss = parseFloat(localStorage.getItem('wfSpecSplit')); if (_ss >= 0.15 && _ss <= 0.8) specSplit = _ss; } catch (e) {}
+var specDivAvailH = 0;
+function setSpecSplit(v, save) {
+    specSplit = Math.max(0.15, Math.min(0.8, v));
+    if (save) try { localStorage.setItem('wfSpecSplit', specSplit.toFixed(3)); } catch (e) {}
+}
+function specDividerPlace(spectH, availH) {
+    specDivAvailH = availH;
+    var d = document.getElementById('specDivider');
+    if (d) d.style.top = spectH + 'px';
+}
+(function () {
+    var d = document.getElementById('specDivider');
+    if (!d) return;
+    var dragging = false;
+    d.addEventListener('pointerdown', function (e) {
+        e.preventDefault(); e.stopPropagation();
+        dragging = true;
+        try { d.setPointerCapture(e.pointerId); } catch (err) {}
+        d.classList.add('dragging');
+    });
+    d.addEventListener('pointermove', function (e) {
+        if (!dragging || specDivAvailH <= 0) return;
+        var top = document.getElementById('scopeArea').getBoundingClientRect().top;
+        setSpecSplit((e.clientY - top) / specDivAvailH, false);
+        var h = Math.round(specDivAvailH * specSplit);
+        var sc = document.getElementById('spectrumCanvas'), wf = document.getElementById('waterfallCanvas');
+        sc.style.height = h + 'px';
+        wf.style.top = h + 'px';
+        wf.style.height = (specDivAvailH - h) + 'px';
+        ['spanEdgeLeft', 'spanEdgeRight'].forEach(function (id) { var el = document.getElementById(id); if (el) el.style.top = h + 'px'; });
+        d.style.top = h + 'px';
+    });
+    function end() {
+        if (!dragging) return;
+        dragging = false;
+        d.classList.remove('dragging');
+        setSpecSplit(specSplit, true);
+        resizeCanvases();
+    }
+    d.addEventListener('pointerup', end);
+    d.addEventListener('pointercancel', end);
+    d.addEventListener('dblclick', function (e) {
+        e.stopPropagation();
+        setSpecSplit(SPEC_SPLIT_DEFAULT, true);
+        resizeCanvases();
+    });
+})();
+function cycleSpecSplit() {
+    var steps = [0.25, 0.35, 0.5, 0.65];
+    var i = steps.findIndex(function (v) { return v > specSplit + 0.01; });
+    setSpecSplit(steps[i < 0 ? 0 : i], true);
+    resizeCanvases();
+    renderSpanOverlay();
+}
+
 function resizeCanvases() {
     var spectCanvas = document.getElementById('spectrumCanvas');
     var wfCanvas = document.getElementById('waterfallCanvas');
@@ -10884,11 +11045,12 @@ function resizeCanvases() {
         availH = Math.round(areaRect.height * (areaRect.width < 760 ? 0.3 : 0.36));
         area.style.setProperty('--sstv-top', availH + 'px');
     }
-    var spectH = Math.round(availH * 0.35);
-    var wfH = Math.round(availH * 0.65);
+    var spectH = Math.round(availH * specSplit);
+    var wfH = availH - spectH;
     spectCanvas.style.height = spectH + 'px';
     wfCanvas.style.top = spectH + 'px';
     wfCanvas.style.height = wfH + 'px';
+    specDividerPlace(spectH, availH);
     // Span edge labels hug the spectrum/waterfall boundary (CSS puts them at
     // 35% of the area; that's wrong once the strip shrinks above the CW bar).
     var seL = document.getElementById('spanEdgeLeft'), seR = document.getElementById('spanEdgeRight');
@@ -16186,13 +16348,23 @@ connect();
 // Splash: simple "click to start audio" gesture. AudioContext can only be
 // resumed inside a user gesture, so the actual startAudio() call must run
 // from the click handler.
-document.getElementById('startBtn').addEventListener('click', function() {
+function onStartClick() {
     document.getElementById('startupOverlay').style.display = 'none';
     setTimeout(focusCwInput, 100);
     if (audioEnabled) return;
     if (audioAvailable) startAudio();
     else if (!audioCtx) { audioCtx = createRxAudioCtx(); audioStartPending = true; }
-});
+}
+(function () {
+    var btn = document.getElementById('startBtn');
+    btn.addEventListener('click', onStartClick);
+    window.wfStartReady = true;
+    // A click made while the page was still loading: the browser already
+    // counts it as user activation, so audio may start now.
+    if (window.wfStartEarly) { onStartClick(); return; }
+    btn.textContent = 'CLICK TO START';
+    btn.style.opacity = '';
+})();
 
 // Initialize CW Decoder
 if (typeof CWDecoder !== 'undefined') {

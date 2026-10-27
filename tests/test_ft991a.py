@@ -94,6 +94,20 @@ def test_s_meter_and_ptt(ft991a):
     assert _wait(lambda: rig.commands[-200:].count("TX0") >= 1, timeout=5)
 
 
+def test_split(ft991a):
+    """The FT-991A has no ST: split is the TX VFO, set with FT3 (TX on B) /
+    FT2 (TX on A) and read back as FT1 / FT0."""
+    rig, rest, _ = ft991a
+    r = requests.put(f"{rest}/tx", json={"split": True}, timeout=5)
+    assert r.ok, r.text
+    assert _wait(lambda: "FT3" in rig.commands, timeout=5), rig.find("FT")
+    assert rig.values["FT"] == "1"
+    r = requests.put(f"{rest}/tx", json={"split": False}, timeout=5)
+    assert r.ok, r.text
+    assert _wait(lambda: "FT2" in rig.commands, timeout=5), rig.find("FT")
+    assert not any(c.startswith("ST") for c in rig.commands)
+
+
 def test_nothing_unsupported(ft991a):
     rig, _, _ = ft991a
     time.sleep(1.0)

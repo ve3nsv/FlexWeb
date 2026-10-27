@@ -949,6 +949,17 @@ void MainWindow::onLogLine(const QString &text)
     case LogEvent::LanFailed:
         setRigHint(QStringLiteral("LAN: %1").arg(e.detail), false);
         break;
+    case LogEvent::RigOnDemand:
+        setRigHint("on demand: connects when a browser opens the page", true);
+        break;
+    case LogEvent::RigReleased:
+        // Punch list 29: the status used to stay on "<rig> connected".
+        m_rigConnected = false;
+        setRigHint("released, waiting for a browser", true);
+        break;
+    case LogEvent::RigReconnecting:
+        setRigHint("a browser opened the page, connecting", true);
+        break;
     case LogEvent::Plain:
     case LogEvent::AudioWarning:
     case LogEvent::Note:
@@ -977,16 +988,23 @@ void MainWindow::onListening(bool https)
 
 void MainWindow::onStatus(const QJsonObject &info)
 {
-    const bool connected = info.value(QStringLiteral("connected")).toBool();
+    // A LAN rig's capabilities stay loaded after its session is released
+    // (--on-demand, Disconnect), so "connected" alone is not enough.
+    const bool lanDown = info.value(QStringLiteral("isLan")).toBool()
+                         && !info.value(QStringLiteral("lanConnected")).toBool();
+    const bool connected = info.value(QStringLiteral("connected")).toBool() && !lanDown;
     const QString model = info.value(QStringLiteral("model")).toString();
     if (connected) {
         m_rigConnected = true;
         setRigStatus(model.isEmpty() ? QStringLiteral("connected") : model + " connected", true);
         return;
     }
+    const bool was = m_rigConnected;
     m_rigConnected = false;
     if (m_rigHint.isEmpty())
         setRigStatus("waiting for the rig", true);
+    else if (was)
+        setRigStatus(m_rigHint, m_rigHintOk);
 }
 
 void MainWindow::onProbeTimeout()

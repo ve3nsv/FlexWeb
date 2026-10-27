@@ -9,6 +9,34 @@ upstream wfview history.
 Unreleased
 ----------
 
+Page:
+- Panel buttons toggle: a second click on AUDIO, PROC..., NNR..., EQ, RX
+  DSP, ANT, BAND, AMP, SPAN, MODE, FUNC, GAIN or the frequency entry closes
+  the panel it opened (the exit button still works); the button is lit
+  while its panel is open.
+- CLICK TO START works on the first click: it reads LOADING... until the
+  page's scripts are in, and a click made while loading is carried out as
+  soon as they are (over the internet the button used to ignore clicks for
+  a few seconds).
+- DISCONNECT (top bar, tap twice; also FUNC): this browser unkeys, stops
+  its audio and mic and leaves, so it no longer holds the radio. The last
+  browser on the server also releases the radio at once; with others on,
+  only this browser leaves. RECONNECT brings it back.
+- Movable divider between the spectrum and the waterfall: drag it (mouse or
+  touch) for a 15-80 % spectrum, double-click for the default; kept per
+  browser. FUNC > SPAN has SPLIT 25 / 35 / 50 / 65 %.
+
+Server / launcher:
+- The terminal status page names who is connected ("2 connected: ve3nsv,
+  1 guest"), not only how many.
+- The launcher follows --on-demand: "released, waiting for a browser" when
+  the server lets the radio go, "connecting" when a browser brings it back
+  (it kept showing the radio as connected).
+
+Yaesu FT-991A:
+- Split works: the FT-991A has no ST command; split is its TX VFO (FT,
+  set with FT3 / FT2, read as FT1 / FT0).
+
 TX / RX switching:
 - No blip when keying: the receive audio stays silent from the PTT press
   (MOX, TUNE, FT8, JS8, SSTV, packet) until the radio is on the air. A Flex
