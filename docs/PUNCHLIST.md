@@ -750,3 +750,20 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     radio again in the main window; tests in tests/launcher_test.cpp. Note
     for the user: any open FlexWeb tab holds the rig, even one on the
     CLICK TO START splash (the WebSocket connects before the click).
+30. DISCONNECT button in the browser (user, 2026-10-27; easy-medium).
+    Today the only way off is closing the tab, and the only "Disconnect
+    LAN" button (#lanConnBtn, disconnectLan) sits on the "Radio is powered
+    off" screen. Add DISCONNECT to the top bar (next to the people / CPU
+    chips) and FUNC:
+    - This browser: stop RX audio and the mic, unkey if it holds TX, close
+      the WebSocket and show a "Disconnected - RECONNECT" screen (no
+      automatic reconnect while it is shown). The tab then no longer holds
+      the radio for --on-demand.
+    - Last browser on the server: also release the radio at once
+      (disconnectLan) instead of after the --on-demand idle time, so the
+      Flex is free for SmartSDR / another client right away. Ask first
+      when other browsers are connected ("2 others are on - disconnect only
+      this browser?"); never release the radio from under them.
+    - Guests get the same button (it only affects their own session).
+    - RECONNECT reopens the WebSocket; with --on-demand that reconnects the
+      radio as today.
