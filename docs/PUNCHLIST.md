@@ -793,3 +793,20 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     update (the server polls the amp every kPollIntervalMs), and the
     marker is drawn on its own element so it can fall between updates
     without rebuilding the applet. Same marker on REF.
+33. Sidebar disappears when the browser is shrunk (user, 2026-10-27;
+    medium). The desktop layout (slice strip + 320 px applet sidebar) only
+    applies while AE_DESKTOP_MQ matches: (min-width: 1100px) and
+    (min-height: 560px) and landscape (index.html ~6744); below that (a
+    narrowed window, a portrait tablet, a short window) the page falls back
+    to the classic layout and the RX / TX / EQ / AMP applets are gone.
+    Fix, keeping the phone layout (portrait, <= 600 px) as it is:
+    - Desktop layout from 700 px wide and 420 px tall, either orientation.
+    - Sidebar width follows the window: 320 px from 1280 px, 260 px from
+      1000 px (applet rows tighten: smaller fonts / gaps in aether.css).
+    - Under 1000 px the sidebar becomes a drawer over the right of the
+      scope: a PANELS (&#9776;) button at the right end of the slice strip
+      opens / closes it, Escape or a click on the scope closes it, and the
+      last state is kept per browser. Same applets, same ids (moved, not
+      copied, as today).
+    - aeLayout() re-runs on resize (matchMedia listeners), so dragging the
+      window edge switches cleanly; resizeCanvases() follows.
