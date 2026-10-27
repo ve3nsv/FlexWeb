@@ -3851,6 +3851,14 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         // in view sends none).
         applyStationCallsign(cmd["callsign"].toString(), cmd["grid"].toString(), true);
     }
+    else if (type == "setNnr") {
+        // NNR settings for a radio other than the Flex (the Flex takes
+        // them as flexDsp keys): the same keys, the same panel.
+        if (!nnrForThisRig()) return;
+        if (!nnr_) nnr_.reset(new nnrStage());
+        if (nnr_->set(cmd["key"].toString(), cmd["value"].toInt()))
+            sendJsonToAll(nnrStateJson());
+    }
     else if (type == "setSstvSettings") {
         // SSTV band list and / or picture templates, edited in a browser:
         // persisted and pushed to every browser.
@@ -4103,6 +4111,8 @@ void webServer::sendCurrentState(QWebSocket *client)
         d["type"] = "flexDsp";
         sendJsonTo(client, d);
     }
+    if (nnrForThisRig())
+        sendJsonTo(client, nnrStateJson());
     if (haveFlexMemories_) {
         QJsonObject m;
         m["type"] = "flexMemories";
@@ -4444,6 +4454,14 @@ void webServer::receiveCache(cacheItem item)
     case funcRepeaterTSQL: toneFlagTsql = item.value.toBool(); break;
     case funcRepeaterDTCS: toneFlagDtcs = item.value.toBool(); break;
     case funcTunerStatus: tunerRejected = false; break;   // the rig answered: it has a tuner
+    // NNR (nnrRx) runs on voice modes, not while transmitting
+    case funcMode:
+    case funcModeGet:
+    case funcModeSet:
+    case funcSelectedMode:
+        if (item.receiver == 0) nnrModeKind_ = int(item.value.value<modeInfo>().mk);
+        break;
+    case funcTransceiverStatus: nnrTx_ = item.value.toBool(); break;
     // The tone scan reads the squelch, not the browser, so it too is serviced
     // before that shortcut — otherwise a sweep whose last client walked away
     // would run to exhaustion without noticing it had found the tone. Only the
@@ -8506,6 +8524,7 @@ void webServer::onRxConverted(audioPacket audio)
     }
 
     if (audioClients.isEmpty()) return;
+    nnrRx(audio.data);
 
     // Binary format: [0x02][0x00][seq_u16LE][rateDiv_u16LE][PCM_Int16LE...]
     // rateDiv = sampleRate / 1000 (e.g. 48 for 48kHz)
@@ -9051,6 +9070,7 @@ void webServer::readUsbAudio()
     }
 
     if (audioClients.isEmpty()) return;
+    nnrRx(data);
 
     // Build binary message: [0x02][0x00][seq_u16LE][rateDiv_u16LE][PCM_Int16LE...]
     quint16 rateDiv = static_cast<quint16>(rigSampleRate / 1000);
@@ -9090,6 +9110,40 @@ QString webServer::clientLabel(QWebSocket *c) const
 
 // Who is transmitting, for every browser: the page shows "TX: <who>" and
 // holds its PTT while another browser has the radio.
+bool webServer::nnrForThisRig() const
+{
+    return rigCaps && rigCaps->manufacturer != manufFlexRadio;
+}
+
+QJsonObject webServer::nnrStateJson()
+{
+    if (!nnr_) nnr_.reset(new nnrStage());
+    QJsonObject o = nnr_->state();
+    o["type"] = "nnrState";
+    return o;
+}
+
+// NNR on the RX audio of a radio other than the Flex, as flexCommander does
+// for the Flex: voice modes only (SSB, AM), never while transmitting (the
+// stream then carries the monitor of our own signal, which TX LISTEN ON-AIR
+// relays as sent). Browser listeners hear it; the packet modem does not.
+void webServer::nnrRx(QByteArray &pcm)
+{
+    if (!nnrForThisRig()) return;
+    if (!nnr_) nnr_.reset(new nnrStage());
+    if (!nnr_->on() && !nnr_->active()) return;
+    const bool voice = nnrModeKind_ == int(modeLSB) || nnrModeKind_ == int(modeUSB) || nnrModeKind_ == int(modeAM);
+    if (nnr_->process(pcm, int(rigSampleRate), voice && !nnrTx_)) {
+        sendJsonToAll(nnrStateJson());
+        if (!nnr_->active()) onFlexNnrGain(1.0f, false);
+    }
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (nnr_->active() && now - nnrGainAt_ >= 200) {
+        nnrGainAt_ = now;
+        onFlexNnrGain(nnr_->gain(), true);
+    }
+}
+
 void webServer::scheduleClientsBroadcast()
 {
     if (!clientsTimer) {

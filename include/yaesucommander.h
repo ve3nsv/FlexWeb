@@ -36,6 +36,9 @@ public slots:
 
     void closeComm() override;
     void setPTTType(pttType_t) override;
+    // Serial probe: the server steps down through baud rates until the
+    // radio answers (the FT-991A's CAT defaults to 4800, menu 031).
+    void setSerialBaudRate(quint32 newBaud);
 
     // Power:
     void powerOn() override;

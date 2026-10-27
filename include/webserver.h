@@ -27,6 +27,7 @@
 #include "logbook.h"
 #include "webauth.h"
 #include "serverload.h"
+#include "nnrstage.h"
 namespace AetherSDR { class RfkitConnection; }
 
 #if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
@@ -854,6 +855,15 @@ private:
     // reads as TONE(T)/TSQL(R) in between. Clients are told once things settle.
     int slowPollTick = 0;        // 5 s tick in sendPeriodicStatus (duplex offset, tuner status)
     ServerLoad serverLoad;       // CPU / memory sampler for the CPU chip
+    // NNR for radios other than the Flex (punch list 19d; the Flex runs its
+    // own in flexCommander). Applied to the RX audio sent to browsers.
+    std::unique_ptr<nnrStage> nnr_;
+    int nnrModeKind_ = -1;       // modeInfo.mk of the current mode
+    bool nnrTx_ = false;
+    qint64 nnrGainAt_ = 0;
+    bool nnrForThisRig() const;
+    void nnrRx(QByteArray &pcm);
+    QJsonObject nnrStateJson();
     QTimer *serverLoadTimer = nullptr;
     QTimer *toneModeNotifyTimer = nullptr;
     void scheduleToneModeNotify();

@@ -64,6 +64,32 @@ Web access:
   PSK Reporter and the WSJT-X heartbeat show it; WFWEB_VERSION stays the
   upstream wfweb version it is based on.
 
+Yaesu FT-991A:
+- New radio profile (rigs/FT-991A.rig, made by tools/make-ft991a-rig.py
+  from the FT-710's with the FT-991A's differences): Manufacturer Yaesu
+  and the radio's COM port in the launcher (or --manufacturer 2
+  --serial-port COM5). CAT: frequency, mode, filter width (the FT-991A's
+  own SSB / CW tables), power, PTT, S / power / SWR / ALC / COMP / Id / Vd
+  meters, tuner, preamp, attenuator, NB / NR / notch, RIT / XIT, CTCSS,
+  2 m and 70 cm. USB audio through the radio's own sound card. No menu
+  (EX) commands are sent: set the radio's USB / data audio menus on the
+  radio. The scope area says the radio sends no spectrum.
+- Serial rigs: when the radio does not answer at the set baud rate the
+  server also tries 38400 (the FT-991A's CAT tops out there; it defaults to
+  4800, menu 031), and Yaesu rigs now step through 38400 / 19200 / 9600 /
+  4800 like Icom rigs did.
+
+All radios:
+- NNR (neural noise reduction) on every radio, not only the Flex: the
+  sidebar NNR key and FUNC > NNR, voice modes only, off while
+  transmitting, settings shared with the Flex.
+- FINE step for the Left / Right keys (10 / 50 / 100 / 500 Hz, default
+  50): the FINE pill by STEP, or FUNC > FINE. Up / Down keep STEP.
+- LIVE TUNING (FUNC > AUDIO, on by default): while you tune, drag the
+  scope or change band / mode / filter / span, the scope, waterfall and
+  S meter drop the sync delay and follow at once, easing back into sync
+  1.5 s after the last input. OFF keeps them in sync all the time.
+
 FlexRadio:
 - SYNC TRIM AUTO (the new default): the page measures how much later the
   scope's level inside the passband and the S meter follow the received

@@ -466,6 +466,15 @@ body.meter-needle #meterCanvas { width: auto; height: 128px; aspect-ratio: 611 /
     background: var(--bg);
     z-index: 300; /* overlays must paint above cw-bar/digi-bar (z-index 200) */
 }
+#noScopeNote {
+    position: absolute; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 5;
+    padding: 10px 16px; border-radius: 6px; text-align: center; pointer-events: none;
+    background: rgba(15, 24, 34, 0.85); border: 1px solid var(--border-col, #234);
+    color: var(--text-dim, #8aa); font: 600 13px var(--font-ui, system-ui, sans-serif); letter-spacing: 0.4px;
+}
+#noScopeNote small { display: block; margin-top: 4px; font-weight: 400; font-size: 11px; opacity: 0.8; }
+#noScopeNote[hidden] { display: none; }
+body.no-scope #aeZoom, body.no-scope #spanEdgeLeft, body.no-scope #spanEdgeRight { display: none !important; }
 #spectrumCanvas, #waterfallCanvas {
     display: block; width: 100%;
     position: absolute; left: 0;
@@ -2535,6 +2544,9 @@ try {
         </div>
         <span id="spanEdgeLeft"></span>
         <span id="spanEdgeRight"></span>
+        <!-- A radio that sends no spectrum (FT-991A, TS-590SG, older Icoms):
+             said plainly instead of an empty scope (setNoScopeNote). -->
+        <div id="noScopeNote" hidden>No scope from this radio<small>It does not send its spectrum over USB or CAT.</small></div>
 
         <!-- Mode overlay -->
         <div id="modeOverlay" class="overlay">
@@ -3247,6 +3259,17 @@ var TUNE_STEPS = [10, 50, 100, 500, 1000, 5000, 10000];
 var tuneStep = 1000;
 try { var _ts = parseInt(localStorage.getItem('wfTuneStep'), 10); if (TUNE_STEPS.indexOf(_ts) >= 0) tuneStep = _ts; } catch (e) {}
 function fastTuneStep() { return Math.max(10000, tuneStep * 10); }
+// Fine step for Left / Right (punch list 24): its own setting, so the
+// arrows give a fine and a coarse step (FUNC > FINE, or the FINE pill).
+var FINE_STEPS = [10, 50, 100, 500];
+var fineStep = 50;
+try { var _fs = parseInt(localStorage.getItem('wfFineStep'), 10); if (FINE_STEPS.indexOf(_fs) >= 0) fineStep = _fs; } catch (e) {}
+function cycleFineStep() {
+    fineStep = FINE_STEPS[(FINE_STEPS.indexOf(fineStep) + 1) % FINE_STEPS.length];
+    try { localStorage.setItem('wfFineStep', String(fineStep)); } catch (e) {}
+    if (typeof aeTick === 'function') { aeLastSig = ''; aeTick(); }
+    if (currentPanel === 'func') renderFuncOverlay();
+}
 function tuneStepLabel(st) { st = st || tuneStep; return st >= 1000 ? (st / 1000) + 'k' : st + ''; }
 function cycleTuneStep() {
     tuneStep = TUNE_STEPS[(TUNE_STEPS.indexOf(tuneStep) + 1) % TUNE_STEPS.length];
@@ -3412,6 +3435,11 @@ var availableSpans = [];
 var currentSpanIndex = -1;
 
 var hasSpectrum = false;
+function setNoScopeNote(show) {
+    var n = document.getElementById('noScopeNote');
+    if (n) n.hidden = !show;
+    document.body.classList.toggle('no-scope', !!show);
+}
 var spectAmpMax = 160;
 var spectStartFreq = 0;
 var spectEndFreq = 0;
@@ -3786,6 +3814,8 @@ var lastUserGestureMs = 0;
 ['pointerdown', 'keydown', 'wheel'].forEach(function (ev) {
     window.addEventListener(ev, function () { lastUserGestureMs = performance.now(); }, true);
 });
+// a drag that lasts is still the user acting
+window.addEventListener('pointermove', function (e) { if (e.buttons) lastUserGestureMs = performance.now(); }, true);
 function send(obj) {
     if (guestView && obj && !GUEST_CMDS[obj.cmd]) {
         // Not sent: the server would refuse it. Say so only when the user
@@ -3794,7 +3824,39 @@ function send(obj) {
         return;
     }
     if (obj && obj.cmd === 'setPTT') micTxWanted = !!obj.value;
+    if (obj && (LIVE_TUNE_CMDS[obj.cmd] || (obj.cmd === 'flexDsp' && LIVE_TUNE_DSP[obj.key]))
+        && performance.now() - lastUserGestureMs < 1500) liveTuneKick();
     if (wsTransport) wsTransport.sendCommand(obj);
+}
+// LIVE TUNING (punch list 25): while this browser tunes, drags the scope or
+// changes band / mode / filter / span, the scope, waterfall and S meter
+// drop the sync delay and follow at once; 1.5 s after the last such input
+// sync eases back in (scopeSyncDefer's slew). FUNC > AUDIO > LIVE TUNING.
+var LIVE_TUNE_CMDS = { setFrequency: 1, setMode: 1, setFilter: 1, setFilterWidth: 1, setFilterShape: 1, setBand: 1,
+    setSpan: 1, setScopeEdges: 1, setScopeMode: 1, setAntenna: 1, setPreamp: 1, setAttenuator: 1 };
+var LIVE_TUNE_DSP = { panCenter: 1, panBandwidth: 1, band: 1, panFree: 1 };
+var LIVE_TUNE_MS = 1500;
+var liveTuneOn = true, liveTuneUntil = 0;
+try { liveTuneOn = localStorage.getItem('wfLiveTune') !== 'off'; } catch (e) {}
+function liveTuneActive() { return liveTuneOn && performance.now() < liveTuneUntil; }
+function liveTuneKick() {
+    if (!liveTuneOn) return;
+    liveTuneUntil = performance.now() + LIVE_TUNE_MS;
+    // what is still held back is shown now, and the delay starts again from 0
+    if (typeof scopeSyncQ !== 'undefined' && (scopeSyncQ.length || scopeSyncCur > 0)) {
+        scopeSyncReleasing = true;
+        while (scopeSyncQ.length) { try { scopeSyncQ.shift().fn(); } catch (e) { console.error(e); } }
+        scopeSyncReleasing = false;
+        scopeSyncCur = 0;
+        scopeSyncLastDue = 0;
+        meterSyncFlush();
+    }
+}
+function toggleLiveTune() {
+    liveTuneOn = !liveTuneOn;
+    liveTuneUntil = 0;
+    try { localStorage.setItem('wfLiveTune', liveTuneOn ? 'on' : 'off'); } catch (e) {}
+    renderAudioMicOverlay();
 }
 // The microphone goes to the server only while this browser keys (from the
 // PTT request, so the first syllable is not lost, through the release drain
@@ -3877,6 +3939,12 @@ function handleMessage(msg) {
         case 'txState':
             setTxOther(msg.on && !msg.mine ? (msg.by || 'another browser') : '');
             break;
+        case 'nnrState':
+            nnrState = msg;
+            if (document.getElementById('nnrOverlay').classList.contains('visible')) renderNnrOverlay();
+            if (typeof aeTick === 'function') { aeLastSig = ''; aeTick(); }
+            if (currentPanel === 'func') renderFuncOverlay();
+            break;
         case 'nnrGain':
             onNnrGain(msg);
             break;
@@ -3938,6 +4006,7 @@ function handleMessage(msg) {
             if (msg.connected) {
                 if (msg.modes) populateModes(msg.modes);
                 if (msg.hasSpectrum) { hasSpectrum = true; spectAmpMax = msg.spectAmpMax || 160; scopeRigAssert(); }
+                setNoScopeNote(!msg.hasSpectrum);
                 if (msg.audioAvailable) { audioAvailable = true; audioSampleRate = msg.audioSampleRate || 48000; startPendingAudio(); }
                 if (msg.audioError) showAudioError(msg.audioError);
                 if (msg.rigAudioInputName !== undefined) rigAudioInputName = msg.rigAudioInputName || '';
@@ -3977,6 +4046,7 @@ function handleMessage(msg) {
             updateRigTag();
             if (msg.modes) populateModes(msg.modes);
             if (msg.hasSpectrum) { hasSpectrum = true; spectAmpMax = msg.spectAmpMax || 160; scopeRigAssert(); }
+            setNoScopeNote(!msg.hasSpectrum);
             if (msg.audioAvailable) { audioAvailable = true; audioSampleRate = msg.audioSampleRate || 48000; startPendingAudio(); }
             if (msg.audioError) showAudioError(msg.audioError);
             if (msg.rigAudioInputName !== undefined) rigAudioInputName = msg.rigAudioInputName || '';
@@ -4880,6 +4950,10 @@ function modeCleanApply(profile) {
     off('nb', nbOn, 'setNoiseBlanker');
     off('nr', nrOn, 'setNoiseReduction');
     off('anf', anfOn, 'setAutoNotch');
+    if (!flexDsp && nnrState && nnrState.nnr) {
+        if (saved.nnr === undefined) saved.nnr = 1;
+        nnrSend('nnr', 0, true);
+    }
     if (flexDsp) {
         off('nnr', !!flexDsp.nnr, null, true);
         off('apf', !!flexDsp.apf, null, true);
@@ -4906,6 +4980,7 @@ function modeCleanRestore() {
     if (sv.nr) send({ cmd: 'setNoiseReduction', value: true });
     if (sv.anf) send({ cmd: 'setAutoNotch', value: true });
     ['nnr', 'apf', 'wnb', 'tnfEnabled'].forEach(function (k) { if (sv[k] && flexDsp) sendFlexDsp(k, 0, 1, true); });
+    if (sv.nnr && !flexDsp && nnrState) nnrSend('nnr', 1, true);
     if (sv.proc && flexDsp) {
         sendFlexDsp('proc', 0, 1, true);
         if (sv.procLevel !== undefined) sendFlexDsp('procLevel', 0, sv.procLevel, true);
@@ -5853,10 +5928,23 @@ var NNR_ADV = [
     { key: 'nnrRelease', label: 'RELEASE ms', min: 0, max: 500, def: 0,   fmt: String }
 ];
 var nnrGainHist = [];
+// NNR runs on every radio (punch list 19d): the Flex reports it in flexDsp,
+// any other radio's server in {type:'nnrState'} (webServer's nnrStage). The
+// panel reads whichever there is and sends through the matching command.
+var nnrState = null;
+function nnrObj() { return (flexDsp && flexDsp.nnr !== undefined) ? flexDsp : nnrState; }
+function nnrSend(key, value, now) {
+    if (flexDsp && flexDsp.nnr !== undefined) { sendFlexDsp(key, 0, value, now); return; }
+    var id = 'nnr:' + key;
+    clearTimeout(flexDspSendTimers[id]);
+    var fire = function () { send({ cmd: 'setNnr', key: key, value: value }); };
+    if (now) fire(); else flexDspSendTimers[id] = setTimeout(fire, 80);
+}
 function toggleNnr() {
-    if (!flexDsp) return;
-    flexDsp.nnr = flexDsp.nnr ? 0 : 1;
-    sendFlexDsp('nnr', 0, flexDsp.nnr, true);
+    var d = nnrObj();
+    if (!d) return;
+    d.nnr = d.nnr ? 0 : 1;
+    nnrSend('nnr', d.nnr, true);
     if (document.body.classList.contains('ae-desktop')) renderApplets();
     if (document.getElementById('nnrOverlay').classList.contains('visible')) renderNnrOverlay();
 }
@@ -5888,20 +5976,21 @@ function drawNnrGain() {
 }
 function renderNnrOverlay() {
     var body = document.getElementById('nnrBody');
-    if (!body || !flexDsp || flexDsp.nnr === undefined) return;
+    var d = nnrObj();
+    if (!body || !d || d.nnr === undefined) return;
     if (body.querySelector('input[data-dragging="1"]')) return;
     body.innerHTML = '';
     var wrap = document.createElement('div');
     wrap.className = 'flex-dsp';
     var grid = document.createElement('div');
     grid.className = 'overlay-grid';
-    grid.appendChild(makeFuncBtn('NNR', flexDsp.nnr ? 'ON' : 'OFF', !!flexDsp.nnr, toggleNnr));
+    grid.appendChild(makeFuncBtn('NNR', d.nnr ? 'ON' : 'OFF', !!d.nnr, toggleNnr));
     ['STANDARD', 'PREMIUM'].forEach(function (name, m) {
-        grid.appendChild(makeFuncBtn(name, 'MODEL', flexDsp.nnrModel === m, function () {
-            flexDsp.nnrModel = m; sendFlexDsp('nnrModel', 0, m, true); renderNnrOverlay();
+        grid.appendChild(makeFuncBtn(name, 'MODEL', d.nnrModel === m, function () {
+            d.nnrModel = m; nnrSend('nnrModel', m, true); renderNnrOverlay();
         }));
     });
-    grid.appendChild(makeFuncBtn('\u21BA', 'DEFAULTS', false, function () { sendFlexDsp('nnrReset', 0, 1, true); }));
+    grid.appendChild(makeFuncBtn('\u21BA', 'DEFAULTS', false, function () { nnrSend('nnrReset', 1, true); }));
     grid.appendChild(dspBackButton());
     wrap.appendChild(grid);
 
@@ -5918,10 +6007,10 @@ function renderNnrOverlay() {
         name.textContent = label;
         var input = document.createElement('input');
         input.type = 'range'; input.min = min; input.max = max; input.step = 1;
-        input.value = flexDsp[key]; input.dataset.key = key;
+        input.value = d[key]; input.dataset.key = key;
         var val = document.createElement('b');
-        val.textContent = fmt(flexDsp[key]);
-        dspSlider(input, function (v, final) { val.textContent = fmt(v); flexDsp[key] = v; sendFlexDsp(key, 0, v, final); });
+        val.textContent = fmt(d[key]);
+        dspSlider(input, function (v, final) { val.textContent = fmt(v); d[key] = v; nnrSend(key, v, final); });
         r.appendChild(name); r.appendChild(input); r.appendChild(val);
         wrap.appendChild(r);
     }
@@ -5935,12 +6024,12 @@ function renderNnrOverlay() {
     var st = document.createElement('div');
     st.className = 'nnr-status';
     var dot = document.createElement('i');
-    dot.className = 'nnr-dot' + (flexDsp.nnr && flexDsp.nnrActive ? ' on' : flexDsp.nnr ? ' wait' : '');
+    dot.className = 'nnr-dot' + (d.nnr && d.nnrActive ? ' on' : d.nnr ? ' wait' : '');
     st.appendChild(dot);
     var m = document.createElement('span');
-    m.innerHTML = '<span class="nnr-k">METHOD</span> <b>' + (flexDsp.nnr
-        ? 'NNR \u00b7 ' + (flexDsp.nnrModelInUse ? 'Premium' : 'Standard') + ' \u00b7 floor ' + flexDsp.nnrStrength
-          + (flexDsp.nnrActive ? (flexDsp.nnrDelayMs ? ' \u00b7 ' + flexDsp.nnrDelayMs + ' ms' : '') : ' \u00b7 waits for a voice mode')
+    m.innerHTML = '<span class="nnr-k">METHOD</span> <b>' + (d.nnr
+        ? 'NNR \u00b7 ' + (d.nnrModelInUse ? 'Premium' : 'Standard') + ' \u00b7 floor ' + d.nnrStrength
+          + (d.nnrActive ? (d.nnrDelayMs ? ' \u00b7 ' + d.nnrDelayMs + ' ms' : '') : ' \u00b7 waits for a voice mode')
         : 'off') + '</b>';
     st.appendChild(m);
     var gk = document.createElement('span');
@@ -6801,6 +6890,12 @@ function aeTick() {
         stp.textContent = 'STEP ' + tuneStepLabel();
         stp.onclick = cycleTuneStep;
         pills.appendChild(stp);
+        var fin = document.createElement('span');
+        fin.className = 'ae-pill ae-pill-step';
+        fin.title = 'Fine step for the Left / Right keys (tap to change)';
+        fin.textContent = 'FINE ' + fineStep;
+        fin.onclick = cycleFineStep;
+        pills.appendChild(fin);
     }
     if (aeDesktop) renderApplets();
     renderBottomBar();
@@ -6827,14 +6922,15 @@ function renderApplets() {
     fil.appendChild(aeBtn(hasFilterSettings && currentFilterWidth > 0 ? formatBW(currentFilterWidth) : 'WIDTH', false,
         function() { if (typeof openFilterModal === 'function') openFilterModal(); else setPanel('func'); }));
     rx.appendChild(fil);
-    var hasNnr = !!(flexDsp && flexDsp.nnr !== undefined);
+    var nnrD = nnrObj();
+    var hasNnr = !!(nnrD && nnrD.nnr !== undefined);
     var dsp = document.createElement('div'); dsp.className = 'ae-grid ' + (hasNnr ? 'ae-grid-4' : 'ae-grid-3');
     dsp.appendChild(aeBtn('NB', nbOn, function() { send({ cmd: 'setNoiseBlanker', value: !nbOn }); }, 'ae-toggle'));
     dsp.appendChild(aeBtn('NR', nrOn, function() { send({ cmd: 'setNoiseReduction', value: !nrOn }); }, 'ae-toggle'));
     dsp.appendChild(aeBtn('ANF', anfOn, function() { send({ cmd: 'setAutoNotch', value: !anfOn }); }, 'ae-toggle'));
     if (hasNnr) {
-        var nb = aeBtn('NNR', !!flexDsp.nnr, toggleNnr, 'ae-toggle' + (flexDsp.nnr && !flexDsp.nnrActive ? ' ae-dim' : ''));
-        nb.title = flexDsp.nnr && !flexDsp.nnrActive ? 'Neural NR: waits for a voice mode' : 'Neural noise reduction (DSP\u2026 > NNR for its settings)';
+        var nb = aeBtn('NNR', !!nnrD.nnr, toggleNnr, 'ae-toggle' + (nnrD.nnr && !nnrD.nnrActive ? ' ae-dim' : ''));
+        nb.title = nnrD.nnr && !nnrD.nnrActive ? 'Neural NR: waits for a voice mode' : 'Neural noise reduction (DSP\u2026 > NNR for its settings)';
         dsp.appendChild(nb);
     }
     rx.appendChild(dsp);
@@ -7348,6 +7444,9 @@ function renderFuncOverlay() {
 
     // STEP: tuning step for the wheel and the arrow keys.
     grid.appendChild(makeFuncBtn('STEP', tuneStepLabel() + (tuneStep < 1000 ? ' Hz' : 'Hz'), false, cycleTuneStep));
+    var fineBtn = makeFuncBtn('FINE', fineStep + ' Hz', false, cycleFineStep);
+    fineBtn.title = 'Step of the Left / Right arrow keys';
+    grid.appendChild(fineBtn);
 
     // EQ and PROC: the Flex's own equalisers and TX audio processing, once
     // the server has reported them (flexDsp).
@@ -7357,12 +7456,13 @@ function renderFuncOverlay() {
             (flexDsp.txEq.on ? 'TX' : '') || 'OFF', eqOn, function() { setPanel('eq'); }));
         grid.appendChild(makeFuncBtn('PROC', flexDsp.proc ? ['NOR', 'DX', 'DX+'][flexDsp.procLevel] || 'ON' : 'OFF',
             !!flexDsp.proc, function() { setPanel('proc'); }));
-        if (flexDsp.nnr !== undefined)
-            grid.appendChild(makeFuncBtn('NNR', flexDsp.nnr ? (flexDsp.nnrModel ? 'PREMIUM' : 'STANDARD') : 'OFF', !!flexDsp.nnr,
-                function() { setPanel('nnr'); }));
         grid.appendChild(makeFuncBtn('RX DSP', (flexDsp.tnfs && flexDsp.tnfs.length ? flexDsp.tnfs.length + ' TNF' : 'LEVELS'),
             !!(flexDsp.apf || flexDsp.wnb), function() { setPanel('rxdsp'); }));
     }
+    var nnrF = nnrObj();
+    if (nnrF && nnrF.nnr !== undefined)
+        grid.appendChild(makeFuncBtn('NNR', nnrF.nnr ? (nnrF.nnrModel ? 'PREMIUM' : 'STANDARD') : 'OFF', !!nnrF.nnr,
+            function() { setPanel('nnr'); }));
 
     // FIL opens the FILTER window (FIL1/2/3, width, twin PBT, shape) the way
     // DUP and TONE open theirs; the tile carries the passband it's set to.
@@ -7749,6 +7849,9 @@ function renderAudioMicOverlay() {
         var st = makeFuncBtn('SYNC TRIM', syncTrimState(), scopeSyncTrimAuto || scopeSyncTrim !== 0, cycleScopeSyncTrim);
         st.title = syncTrimTitle();
         grid.appendChild(st);
+        var lt = makeFuncBtn('LIVE TUNING', liveTuneOn ? 'ON' : 'OFF', liveTuneOn, toggleLiveTune);
+        lt.title = 'ON: while you tune, drag the scope or change band / mode / filter, the scope and S meter follow at once and ease back into sync 1.5 s after. OFF: always in sync with the audio.';
+        grid.appendChild(lt);
     }
 
     // Intercom: what this browser hears while another browser transmits.
@@ -9689,9 +9792,8 @@ function tuneDown(step) {
     step = step || tuneStep;
     if (currentFreq > step) send({ cmd: 'setFrequency', value: (Math.ceil(currentFreq / step) - 1) * step });
 }
-const HZ_STEP = 50;  // 50 Hz steps for arrow buttons
-function tuneUpHz() { if (currentFreq > 0) send({ cmd: 'setFrequency', value: currentFreq + HZ_STEP }); }
-function tuneDownHz() { if (currentFreq > 1) send({ cmd: 'setFrequency', value: currentFreq - HZ_STEP }); }
+function tuneUpHz() { if (currentFreq > 0) { liveTuneKick(); send({ cmd: 'setFrequency', value: currentFreq + fineStep }); } }
+function tuneDownHz() { if (currentFreq > fineStep) { liveTuneKick(); send({ cmd: 'setFrequency', value: currentFreq - fineStep }); } }
 function setSpan(idx) { send({ cmd: 'setSpan', value: idx }); updateSpanIndex(idx); }
 
 // ============================================================
@@ -10845,7 +10947,7 @@ function syncScopeLevel(buffer) {
 var scopeSyncQ = [], scopeSyncCur = 0, scopeSyncLastDue = 0, scopeSyncTimer = null;
 var scopeSyncReleasing = false;
 function scopeSyncTarget() {
-    if (!scopeSyncOn || !audioEnabled || isTransmitting || !audioJbStats) return 0;
+    if (!scopeSyncOn || !audioEnabled || isTransmitting || !audioJbStats || liveTuneActive()) return 0;
     var out = 0;
     try { if (audioCtx) out = ((audioCtx.outputLatency || 0) + (audioCtx.baseLatency || 0)) * 1000; } catch (e) {}
     return Math.max(0, Math.min(1500, (audioJbStats.bufMs || 0) + out + scopeTrimMs()));

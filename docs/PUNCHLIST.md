@@ -282,6 +282,17 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 65 (2026-10-27): items 3 (FT-991A), 19c, 19d, 19f, 24 and 25 are
+done. 19c needed nothing new: the off-screen VFO tab and click-to-tune to
+the nearest 1 kHz already worked on every radio with a scope. 19f: the page
+already shows controls by the rig file's commands; Flex-only controls
+appear only with the Flex's flexDsp report, and a radio without a spectrum
+says so. Still open from 19: a, b, e (with item 4).
+FT-991A notes for the user's test: CAT rate (menu 031) is found by the
+probe; the EX menu numbers differ from the FT-710's so FlexWeb sends none
+(set the USB / DATA audio menus on the radio); split (FT2 / FT3) is not
+mapped yet.
+
 Build 64 (2026-10-27): items 7, 22 and 23 are done. Item 7 is measured in
 the page (arrival times of audio, scope frames and meter readings on the
 same WebSocket) rather than stamped by the server; the SDR / Kiwi sources

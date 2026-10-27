@@ -72,6 +72,18 @@ yaesuCommander::~yaesuCommander()
 
 }
 
+void yaesuCommander::setSerialBaudRate(quint32 newBaud)
+{
+    QSerialPort *sp = qobject_cast<QSerialPort*>(port);
+    if (newBaud == 0 || sp == Q_NULLPTR || network || usingNativeLAN) return;
+    if (newBaud == rigBaudRate) return;
+    qInfo(logRig()) << "Switching probe baud rate to" << newBaud;
+    rigBaudRate = newBaud;
+    rigCaps.baudRate = newBaud;
+    sp->setBaudRate(newBaud);
+    emit haveBaudRate(newBaud);
+}
+
 void yaesuCommander::commSetup(QHash<quint16,rigInfo> rigList, quint16 rigCivAddr, QString rigSerialPort, quint32 rigBaudRate, QString vsp,quint16 tcpPort, quint8 wf)
 {
     // constructor for serial connected rigs

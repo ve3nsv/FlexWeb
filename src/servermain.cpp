@@ -558,7 +558,9 @@ void servermain::connectToRig(RIGCONFIG* rig)
     // and over LAN we can't change rate at all. We try the user-configured
     // rate first, then step down through the rates new users are likely to
     // hit. See issue #57. LAN connections skip the cycling.
-    static const QList<quint32> kFallbacks = { 19200, 9600, 4800 };
+    // 38400: the top CAT rate of Yaesu rigs such as the FT-991A, whose CAT
+    // port does not run at wfweb's default of 115200.
+    static const QList<quint32> kFallbacks = { 38400, 19200, 9600, 4800 };
 
     QList<quint32> probeBauds;
     probeBauds.append(rig->baudRate);
@@ -576,8 +578,12 @@ void servermain::connectToRig(RIGCONFIG* rig)
         qInfo(logSystem()) << "No reply on" << rig->serialPort
                            << "— retrying at" << nextBaud << "baud";
         icomCommander* ic = qobject_cast<icomCommander*>(rig->rig);
+        yaesuCommander* yc = qobject_cast<yaesuCommander*>(rig->rig);
         if (ic != Q_NULLPTR) {
             QMetaObject::invokeMethod(ic, "setSerialBaudRate",
+                Qt::QueuedConnection, Q_ARG(quint32, nextBaud));
+        } else if (yc != Q_NULLPTR) {
+            QMetaObject::invokeMethod(yc, "setSerialBaudRate",
                 Qt::QueuedConnection, Q_ARG(quint32, nextBaud));
         }
     }

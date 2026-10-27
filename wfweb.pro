@@ -368,6 +368,7 @@ SOURCES += \
     src/radio/yaesucommander.cpp \
     src/radio/flexcommander.cpp \
     src/nnrfilter.cpp \
+    src/nnrstage.cpp \
     src/radio/smartlinkclient.cpp \
     src/webauth.cpp \
     src/radio/flexprotocol.cpp \
@@ -451,6 +452,7 @@ HEADERS  += \
     include/yaesucommander.h \
     include/flexcommander.h \
     include/nnrfilter.h \
+    include/nnrstage.h \
     include/smartlinkclient.h \
     include/webauth.h \
     include/flexprotocol.h \
