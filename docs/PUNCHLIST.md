@@ -608,3 +608,12 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
        slots.
     Depends on 19 (CAT / panadapter for all radios) for the non-Flex cards
     to be useful, and on 2 (guest view-only).
+22. Who is connected (user, 2026-10-27; easy). The server pushes
+    {type:'clients'} whenever a browser connects, signs in or leaves: one
+    entry per browser with its user name (or "guest", or the address when
+    login is off), whether it has audio on, holds TX or is talking. The
+    page shows a small chip in the top bar ("3" with a people icon; hidden
+    when this browser is alone), and a tap lists them: "tom (you)", "amy -
+    TX", "2 guests". Guests see the count and the named users but not other
+    guests' addresses. Also on the terminal status page (names instead of
+    just the browser count).
