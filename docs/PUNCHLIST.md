@@ -282,6 +282,9 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 71 (2026-10-27): the RADE EOO demod patch (34c root cause) and item
+35 (RF2K-S ballistics) are done.
+
 Build 70 (2026-10-27): item 34 a, b, c done. Item 6 (RADE from
 freedv/rade_c c8a3dc1, with the V1 phase renormalisation) was already done
 in build 63. 34c: our decoder reads the off-air freedv-gui EOO (VK5KVA in

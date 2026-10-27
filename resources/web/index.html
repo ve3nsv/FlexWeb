@@ -7241,14 +7241,17 @@ function renderApplets() {
         body.setAttribute('aria-label', 'Open the amplifier panel');
         body.onclick = function() { togglePanel('amp'); };
         function meter(label, val, max, text, peakKey) {
+            if (peakKey && up && val !== undefined) { val = ampShown(peakKey, val); text = Math.round(val) + ' W'; }
             var row = document.createElement('span'); row.className = 'ae-meter';
             var l = document.createElement('span'); l.textContent = label;
             var tr = document.createElement('span'); tr.className = 'ae-meter-track';
             var f = document.createElement('span'); f.className = 'ae-meter-fill';
             f.style.width = (up && val !== undefined ? Math.max(0, Math.min(100, val / max * 100)) : 0) + '%';
             tr.appendChild(f);
-            if (peakKey) tr.insertAdjacentHTML('beforeend', ampPeakTickHtml(peakKey, max));
-            var v = document.createElement('b'); v.textContent = up && val !== undefined ? text : '—';
+            if (peakKey) { f.dataset.k = peakKey; f.dataset.max = max; tr.insertAdjacentHTML('beforeend', ampPeakTickHtml(peakKey, max)); }
+            var v = document.createElement('b');
+            if (peakKey && up && val !== undefined) v.innerHTML = '<span class="amp-num" data-k="' + peakKey + '">' + text + '</span>';
+            else v.textContent = up && val !== undefined ? text : '—';
             if (peakKey) v.insertAdjacentHTML('beforeend', ampPeakTextHtml(peakKey));
             row.appendChild(l); row.appendChild(tr); row.appendChild(v);
             return row;
@@ -7751,11 +7754,14 @@ function renderAmpIndicator() {
 }
 
 function ampBar(label, value, max, text, level, peakKey) {
+    if (peakKey && value !== undefined) { value = ampShown(peakKey, value); text = Math.round(value) + ' W'; }
     var pct = value === undefined ? 0 : Math.max(0, Math.min(100, value / max * 100));
+    var k = peakKey ? ' data-k="' + peakKey + '" data-max="' + max + '"' : '';
     return '<div class="amp-bar"><span>' + label + '</span><div class="amp-track"><div class="amp-fill' +
-        (level ? ' ' + level : '') + '" style="width:' + pct + '%"></div>' +
+        (level ? ' ' + level : '') + '"' + k + ' style="width:' + pct + '%"></div>' +
         (peakKey ? ampPeakTickHtml(peakKey, max) : '') + '</div><span class="amp-val">' +
-        (value === undefined ? '\u2014' : text) + (peakKey ? ampPeakTextHtml(peakKey) : '') + '</span></div>';
+        (value === undefined ? '\u2014' : (peakKey ? '<span class="amp-num" data-k="' + peakKey + '">' + text + '</span>' : text)) +
+        (peakKey ? ampPeakTextHtml(peakKey) : '') + '</span></div>';
 }
 
 // RF2K-S peak hold (punch list 32): a tick at the highest FWD / REF seen,
@@ -7773,10 +7779,37 @@ function ampPeakValue(k) {
     var v = age > 0 ? p.v - AMP_PEAK_FALL[k] * age / 1000 : p.v;
     return Math.max(v, p.cur || 0);
 }
+// FWD / REF ballistics (punch list 35): the amp's REST reading is one
+// momentary sample every 250 ms, so on speech it lands between syllables;
+// the amp's own screen rises at once and falls slowly. PEAK (default) shows
+// it that way: hold 500 ms, then fall 1000 W/s (REF 200 W/s) toward the
+// reading. RAW shows the samples as they come. FUNC > AMP, per browser.
+var AMP_BAL_HOLD_MS = 500, AMP_BAL_FALL = { fwd: 1000, ref: 200 };
+var ampBal = { fwd: null, ref: null };    // { v, at, raw }
+var ampMeterRaw = false;
+try { ampMeterRaw = localStorage.getItem('wfAmpMeter') === 'raw'; } catch (e) {}
+function ampShown(k, raw) {
+    var m = ampBal[k];
+    if (ampMeterRaw || !m) return raw;
+    var age = performance.now() - m.at - AMP_BAL_HOLD_MS;
+    var v = age > 0 ? m.v - AMP_BAL_FALL[k] * age / 1000 : m.v;
+    return Math.max(v, m.raw);
+}
+function toggleAmpMeterMode() {
+    ampMeterRaw = !ampMeterRaw;
+    try { localStorage.setItem('wfAmpMeter', ampMeterRaw ? 'raw' : 'peak'); } catch (e) {}
+    renderAmpOverlay();
+    if (typeof aeTick === 'function') { aeLastSig = ''; aeTick(); }
+}
 function ampPeakFeed(a) {
     var keyed = a && a.connected && a.fwd !== undefined && a.fwd >= 1;
-    if (!keyed) { ampPeak.fwd = ampPeak.ref = null; ampPeakPaint(); return; }
+    if (!keyed) { ampPeak.fwd = ampPeak.ref = null; ampBal.fwd = ampBal.ref = null; ampPeakPaint(); return; }
     var now = performance.now();
+    ['fwd', 'ref'].forEach(function (k) {
+        var v = Number(a[k]) || 0, m = ampBal[k];
+        if (!m || v >= ampShown(k, 0)) ampBal[k] = { v: v, at: now, raw: v };
+        else m.raw = v;
+    });
     ['fwd', 'ref'].forEach(function (k) {
         var v = Number(a[k]) || 0;
         var p = ampPeak[k];
@@ -7802,6 +7835,16 @@ function ampPeakPaint() {
         el.style.display = 'block';
         el.style.left = Math.max(0, Math.min(100, v / max * 100)) + '%';
     });
+    if (!ampMeterRaw) {
+        document.querySelectorAll('.amp-fill[data-k], .ae-meter-fill[data-k]').forEach(function (el) {
+            var m = ampBal[el.dataset.k];
+            if (m) el.style.width = Math.max(0, Math.min(100, ampShown(el.dataset.k, m.raw) / (Number(el.dataset.max) || 1) * 100)) + '%';
+        });
+        document.querySelectorAll('.amp-num[data-k]').forEach(function (el) {
+            var m = ampBal[el.dataset.k];
+            if (m) el.textContent = Math.round(ampShown(el.dataset.k, m.raw)) + ' W';
+        });
+    }
     document.querySelectorAll('.amp-pk').forEach(function (el) {
         var p = ampPeak[el.dataset.k];
         el.textContent = p ? ' pk ' + Math.round(ampPeakValue(el.dataset.k)) : '';
@@ -8014,6 +8057,9 @@ function renderAmpOverlay() {
     body.appendChild(ampControlRows(a, lock));
     var grid = document.createElement('div');
     grid.className = 'overlay-grid';
+    var meterMode = makeFuncBtn('FWD METER', ampMeterRaw ? 'RAW' : 'PEAK', !ampMeterRaw, toggleAmpMeterMode);
+    meterMode.title = 'PEAK: reads like the amplifier\'s own screen (rises at once, falls slowly). RAW: each reading as the amp sends it.';
+    grid.appendChild(meterMode);
     var back = document.createElement('button');
     back.className = 'ov-btn back-btn';
     back.innerHTML = '&#x21A9;';

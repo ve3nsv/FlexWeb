@@ -42,6 +42,10 @@ Page:
   frequency strip (Escape, a press on the scope or opening a panel closes
   it). On a narrow bottom bar the band keys give way to BAND... after the
   mode keys.
+- RF2K-S FWD / REF read like the amp's own screen: rise at once, hold
+  0.5 s, then fall (the amp sends one momentary reading every 250 ms, so on
+  speech the plain reading sat far below the voice peaks). FUNC > AMP >
+  FWD METER switches PEAK / RAW.
 - RF2K-S peak hold: the FWD and REF bars (AMP applet and FUNC > AMP) show a
   tick at the highest reading, held 1.5 s then falling, and "pk" with the
   value; cleared at unkey.
