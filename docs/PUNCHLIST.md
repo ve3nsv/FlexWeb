@@ -557,3 +557,27 @@ Status: implemented for build 60.
     docs/architecture/*-design.md. Unit tests per protocol and a stub amp
     per type, as tests/test_rfkit.py. Order by what users own (the user
     has the RF2K-S, already done).
+21. Radio picker for clubs (user, 2026-10-27): one place where a user picks
+    which radio to use, from several FlexWeb servers and / or SmartLink /
+    LAN Flex radios. Today one FlexWeb process drives one radio.
+    a. Club directory (medium): a RADIOS page / menu lists radios from a
+       club list (settings file, edited by an admin): each entry is a
+       FlexWeb server URL (its own machine, its own radio) or a radio this
+       server can reach (SmartLink account list via the existing
+       --smartlink-radios path, Flex LAN discovery on UDP 4992). Live
+       status per radio from REST /api/v1/radio/info: online, frequency /
+       mode, who is signed in, who holds TX. Pick = open that server's page
+       (or switch, b).
+    b. Switch radio on one server (medium): the server drops the current
+       radio and connects to the chosen SmartLink / LAN radio; everyone on
+       that server follows it. Refused while someone is transmitting;
+       admin-only or allowed per user.
+    c. Club accounts (medium): one sign-in for all club servers (a token
+       signed by the directory server, or a shared users file), per-radio
+       permission (view only / RX / TX), and a log of who used which radio
+       when (callsign ID for the station licensee). Optional booking:
+       reserve a radio for a time slot; the holder gets TX first.
+    d. Not planned: several radios live at once in one FlexWeb process (a
+       large rewrite of the one-radio server); run one FlexWeb per radio
+       instead (the Windows launcher could start several).
+    Works with item 2 (guest view-only) and the TX lock.
