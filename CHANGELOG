@@ -9,6 +9,24 @@ upstream wfview history.
 Unreleased
 ----------
 
+TX / RX switching:
+- No blip when keying: the receive audio stays silent from the PTT press
+  (MOX, TUNE, FT8, JS8, SSTV, packet) until the radio is on the air. A Flex
+  kept sending receive audio for its 50-130 ms key-up, which played alone.
+- TUNE drops the buffered receive audio at once, like MOX.
+- Receive audio comes back faster after TX: the buffer is emptied at unkey
+  and restarts at half its size.
+- MOX release and the end of a digital TX wait only for the audio still on
+  its way (a Flex: its key-up time plus 60 ms) instead of a fixed 300 /
+  200 ms.
+- Flex: the audio said while the radio keys up is sent at once when it is
+  on the air, but now only the key-up time's worth; one over held 336 ms,
+  leaving the voice a third of a second behind for the whole over.
+- JS8 unkeys at the last tone: every TX carried the rest of its slot as
+  ~2 s of keyed silence (Slow ~4.4 s) before returning to receive.
+- The receive buffer no longer counts these switches as dropouts, so it
+  stops growing a little with every over.
+
 Web access:
 - Who is connected: a people chip in the top bar shows how many browsers
   are on when yours is not alone; tap it for the list - names, who has

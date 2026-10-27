@@ -69,6 +69,8 @@ class WfJitterBuffer {
         this.pendingSkip = 0; this.skipDeadline = 0;
         this.energy = 0; this.env = 0;         // last block energy, slow average
         this.underruns = 0; this.skips = 0; this.overflows = 0;
+        this.quietUntil = -1;                  // clock before which an underrun is the TX switch, not jitter
+        this.fastStart = false;                // next start at half the target (after TX)
         this.onEvent = null;
         if (opts.lockMs > 0) this.setLock(opts.lockMs);
         else if (opts.targetMs > 0) {
@@ -95,7 +97,7 @@ class WfJitterBuffer {
             var gap = this.clock - this.lastPush;
             // Longer than any buffer: the stream was stopped (TX, mode change), not jitter.
             if (gap <= this.maxTarget * 2) {
-                if (gap > this.periodGap) this.periodGap = gap;
+                if (gap > this.periodGap && this.clock >= this.quietUntil) this.periodGap = gap;
                 if (this.underrunOpen) this._grow(gap);
             }
         }
@@ -119,11 +121,13 @@ class WfJitterBuffer {
         var minT = n + this.reserve + 2 + this.safety;   // a block, plus margin, must fit under the floor
         if (minT > this.minTarget) { this.minTarget = minT; if (this.target < minT) this.target = minT; }
         if (!this.started) {
-            if (this.avgPush && this.depth >= this.target + this.avgPush) {
+            var startAt = this.fastStart ? (this.target >> 1) : this.target;
+            if (this.avgPush && this.depth >= startAt + this.avgPush) {
+                this.fastStart = false;
                 this.started = true; this.fadeIn = this.fade; this.frac = 0;
                 // A backlog far above the target is stale audio queued before the
                 // engine began pulling: drop it now, not at the next quiet moment.
-                var excess = this.depth - (this.target + this.avgPush);
+                var excess = this.depth - (startAt + this.avgPush);
                 if (excess > this.skipExcess) { this.pendingSkip = excess; this._skip(); }
             } else { out.fill(0); this._tick(n); return; }
         }
@@ -150,11 +154,18 @@ class WfJitterBuffer {
         this._tick(n);
     }
 
-    // Drop everything and re-buffer; the learned target survives.
-    flush() {
+    // Drop everything and re-buffer; the learned target survives. The page
+    // flushes on purpose when the radio switches between RX and TX, so the
+    // gaps of the next 3 s are that switch, not network jitter: an underrun
+    // then re-buffers but is not counted and does not grow the target.
+    // fast: start again at half the target (back to RX after TX) and let
+    // the resampler fill the rest.
+    flush(fast) {
         this.rd = this.wr; this.depth = 0; this.frac = 0; this.started = false;
         this.fadeIn = 0; this.xfadeLeft = 0; this.pendingSkip = 0;
         this.lastPush = -1; this.underrunOpen = false; this.energy = 0;
+        this.quietUntil = this.clock + Math.round(3000 * this.ms);
+        this.fastStart = !!fast;
     }
 
     stats() {
@@ -188,8 +199,10 @@ class WfJitterBuffer {
         for (; i < n; i++) out[i] = 0;
         this.rd = this.wr; this.depth = 0; this.frac = 0;
         this.fadeIn = 0; this.xfadeLeft = 0; this.pendingSkip = 0; this.energy = 0;
-        this.started = false; this.underruns++; this.underrunOpen = true;
+        this.started = false;
         this.periodMin = Infinity;             // the trough before the underrun is not this period's floor
+        if (this.clock < this.quietUntil) { this.lastPush = -1; return; }   // RX/TX switch (see flush)
+        this.underruns++; this.underrunOpen = true;
         // A repeat within twice the hold doubles it: periodic stalls stay covered.
         var since = this.lastUnderrun < 0 ? Infinity : this.clock - this.lastUnderrun;
         this.hold = since < 2 * this.hold * this.period ? Math.min(this.hold * 2, this.holdMax) : this.holdMin;
@@ -258,6 +271,7 @@ function wfRxWorkletMain() {
             port.onmessage = function (e) {
                 var d = e.data;
                 if (d === 'flush') jb.flush();
+                else if (d && d.cmd === 'flush') jb.flush(d.fast);
                 else if (d && d.cmd === 'lock') jb.setLock(d.ms);
                 else jb.push(d);
             };

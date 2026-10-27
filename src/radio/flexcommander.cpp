@@ -995,6 +995,13 @@ void flexCommander::handleStatus(const message& msg)
                 onAir = true;
                 // Release what was said while the radio was keying up, in
                 // order and at once; the radio's DAX buffer absorbs it.
+                // Only the key-up time's worth: anything older (the mic ran
+                // before xmit 1 went out) would leave the voice that far
+                // behind for the whole over and cut its tail at unkey.
+                if (txKeyTimer.isValid()) {
+                    const qint64 keep = txKeyTimer.elapsed() * DAX_RATE / (1000 * DAX_TX_FRAMES) + 1;
+                    while (txPending.size() > keep) txPending.removeFirst();
+                }
                 if (!txPending.isEmpty() && udp != nullptr) {
                     for (const QByteArray& pkt : txPending)
                         udp->writeDatagram(pkt, radioAddress, radioUdpPort);
@@ -1008,8 +1015,10 @@ void flexCommander::handleStatus(const message& msg)
                     .arg(txKeyTimer.isValid() ? txKeyTimer.elapsed() : -1)
                     .arg(txPending.size() * DAX_TX_FRAMES * 1000 / DAX_RATE);
                 txPending.clear();
-            } else if (!nowOnAir) {
+                emit onAirChanged(true);
+            } else if (!nowOnAir && onAir) {
                 onAir = false;
+                emit onAirChanged(false);
             }
             if (tx != transmitting) {
                 transmitting = tx;

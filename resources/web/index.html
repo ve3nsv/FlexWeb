@@ -3823,7 +3823,10 @@ function send(obj) {
         if (performance.now() - lastUserGestureMs < 1500) guestNotice();
         return;
     }
-    if (obj && obj.cmd === 'setPTT') micTxWanted = !!obj.value;
+    if (obj && obj.cmd === 'setPTT') {
+        micTxWanted = !!obj.value;
+        if (obj.value) rxGateStart(); else if (rxTxGate || isTransmitting) rxTxEnd();
+    }
     if (obj && (LIVE_TUNE_CMDS[obj.cmd] || (obj.cmd === 'flexDsp' && LIVE_TUNE_DSP[obj.key]))
         && performance.now() - lastUserGestureMs < 1500) liveTuneKick();
     if (wsTransport) wsTransport.sendCommand(obj);
@@ -3947,6 +3950,9 @@ function handleMessage(msg) {
             break;
         case 'nnrGain':
             onNnrGain(msg);
+            break;
+        case 'onAir':
+            if (msg.value) rxGateEnd();
             break;
         case 'reporterMessage':
             setReporterMessageField(msg.message);
@@ -4814,6 +4820,8 @@ function updateTxStatus(tx) {
     if (tx && !isTransmitting && typeof scopeSyncFlush === 'function') scopeSyncFlush();
     var changed = (isTransmitting !== tx);
     isTransmitting = tx;
+    // a Flex reports TX at PTT_REQUESTED, before it is on the air: it ends the gate with onAir
+    if (tx && rxTxGate && !isFlexRig) rxGateEnd();
     // The rig went back to RX by itself (another client, its own TX
     // timeout): a latch must not re-key it or wait for a second tap.
     if (changed && !tx && pttLatched) { pttLatched = false; clearTimeout(pttLatchTimer); pttLatchTimer = null; }
@@ -5817,6 +5825,7 @@ function toggleTuneCarrier() {
     var on = !flexDsp.tune;
     if (on && txOtherBy) { txBusyRefused(); return; }
     flexDsp.tune = on ? 1 : 0;
+    if (on) rxGateStart(); else rxTxEnd();
     sendFlexDsp('tune', 0, flexDsp.tune, true);
     if (document.getElementById('procOverlay').classList.contains('visible')) renderProcOverlay();
     if (document.body.classList.contains('ae-desktop')) renderApplets();
@@ -9356,11 +9365,11 @@ function releasePTT() {
     if (pttReleaseTimer) {
         clearTimeout(pttReleaseTimer);
     }
-    // Wait 300ms to drain TX audio buffer before releasing PTT
+    // Keep keyed while the last words are still on their way (txTailMs)
     pttReleaseTimer = setTimeout(function() {
         send({ cmd: 'setPTT', value: false });
         pttReleaseTimer = null;
-    }, 300);
+    }, txTailMs(300));
 }
 
 // PTT: pointer events (unified touch+mouse) with document-level release.
@@ -10419,6 +10428,7 @@ function playRxFloat(floatData) {
     }
     syncAudioLevel(floatData, 1);
     recFeedRx(pcm, audioSampleRate);
+    if (rxTxGate) return;
     if (audioUseWorklet && audioWorkletNode) audioWorkletNode.port.postMessage(floatData, [floatData.buffer]);
     else if (audioJb) audioJb.push(floatData);
 }
@@ -10443,14 +10453,52 @@ function handleAudioData(buffer) {
         syncAudioLevel(pcmData, 1 / 32768);
     }
     recFeedRx(pcmData, audioSampleRate);
+    if (rxTxGate && !intercom) return;
 
     if (audioUseWorklet && audioWorkletNode) audioWorkletNode.port.postMessage(floatData, [floatData.buffer]);
     else if (audioJb) audioJb.push(floatData);
 }
 
-function flushAudio() {
-    if (audioUseWorklet && audioWorkletNode) audioWorkletNode.port.postMessage('flush');
-    else if (audioJb) audioJb.flush();
+function flushAudio(fast) {
+    if (audioUseWorklet && audioWorkletNode) audioWorkletNode.port.postMessage({ cmd: 'flush', fast: !!fast });
+    else if (audioJb) audioJb.flush(fast);
+}
+
+// RX <-> TX switching (punch list 26). Keying (PTT from any panel, TUNE):
+// drop the buffered RX audio and keep RX silent until the radio is on the
+// air - a Flex streams RX for its 50-130 ms key-up, which played alone as a
+// blip. The Flex says so ({type:'onAir'}); other rigs when their TX status
+// comes back; 1.5 s at the most. Back to RX: drop what was buffered during
+// TX and start again at half the buffer. The jitter buffer does not count
+// either switch as a dropout (rx-jitter.js flush).
+var rxTxGate = false, rxTxGateTimer = null;
+function rxGateStart() {
+    if (txOtherBy) return;
+    rxTxGate = true;
+    flushAudio();
+    clearTimeout(rxTxGateTimer);
+    rxTxGateTimer = setTimeout(rxGateEnd, 1500);
+}
+function rxGateEnd() {
+    clearTimeout(rxTxGateTimer); rxTxGateTimer = null;
+    if (!rxTxGate) return;
+    rxTxGate = false;
+    flushAudio();
+}
+function rxTxEnd() {
+    clearTimeout(rxTxGateTimer); rxTxGateTimer = null;
+    rxTxGate = false;
+    flushAudio(true);
+}
+// How long to keep the rig keyed after the last TX audio left this page:
+// the audio still on its way and in the radio's buffer. A Flex holds about
+// its key-up time (flexCommander sends what was said during key-up at once),
+// so it waits that plus a margin instead of the fixed time other rigs need
+// to drain their USB sound card.
+function txTailMs(fixedMs) {
+    if (!isFlexRig) return fixedMs;
+    var key = (flexDsp && flexDsp.keyDelayMs > 0) ? flexDsp.keyDelayMs : 100;
+    return Math.round(Math.max(60, Math.min(500, key + 60)));
 }
 
 // Jitter buffer reports (rx-jitter.js): every 2 s, plus the underrun it
@@ -15000,7 +15048,7 @@ function streamDigiAudio(samples12k, onDone, onFirstChunk) {
             if (aborted) stopSidetone();
             // Do NOT close txCtx — it is the shared digiTxCtx, kept alive for next TX
             digiTxSeq = seq;
-            var dly = aborted ? 0 : 200;
+            var dly = aborted ? 0 : txTailMs(200);
             setTimeout(function() { if (onDone) onDone(aborted); }, dly);
         }
         var abortFn = function() { finish(true); };

@@ -83,6 +83,9 @@ signals:
     // NNR's NR GAIN reading (post / pre level, 0..1), about 5 per second
     // while NNR runs; active=false once it stops.
     void flexNnrGain(float gain, bool active);
+    // The interlock reached TRANSMITTING (true) or left it (false): the page
+    // keeps RX audio silent from its PTT press until the radio is on the air.
+    void onAirChanged(bool onAir);
     // Another client (SmartSDR, Maestro...) disconnected us, or the radio
     // dropped us for a duplicate client id. servermain closes the LAN session
     // so wfweb stays off the radio until a browser asks to connect again.

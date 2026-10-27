@@ -596,6 +596,42 @@ def test_time_ping_and_key_delay(flex):
         sock.close()
 
 
+def test_on_air_message(flex):
+    """Punch list 26d: the page keeps RX audio silent from its PTT press until
+    the radio is on the air, so the server reports the interlock as
+    {type:'onAir'} - after the key-up delay, and false again at unkey."""
+    radio, rest = flex
+    from test_web_login import _Reader, _ws
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    reader = _Reader(sock, buf)
+    radio.key_delay = 0.15
+    try:
+        t0 = time.time()
+        requests.put(f"{rest}/ptt", json={"transmitting": True}, timeout=5)
+        on_at = None
+        for text in reader.frames(4.0):
+            m = json.loads(text)
+            if m.get("type") == "onAir" and m.get("value") is True:
+                on_at = time.time() - t0
+                break
+        assert on_at is not None, "no onAir true after keying"
+        assert on_at >= 0.1, f"onAir came {on_at:.3f} s after the key, before the radio's key-up delay"
+        requests.put(f"{rest}/ptt", json={"transmitting": False}, timeout=5)
+        off = False
+        for text in reader.frames(4.0):
+            m = json.loads(text)
+            if m.get("type") == "onAir" and m.get("value") is False:
+                off = True
+                break
+        assert off, "no onAir false after unkey"
+    finally:
+        requests.put(f"{rest}/ptt", json={"transmitting": False}, timeout=5)
+        radio.key_delay = 0.0
+        sock.close()
+
+
 def test_opus_to_browser(flex):
     """AUDIO > QUALITY OPUS: the browser gets 0x05 Opus frames instead of 0x02
     PCM, and they decode to the radio's tone."""

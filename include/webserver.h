@@ -144,6 +144,8 @@ public slots:
     void onFlexMemories(QJsonArray list);
     // NNR's NR GAIN (flexCommander::flexNnrGain) as {type:'nnrGain', gain, active}.
     void onFlexNnrGain(float gain, bool active);
+    // The Flex is on the air / back to RX, as {type:'onAir', value} (punch list 26d).
+    void onFlexOnAir(bool onAir);
     // --on-demand: hold the rig's LAN session only while a browser is
     // connected; release it idleSeconds after the last one leaves.
     void setOnDemand(int idleSeconds);

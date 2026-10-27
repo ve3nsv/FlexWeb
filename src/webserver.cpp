@@ -9512,6 +9512,14 @@ void webServer::onFlexNnrGain(float gain, bool active)
     sendJsonToAll(o);
 }
 
+void webServer::onFlexOnAir(bool onAir)
+{
+    QJsonObject o;
+    o["type"] = "onAir";
+    o["value"] = onAir;
+    sendJsonToAll(o);
+}
+
 void webServer::onFlexMemories(QJsonArray list)
 {
     flexMemoriesJson_ = list;

@@ -282,6 +282,11 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 66 (2026-10-27): item 26 (a-g) is done - TX / RX switching. The
+Flex reports the interlock as {type:'onAir'}; the page's send() starts the
+RX gate on any setPTT true (MOX, FT8, JS8, SSTV, packet) and TUNE, and
+returns to RX on setPTT false / TUNE off.
+
 Build 65 (2026-10-27): items 3 (FT-991A), 19c, 19d, 19f, 24 and 25 are
 done. 19c needed nothing new: the off-screen VFO tab and click-to-tune to
 the nearest 1 kHz already worked on every radio with a scope. 19f: the page

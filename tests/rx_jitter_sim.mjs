@@ -20,7 +20,7 @@ function rng(seed) {
 
 // opts: seconds, frameMs, quantum, ratio (rig clock / sound-card clock),
 // delay(k, tGenMs) -> extra wall ms before frame k arrives,
-// flushAt(tMs) -> true to flush at that wall time (TX),
+// flushAt(tMs) -> true to flush at that wall time (TX), flushFast: flush(true),
 // stopped(tMs) -> true while the rig sends nothing (TX),
 // jbOpts, lockAt {t, ms}
 function simulate(opts) {
@@ -60,7 +60,7 @@ function simulate(opts) {
             k++;
         }
         while (pending.length && pending[0].at <= tMs) jb.push(pending.shift().data);
-        if (opts.flushAt && opts.flushAt(tMs) && tMs - lastFlush > 1000) { jb.flush(); lastFlush = tMs; prev = 0; }
+        if (opts.flushAt && opts.flushAt(tMs) && tMs - lastFlush > 1000) { jb.flush(opts.flushFast); lastFlush = tMs; prev = 0; }
         if (opts.lockAt && Math.abs(tMs - opts.lockAt.t) < q / SR * 1000 / 2) jb.setLock(opts.lockAt.ms);
         jb.pull(out);
         if (jb.started) started = true;
@@ -192,6 +192,34 @@ const CLICK = 0.07; // 1 kHz sine at 0.5 has a max sample step of 0.065
     check('startup backlog: skipped on the first pull', skip && skip.t < 20 && skip.ms > 2800, fmt(r) + (skip ? ' skipAt=' + skip.t.toFixed(0) + 'ms' : ''));
     check('startup backlog: one skip, no underruns, live afterwards', r.jb.skips === 1 && r.jb.underruns === 0 && r.stats.depthMs < 60, fmt(r) + ' depth=' + r.stats.depthMs.toFixed(0));
     check('startup backlog: no clicks', r.maxDiff < CLICK);
+}
+
+// 14. The RX/TX switch (punch list 26g): the page flushes, then the stream
+// stalls 150 ms while the radio switches. That gap is not jitter: no
+// underrun counted, no growth (it used to log "underrun #15 ... 132 -> 135").
+{
+    const sw = t => t >= 10000 && (t % 10000) < 3;
+    const gap = (k, t) => (t >= 10000 && (t % 10000) >= 200 && (t % 10000) < 350) ? 350 - (t % 10000) : 0;
+    const r = simulate({ seconds: 60, flushAt: sw, delay: gap });
+    check('RX/TX switch: the gap after a flush is not an underrun', r.jb.underruns === 0, fmt(r));
+    check('RX/TX switch: buffer did not grow', r.trace.every(p => p.buf <= 45), fmt(r));
+    // the same gap with no flush before it is real jitter and still grows
+    const r2 = simulate({ seconds: 30, delay: (k, t) => (t >= 10000 && t < 10150) ? 10150 - t : 0 });
+    check('a gap without a flush still counts', r2.jb.underruns === 1, fmt(r2));
+}
+
+// 15. Back to RX after TX (flush(true)): audio starts at half the target.
+{
+    const first = fast => {
+        const jb = new WfJitterBuffer(SR, { targetMs: 200 });
+        const out = new Float32Array(128), f = new Float32Array(960).fill(0.25);
+        jb.push(f); jb.pull(out); jb.flush(fast);
+        let t = 0;
+        for (let i = 0; i < 200 && !jb.started; i++) { jb.push(f); t += 20; for (let q = 0; q < 7.5; q++) jb.pull(out); }
+        return t;
+    };
+    const slow = first(false), quick = first(true);
+    check('fast start after TX: audio back sooner', quick < slow * 0.7, 'fast ' + quick + ' ms, normal ' + slow + ' ms');
 }
 
 console.log(failures ? failures + ' FAILED' : 'all passed');

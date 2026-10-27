@@ -232,6 +232,16 @@ OFF warning) has a BUFFER tile (AUTO, or pinned to 50/100/200/400 ms,
 `wfAudioBufLock`), and the learned size persists in `wfAudioBufMs`. `tests/rx_jitter_sim.mjs`
 (via `tests/test_rx_jitter.py`) drives it under node through jitter, stalls,
 drift and TX gaps — run it after any change to the class.
+RX <-> TX switching (server page, punch list 26): `send()` calls
+`rxGateStart()` on any `setPTT` true (and TUNE): flush, and RX frames are
+not played until the radio is on the air — the Flex's interlock
+(`flexCommander::onAirChanged` → `{type:'onAir'}`), another rig's TX status,
+or 1.5 s. `setPTT` false / TUNE off → `rxTxEnd()`: `flush(true)` restarts at
+half the target. A flush opens a 3 s window in which an underrun re-buffers
+without counting or growing the target. `txTailMs()` is how long PTT stays
+keyed after the last TX audio (MOX release, digital TX end): the Flex's
+`keyDelayMs` + 60, other rigs the old fixed 300 / 200 ms. flexCommander
+releases at most the key-up time of held DAX audio (`txPending`).
 
 ### Port Conventions
 - 8080: HTTPS/web browser (with audio/mic support)

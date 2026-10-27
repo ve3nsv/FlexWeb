@@ -1656,6 +1656,14 @@ const JS8_PANEL_MARKUP = `
             combined.set(buffers[ci], off);
             off += buffers[ci].length;
         }
+        // synthesize() fills a whole slot; the last frame's slot ends ~2 s
+        // (Slow ~4.4 s) after its final tone. Unkey at the last tone, as
+        // JS8Call does; the gaps between frames stay, they keep each frame
+        // on its slot.
+        var sm = getSubmode(S.submode);
+        var lastEnd = (buffers.length - 1) * sm.slotSeconds * 12000
+            + Math.round(sm.prerollMs / 1000 * 12000) + 79 * sm.symbolSamples + 240;
+        if (lastEnd < combined.length) combined = combined.subarray(0, lastEnd);
         var totalFrames = buffers.length;
         var slotMs = getSubmode(S.submode).slotSeconds * 1000;
         console.log('[JS8 TX] firing ' + totalFrames + ' frame(s) = '
