@@ -45,8 +45,10 @@ def ft991a(tmp_path_factory):
         if not info:
             proc.terminate()
             out = proc.communicate(timeout=5)[0].decode(errors="replace")
-            pytest.fail("wfweb did not identify the FT-991A:\n" + out[-4000:]
-                        + "\nmock saw: " + ", ".join(rig.commands[:40]))
+            # one line: CI annotations show only the first line of a failure
+            last = " | ".join(l.strip() for l in out.splitlines()[-40:] if l.strip())
+            pytest.fail("wfweb did not identify the FT-991A. mock saw: [" + ", ".join(rig.commands[:40])
+                        + "] wfweb: " + last[-3000:])
         yield rig, rest, info
     finally:
         if proc.poll() is None:

@@ -74,6 +74,9 @@ Yaesu FT-991A:
   2 m and 70 cm. USB audio through the radio's own sound card. No menu
   (EX) commands are sent: set the radio's USB / data audio menus on the
   radio. The scope area says the radio sends no spectrum.
+- Yaesu rigs were never matched to their rig file: the server read the
+  rig files' address into one byte, so the FT-710 (800) and FTX-1 (840)
+  fell back to defaults. Fixed (also needed for the FT-991A, 670).
 - Serial rigs: when the radio does not answer at the set baud rate the
   server also tries 38400 (the FT-991A's CAT tops out there; it defaults to
   4800, menu 031), and Yaesu rigs now step through 38400 / 19200 / 9600 /

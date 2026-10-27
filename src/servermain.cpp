@@ -1451,7 +1451,9 @@ void servermain::setManufacturer(manufacturersType_t man)
             rigSettings->beginGroup("Rig");
             manufacturersType_t manuf = rigSettings->value("Manufacturer",manufIcom).value<manufacturersType_t>();
             if (manuf == man) {
-                uchar civ = rigSettings->value("CIVAddress",0).toInt();
+                // quint16: Yaesu rig IDs (670, 800, 840) do not fit in a byte; a
+                // uchar folded them (800 -> 0x20) and no Yaesu rig file matched.
+                quint16 civ = quint16(rigSettings->value("CIVAddress",0).toInt());
                 QString model = rigSettings->value("Model","").toString();
                 QString path = systemRigDir.absoluteFilePath(rig);
 
@@ -1488,7 +1490,9 @@ void servermain::setManufacturer(manufacturersType_t man)
 
             manufacturersType_t manuf = rigSettings->value("Manufacturer",manufIcom).value<manufacturersType_t>();
             if (manuf == man) {
-                uchar civ = rigSettings->value("CIVAddress",0).toInt();
+                // quint16: Yaesu rig IDs (670, 800, 840) do not fit in a byte; a
+                // uchar folded them (800 -> 0x20) and no Yaesu rig file matched.
+                quint16 civ = quint16(rigSettings->value("CIVAddress",0).toInt());
                 QString model = rigSettings->value("Model","").toString();
                 QString path = userRigDir.absoluteFilePath(rig);
 
