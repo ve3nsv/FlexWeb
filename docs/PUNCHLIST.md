@@ -282,6 +282,9 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 69 (2026-10-27): items 32 (RF2K-S peak hold) and 33 (narrow
+window: sidebar / drawer) are done.
+
 Build 68 (2026-10-27): items 27, 28, 29, 30, 31, 22's terminal names and
 the FT-991A split are done (the split needs the user's test on the radio).
 

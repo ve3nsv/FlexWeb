@@ -2216,6 +2216,11 @@ body.digi-open #bottomBar { grid-row: 5; }
 .ae-amp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 auto; margin-right: 8px; }
 .ae-amp-head { flex: none; }
 .ae-meter-fill.warn { background: #e09020 !important; }
+/* RF2K-S peak hold tick (punch list 32) */
+.ae-meter-track, #ampOverlay .amp-track { position: relative; }
+.amp-peak { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; display: none;
+    background: #f4f8ff; box-shadow: 0 0 3px rgba(255, 255, 255, 0.7); pointer-events: none; }
+.amp-pk { font-weight: 400; opacity: 0.75; font-size: 0.85em; white-space: nowrap; }
 .ae-meter-fill.bad { background: #e03030 !important; }
 #ampOverlay .amp-val { text-align: right; color: #ddd; font-variant-numeric: tabular-nums; }
 #ampOverlay .amp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
@@ -2551,6 +2556,8 @@ try {
             <!-- AetherSDR layout: mode / filter / antenna of the slice (aeTick) -->
             <div id="slicePills" aria-label="Slice settings"></div>
         </div>
+        <button type="button" id="aeDrawerBtn" aria-controls="applets" aria-expanded="false"
+                title="Show / hide the panels (RX, TX, EQ, AMP)" onclick="toggleAeDrawer()">&#9776; PANELS</button>
     </div>
 
     <!-- Row 3: Scope info bar -->
@@ -4007,6 +4014,7 @@ function handleMessage(msg) {
             break;
         case 'amp':
             ampState = msg;
+            ampPeakFeed(msg);
             ampTunePending = false;
             renderAmpIndicator();
             if (document.getElementById('ampOverlay').classList.contains('visible')) renderAmpOverlay();
@@ -6577,6 +6585,8 @@ function drawTxMeters(ctx, cw, ch, barX, barW) {
 // already open (the panel's own exit button keeps working).
 function togglePanel(name) { setPanel(currentPanel === name ? 'default' : name); }
 function setPanel(name) {
+    // a panel opens over the scope: the narrow-layout drawer makes way
+    if (name !== 'default' && aeDrawerOpen && typeof aeDrawerMode === 'function' && aeDrawerMode()) setAeDrawer(false);
     hideAllOverlays();
     currentPanel = name;
 
@@ -6681,6 +6691,8 @@ function renderBottomBar() {
 function aeFitBottomBar(bar) {
     if (!document.body.classList.contains('ae-desktop')) return;
     bar.classList.remove('ae-tight');
+    var more = bar.querySelector('.ae-band-more');
+    if (more) more.style.display = 'none';
     var over = function () { return bar.scrollWidth > bar.clientWidth + 1; };
     if (!over()) return;
     var modes = Array.prototype.filter.call(bar.querySelectorAll('.ae-mode'),
@@ -6688,6 +6700,14 @@ function aeFitBottomBar(bar) {
     for (var i = modes.length - 1; i >= 0 && over(); i--)
         if (!modes[i].classList.contains('active')) modes[i].style.display = 'none';
     if (over()) bar.classList.add('ae-tight');
+    // Narrow windows (punch list 33): then the band keys, from the right,
+    // with BAND… standing in for them.
+    if (!over() || !more) return;
+    more.style.display = '';
+    var bands = Array.prototype.filter.call(bar.querySelectorAll('.ae-band'),
+        function (el) { return !el.classList.contains('ae-band-more'); });
+    for (var j = bands.length - 1; j >= 0 && over(); j--)
+        if (!bands[j].classList.contains('active')) bands[j].style.display = 'none';
 }
 var aeFitTimer = null;
 window.addEventListener('resize', function () {
@@ -6741,7 +6761,11 @@ function getBottomButtons() {
 var aeDesktop = false, aePhone = false;
 var aeGainHome = null;      // where the moved rows go back to: [row, nextSibling]
 var aeLastSig = '';
-var AE_DESKTOP_MQ = '(min-width: 1100px) and (min-height: 560px) and (orientation: landscape)';
+// Punch list 33: the sidebar layout down to 700 x 420 in either orientation
+// (it used to need 1100 x 560 landscape, and a narrowed window lost the
+// applets). aether.css narrows the sidebar under 1280 px and turns it into a
+// drawer (PANELS) under 1000 px.
+var AE_DESKTOP_MQ = '(min-width: 700px) and (min-height: 420px)';
 var AE_PHONE_MQ = '(orientation: portrait) and (max-width: 600px)';
 var AE_MODES = ['LSB', 'USB', 'CW', 'AM', 'FM', 'DIGU', 'DIGL', 'RTTY', 'USB-D', 'LSB-D'];
 
@@ -6758,6 +6782,39 @@ function setLook(classic) {
     if (typeof resizeCanvases === 'function') resizeCanvases();
 }
 
+// The applet drawer on a narrow desktop layout (under 1000 px, aether.css):
+// PANELS opens / closes it, Escape or a press on the scope closes it, and
+// the last state is kept per browser.
+var aeDrawerOpen = false;
+try { aeDrawerOpen = localStorage.getItem('wfDrawer') === 'open'; } catch (e) {}
+// The drawer covers the scope only, between the slice strip and the bottom bar.
+function aeDrawerPlace() {
+    var ap = document.getElementById('applets');
+    if (!ap) return;
+    if (!aeDrawerMode()) { ap.style.top = ap.style.bottom = ''; return; }
+    var info = document.getElementById('scopeInfoBar'), bar = document.getElementById('bottomBar');
+    if (info) ap.style.top = Math.round(info.getBoundingClientRect().top) + 'px';
+    if (bar) ap.style.bottom = Math.round(window.innerHeight - bar.getBoundingClientRect().top) + 'px';
+}
+function setAeDrawer(open) {
+    aeDrawerOpen = !!open;
+    aeDrawerPlace();
+    document.body.classList.toggle('ae-drawer-open', aeDrawerOpen);
+    var b = document.getElementById('aeDrawerBtn');
+    if (b) { b.setAttribute('aria-expanded', aeDrawerOpen ? 'true' : 'false'); b.classList.toggle('active', aeDrawerOpen); }
+    try { localStorage.setItem('wfDrawer', aeDrawerOpen ? 'open' : 'closed'); } catch (e) {}
+}
+function toggleAeDrawer() { setAeDrawer(!aeDrawerOpen); }
+function aeDrawerMode() { return aeDesktop && window.matchMedia('(max-width: 999px)').matches; }
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && aeDrawerOpen && aeDrawerMode()) setAeDrawer(false);
+}, true);
+document.addEventListener('pointerdown', function (e) {
+    if (!aeDrawerOpen || !aeDrawerMode()) return;
+    var sa = document.getElementById('scopeArea');
+    if (sa && sa.contains(e.target)) setAeDrawer(false);
+}, true);
+
 function aeLayout() {
     var desk = !aeClassic && window.matchMedia(AE_DESKTOP_MQ).matches;
     var phone = !aeClassic && !desk && window.matchMedia(AE_PHONE_MQ).matches;
@@ -6765,6 +6822,7 @@ function aeLayout() {
     aeDesktop = desk; aePhone = phone;
     document.body.classList.toggle('ae-desktop', desk);
     document.body.classList.toggle('ae-phone', phone);
+    setAeDrawer(aeDrawerOpen);
     aeMoveGainRows(desk);
     if (changed) {
         aeLastSig = '';
@@ -7167,21 +7225,23 @@ function renderApplets() {
         body.className = 'ae-amp';
         body.setAttribute('aria-label', 'Open the amplifier panel');
         body.onclick = function() { togglePanel('amp'); };
-        function meter(label, val, max, text) {
+        function meter(label, val, max, text, peakKey) {
             var row = document.createElement('span'); row.className = 'ae-meter';
             var l = document.createElement('span'); l.textContent = label;
             var tr = document.createElement('span'); tr.className = 'ae-meter-track';
             var f = document.createElement('span'); f.className = 'ae-meter-fill';
             f.style.width = (up && val !== undefined ? Math.max(0, Math.min(100, val / max * 100)) : 0) + '%';
             tr.appendChild(f);
+            if (peakKey) tr.insertAdjacentHTML('beforeend', ampPeakTickHtml(peakKey, max));
             var v = document.createElement('b'); v.textContent = up && val !== undefined ? text : '—';
+            if (peakKey) v.insertAdjacentHTML('beforeend', ampPeakTextHtml(peakKey));
             row.appendChild(l); row.appendChild(tr); row.appendChild(v);
             return row;
         }
-        body.appendChild(meter('FWD', a.fwd, 1600, (a.fwd || 0) + ' W'));
+        body.appendChild(meter('FWD', a.fwd, 1600, (a.fwd || 0) + ' W', 'fwd'));
         // REF and SWR rest at baseline below 1 W forward (no carrier).
         var keyed = up && a.fwd >= 1;
-        var refRow = meter('REF', keyed ? a.ref : undefined, 200, keyed ? (a.ref || 0) + ' W' : '');
+        var refRow = meter('REF', keyed ? a.ref : undefined, 200, keyed ? (a.ref || 0) + ' W' : '', 'ref');
         var rl = keyed ? ampRefLevel(a) : '';
         if (rl) refRow.querySelector('.ae-meter-fill').classList.add(rl);
         body.appendChild(refRow);
@@ -7248,6 +7308,8 @@ function aeDesktopButtons(isCW) {
                    cls: 'ae-band', active: curBand === b.label,
                    action: function() { pressBand(b.freq, b.label, b.bsr); } });
     });
+    // shown by aeFitBottomBar only when band keys had to be dropped
+    out.push({ label: 'BAND…', cls: 'ae-band ae-band-more', active: currentPanel === 'band', action: function() { togglePanel('band'); } });
     out.push({ spacer: true, grow: true });
     out.push({ label: 'FT8', cls: 'ae-wide', active: digiBarVisible, action: function() { toggleDigiBar(); } });
     var sstvOn = typeof window.sstvPanelVisible === 'function' && window.sstvPanelVisible();
@@ -7673,11 +7735,64 @@ function renderAmpIndicator() {
     else if (ampState.operate) el.classList.add('operate');
 }
 
-function ampBar(label, value, max, text, level) {
+function ampBar(label, value, max, text, level, peakKey) {
     var pct = value === undefined ? 0 : Math.max(0, Math.min(100, value / max * 100));
     return '<div class="amp-bar"><span>' + label + '</span><div class="amp-track"><div class="amp-fill' +
-        (level ? ' ' + level : '') + '" style="width:' + pct + '%"></div></div><span class="amp-val">' +
-        (value === undefined ? '\u2014' : text) + '</span></div>';
+        (level ? ' ' + level : '') + '" style="width:' + pct + '%"></div>' +
+        (peakKey ? ampPeakTickHtml(peakKey, max) : '') + '</div><span class="amp-val">' +
+        (value === undefined ? '\u2014' : text) + (peakKey ? ampPeakTextHtml(peakKey) : '') + '</span></div>';
+}
+
+// RF2K-S peak hold (punch list 32): a tick at the highest FWD / REF seen,
+// held 1.5 s, then falling 400 W/s (REF 50 W/s) toward the reading;
+// cleared at unkey (FWD under 1 W). Kept from each {type:'amp'} (4 per
+// second); the tick and the "pk" text are moved by a timer between updates,
+// without rebuilding the applet or the panel.
+var AMP_PEAK_HOLD_MS = 1500, AMP_PEAK_FALL = { fwd: 400, ref: 50 };
+var ampPeak = { fwd: null, ref: null };   // { v, at, cur, max }
+var ampPeakTimer = null;
+function ampPeakValue(k) {
+    var p = ampPeak[k];
+    if (!p) return 0;
+    var age = performance.now() - p.at - AMP_PEAK_HOLD_MS;
+    var v = age > 0 ? p.v - AMP_PEAK_FALL[k] * age / 1000 : p.v;
+    return Math.max(v, p.cur || 0);
+}
+function ampPeakFeed(a) {
+    var keyed = a && a.connected && a.fwd !== undefined && a.fwd >= 1;
+    if (!keyed) { ampPeak.fwd = ampPeak.ref = null; ampPeakPaint(); return; }
+    var now = performance.now();
+    ['fwd', 'ref'].forEach(function (k) {
+        var v = Number(a[k]) || 0;
+        var p = ampPeak[k];
+        if (!p || v >= ampPeakValue(k)) ampPeak[k] = { v: v, at: now, cur: v };
+        else p.cur = v;
+    });
+    if (!ampPeakTimer) ampPeakTimer = setInterval(ampPeakPaint, 50);
+}
+function ampPeakTickHtml(k, max) {
+    var st = ampPeak[k] ? ' style="display:block;left:' + Math.max(0, Math.min(100, ampPeakValue(k) / max * 100)) + '%"' : '';
+    return '<i class="amp-peak" data-k="' + k + '" data-max="' + max + '"' + st + '></i>';
+}
+function ampPeakTextHtml(k) {
+    return '<small class="amp-pk" data-k="' + k + '">' + (ampPeak[k] ? ' pk ' + Math.round(ampPeakValue(k)) : '') + '</small>';
+}
+function ampPeakPaint() {
+    var any = false;
+    document.querySelectorAll('.amp-peak').forEach(function (el) {
+        var k = el.dataset.k, p = ampPeak[k];
+        if (!p) { el.style.display = 'none'; return; }
+        any = true;
+        var v = ampPeakValue(k), max = Number(el.dataset.max) || 1;
+        el.style.display = 'block';
+        el.style.left = Math.max(0, Math.min(100, v / max * 100)) + '%';
+    });
+    document.querySelectorAll('.amp-pk').forEach(function (el) {
+        var p = ampPeak[el.dataset.k];
+        el.textContent = p ? ' pk ' + Math.round(ampPeakValue(el.dataset.k)) : '';
+    });
+    if (!ampPeak.fwd && !ampPeak.ref && ampPeakTimer) { clearInterval(ampPeakTimer); ampPeakTimer = null; }
+    return any;
 }
 
 function ampTile(label, value, bad) {
@@ -7864,8 +7979,8 @@ function renderAmpOverlay() {
         refLevel = s >= 2 ? 'bad' : (s >= 1.5 ? 'warn' : '');
     }
     html += '<div class="amp-bars">' +
-        ampBar('FWD', up ? a.fwd : undefined, 1600, (a.fwd || 0) + ' W') +
-        ampBar('REF', ref, 200, (ref || 0) + ' W', refLevel) +
+        ampBar('FWD', up ? a.fwd : undefined, 1600, (a.fwd || 0) + ' W', '', 'fwd') +
+        ampBar('REF', ref, 200, (ref || 0) + ' W', refLevel, 'ref') +
         ampBar('SWR', swr === undefined ? undefined : ampSwrFrac(swr) * 4, 4,
                swr === undefined ? '' : swr.toFixed(2) + ':1', swrLevel) +
         '</div>';

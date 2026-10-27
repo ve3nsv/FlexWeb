@@ -272,7 +272,7 @@ body.ae-desktop #applets {
 .ae-eq-col { display: flex; flex-direction: column; align-items: center; gap: 4px; font: 10px var(--font-ui); }
 .ae-eq-track { width: 8px; height: 34px; background: var(--ae-panel-hi); border-radius: 2px; position: relative; }
 .ae-eq-fill { position: absolute; left: 0; right: 0; bottom: 0; background: var(--ae-accent); border-radius: 2px; }
-.ae-meter { display: grid; grid-template-columns: 40px 1fr 56px; gap: 8px; align-items: center; font: 12px var(--font-ui); margin-bottom: 6px; }
+.ae-meter { display: grid; grid-template-columns: 40px 1fr minmax(56px, auto); gap: 8px; align-items: center; font: 12px var(--font-ui); margin-bottom: 6px; }
 .ae-meter-track { height: 8px; background: var(--ae-bar); border: 1px solid var(--ae-line); border-radius: 2px; overflow: hidden; }
 .ae-meter-fill { display: block; height: 100%; background: var(--ae-accent); }
 .ae-meter b { text-align: right; color: var(--ae-text-hi); font: 500 12px var(--font-mono); }
@@ -320,3 +320,35 @@ body.ae-desktop .softBtn.ae-band { text-transform: none; }
 
 /* TUNE carrier on air */
 .ae-key.ae-tuning, .softBtn.ae-tuning { background: #7a1d1d !important; color: #fff !important; border-color: #e53935 !important; }
+
+/* ---- Narrow desktop (punch list 33) ---------------------------------------
+   The sidebar layout runs from 700 x 420 (AE_DESKTOP_MQ). Under 1280 px the
+   sidebar narrows; under 1000 px it becomes a drawer over the right of the
+   scope, opened by PANELS at the right end of the slice strip. */
+#aeDrawerBtn { display: none; }
+@media (max-width: 1279px) {
+    body.ae-desktop #radio { grid-template-columns: minmax(0, 1fr) 260px; }
+    body.ae-desktop .ae-rows, body.ae-desktop .ae-btns { padding-left: 8px; padding-right: 8px; }
+    body.ae-desktop .ae-rows .gain-label { width: 40px; font-size: 10px; }
+    body.ae-desktop .ae-meter { grid-template-columns: 34px 1fr minmax(50px, auto); gap: 6px; font-size: 11px; }
+    body.ae-desktop .ae-key { font-size: 11px; }
+}
+@media (max-width: 999px) {
+    body.ae-desktop #radio {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-areas: "top" "strip" "info" "scope" "bottom";
+    }
+    body.ae-desktop #applets {
+        position: fixed; top: 34px; right: 0; bottom: 0; width: 280px; max-width: 86vw; z-index: 350; /* over #scopeArea (300) */
+        transform: translateX(100%); transition: transform 0.18s ease;
+        box-shadow: -6px 0 18px rgba(0, 0, 0, 0.55); visibility: hidden;
+    }
+    body.ae-desktop.ae-drawer-open #applets { transform: none; visibility: visible; }
+    body.ae-desktop #aeDrawerBtn {
+        display: inline-flex; align-items: center; gap: 6px; order: 2; flex: 0 0 auto;
+        padding: 6px 12px; border-radius: 3px; cursor: pointer; white-space: nowrap;
+        background: var(--ae-panel); color: var(--ae-text); border: 1px solid var(--ae-line);
+        font: 600 12px var(--font-ui); letter-spacing: 0.6px;
+    }
+    body.ae-desktop #aeDrawerBtn.active { background: var(--ae-accent); color: #000; border-color: var(--ae-accent); }
+}

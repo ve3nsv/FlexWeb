@@ -10,6 +10,16 @@ Unreleased
 ----------
 
 Page:
+- The sidebar stays when the window is narrow: the desktop layout now runs
+  from 700 x 420 in either orientation (it needed 1100 x 560 landscape and
+  fell back to the classic layout). Under 1280 px the sidebar narrows;
+  under 1000 px it is a drawer opened by PANELS at the right of the
+  frequency strip (Escape, a press on the scope or opening a panel closes
+  it). On a narrow bottom bar the band keys give way to BAND... after the
+  mode keys.
+- RF2K-S peak hold: the FWD and REF bars (AMP applet and FUNC > AMP) show a
+  tick at the highest reading, held 1.5 s then falling, and "pk" with the
+  value; cleared at unkey.
 - Panel buttons toggle: a second click on AUDIO, PROC..., NNR..., EQ, RX
   DSP, ANT, BAND, AMP, SPAN, MODE, FUNC, GAIN or the frequency entry closes
   the panel it opened (the exit button still works); the button is lit
