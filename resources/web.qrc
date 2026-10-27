@@ -24,6 +24,7 @@
         <file alias="lamejs/lame.min.js">web-shared/lamejs/lame.min.js</file>
         <file alias="theme.css">web-shared/theme.css</file>
         <file alias="aether.css">web/aether.css</file>
+        <file alias="sync-estimator.js">web/sync-estimator.js</file>
         <file alias="js8-panel.css">web-shared/js8-panel.css</file>
         <file alias="js8-panel.mjs">web-shared/js8-panel.mjs</file>
         <file alias="sstv-panel.css">web-shared/sstv-panel.css</file>

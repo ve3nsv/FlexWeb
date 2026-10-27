@@ -1835,6 +1835,10 @@ void webServer::onWsNewConnection()
         }
     }
     wsUser.insert(pSocket, user);
+    // A guest hears the transmitting operator from the start, as a signed-in
+    // browser does once its page has sent setTxListen (punch list 23).
+    if (user == QLatin1String(webAuth::kGuest))
+        txListen.insert(pSocket, QStringLiteral("op"));
 
     connect(pSocket, &QWebSocket::textMessageReceived, this, &webServer::onWsTextMessage);
     connect(pSocket, &QWebSocket::binaryMessageReceived, this, &webServer::onWsBinaryMessage);
@@ -1848,6 +1852,7 @@ void webServer::onWsNewConnection()
 
     // Send current state to new client
     sendCurrentState(pSocket);
+    scheduleClientsBroadcast();
     if (pttClient) {
         QJsonObject st;
         st["type"] = "txState";
@@ -1928,6 +1933,7 @@ void webServer::onWsDisconnected()
         if (OpusDecoder *d = txOpusDec.take(pClient)) opus_decoder_destroy(d);
         wsClients.removeAll(pClient);
         browserCount_ = wsClients.size();
+        scheduleClientsBroadcast();
         pClient->deleteLater();
         onDemandBrowserLeft();
     }
@@ -2504,7 +2510,10 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         sendJsonTo(client, r);
     }
     else if (type == "setTxListen") {
-        const QString mode = cmd["mode"].toString();
+        QString mode = cmd["mode"].toString();
+        // A guest hears the operator or nothing: ON-AIR would switch the
+        // radio's monitor on, which is a change to the radio (punch list 23).
+        if (isGuest(client) && mode == "air") mode = "op";
         txListen.insert(client, (mode == "op" || mode == "air") ? mode : QString("off"));
         updateAutoMon();
     }
@@ -2719,6 +2728,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         if (enable) {
             if (audioConfigured) {
                 audioClients.insert(client);
+                scheduleClientsBroadcast();
                 qInfo() << "Web: Audio enabled for client" << client->peerAddress().toString();
                 QJsonObject resp;
                 resp["type"] = "audioStatus";
@@ -2734,6 +2744,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
             }
         } else {
             audioClients.remove(client);
+            scheduleClientsBroadcast();
             qInfo() << "Web: Audio disabled for client" << client->peerAddress().toString();
             QJsonObject resp;
             resp["type"] = "audioStatus";
@@ -4990,6 +5001,7 @@ void webServer::onTalkFrame(QWebSocket *from, const QByteArray &pcm)
 
 void webServer::broadcastTalkers()
 {
+    scheduleClientsBroadcast();
     QJsonArray who;
     for (auto it = talkLastMs.constBegin(); it != talkLastMs.constEnd(); ++it)
         who.append(clientLabel(it.key()));
@@ -9078,8 +9090,49 @@ QString webServer::clientLabel(QWebSocket *c) const
 
 // Who is transmitting, for every browser: the page shows "TX: <who>" and
 // holds its PTT while another browser has the radio.
+void webServer::scheduleClientsBroadcast()
+{
+    if (!clientsTimer) {
+        clientsTimer = new QTimer(this);
+        clientsTimer->setSingleShot(true);
+        clientsTimer->setInterval(250);
+        connect(clientsTimer, &QTimer::timeout, this, &webServer::broadcastClients);
+    }
+    if (!clientsTimer->isActive()) clientsTimer->start();
+}
+
+// One entry per browser: its user (or "guest", or its address when login
+// is off), whether it is this browser, holds TX, talks, has audio on. A
+// guest is never shown another browser's address.
+void webServer::broadcastClients()
+{
+    for (QWebSocket *to : wsClients) {
+        const bool toGuest = isGuest(to);
+        QJsonArray list;
+        for (QWebSocket *c : wsClients) {
+            QJsonObject e;
+            const QString user = wsUser.value(c);
+            const bool guest = isGuest(c);
+            e["name"] = guest ? QStringLiteral("guest")
+                      : !user.isEmpty() ? user
+                      : toGuest ? QStringLiteral("browser") : clientLabel(c);
+            e["guest"] = guest;
+            e["you"] = c == to;
+            e["tx"] = c == pttClient;
+            e["talk"] = talkLastMs.contains(c);
+            e["audio"] = audioClients.contains(c);
+            list.append(e);
+        }
+        QJsonObject o;
+        o["type"] = "clients";
+        o["list"] = list;
+        sendJsonTo(to, o);
+    }
+}
+
 void webServer::broadcastTxState()
 {
+    scheduleClientsBroadcast();
     for (QWebSocket *c : wsClients) {
         QJsonObject st;
         st["type"] = "txState";
@@ -9194,6 +9247,7 @@ bool webServer::guestAllowed(const QString &cmd)
         QStringLiteral("enableAudio"), QStringLiteral("setAudioCodec"), QStringLiteral("getStatus"),
         QStringLiteral("timePing"), QStringLiteral("aprsRequestSnapshot"), QStringLiteral("termList"),
         QStringLiteral("termHistory"), QStringLiteral("getMemories"),
+        QStringLiteral("setTxListen"),   // OPERATOR / OFF only (see setTxListen)
     };
     return ok.contains(cmd);
 }

@@ -136,13 +136,23 @@ body.guest-view .gain-row:not(.rx-vol-row) .gain-bar-fill { opacity: 0.4; }
 body.ae-phone #cpuChip .cpu-lbl { display: none; }
 #cpuChip.warn { color: #1a1200; background: #e0a020; border-color: #e0a020; }
 #cpuChip.hot { color: #fff; background: #c62828; border-color: #e53935; }
-#cpuPop {
+#peopleChip {
+    display: inline-flex; align-items: center; gap: 3px; cursor: pointer;
+    font-family: var(--font-mono); font-size: 11px; font-weight: bold;
+    padding: 1px 6px; border-radius: 3px; white-space: nowrap;
+    color: var(--text-faint, #8aa); border: 1px solid var(--border-col, #234);
+}
+#peopleChip[hidden] { display: none; }
+#peopleChip svg { width: 13px; height: 11px; fill: currentColor; }
+#peoplePop b.tx { color: #ff6b6b; }
+#peoplePop b.talk { color: #ffd27a; }
+#peoplePop, #cpuPop {
     position: fixed; z-index: 400; min-width: 210px; padding: 8px 10px;
     background: #0f1822; color: #c9d6e2; border: 1px solid #2a3c4e; border-radius: 6px;
     font: 12px var(--font-mono, monospace); line-height: 1.6; box-shadow: 0 4px 16px rgba(0,0,0,0.5);
 }
-#cpuPop.hidden { display: none; }
-#cpuPop b { color: #e6f3ff; font-weight: bold; }
+#cpuPop.hidden, #peoplePop.hidden { display: none; }
+#cpuPop b, #peoplePop b { color: #e6f3ff; font-weight: bold; }
 .qso-log-btn {
     padding: 2px 8px;
     background: #00161a;
@@ -2331,7 +2341,7 @@ body.digi-open #bottomBar { grid-row: 5; }
        tighter gap + padding keep the whole bar inside the viewport. */
     #topBar { gap: 4px; }
     #rigTag { display: none; }   /* no room at 360px; the tab title still carries it */
-    #cpuChip { padding: 1px 3px; }
+    #cpuChip, #peopleChip { padding: 1px 3px; }
     #modeBtn { padding: 3px 5px; font-size: 11px; letter-spacing: 0; white-space: nowrap; }
     /* QSO log: the 10-column grid is ~500px wide. On a phone drop Band
        and both RST columns (band is implied by freq) and let Call flex. */
@@ -2477,6 +2487,7 @@ try {
         <span id="filterText" onclick="openFilterModal()">FIL1</span>
         <span id="dspIndicators"></span>
         <span class="flex-space"></span>
+        <span id="peopleChip" hidden role="button" tabindex="0" onclick="togglePeoplePop()" title="Who is connected"></span>
         <span id="cpuChip" hidden role="button" tabindex="0" onclick="toggleCpuPop()">CPU --</span>
         <span id="rigTag" title="Rig"></span>
         <button id="recBtn" class="rec-btn" title="Record">REC</button>
@@ -3154,6 +3165,7 @@ try {
 <script>window.wfRecorderCredit = { name: 'FlexWeb', url: 'github.com/ve3nsv/FlexWeb', filePrefix: 'FlexWeb' };</script>
 <script src="recorder.js"></script>
 <script src="rx-jitter.js"></script>
+<script src="sync-estimator.js"></script>
 <script src="cw-keyer.js"></script>
 <script>
 // ============================================================
@@ -3769,7 +3781,7 @@ function scheduleReconnect() {
 
 // What a guest may send: the server's webServer::guestAllowed list.
 var GUEST_CMDS = { enableAudio: 1, setAudioCodec: 1, getStatus: 1, timePing: 1,
-    aprsRequestSnapshot: 1, termList: 1, termHistory: 1, getMemories: 1 };
+    aprsRequestSnapshot: 1, termList: 1, termHistory: 1, getMemories: 1, setTxListen: 1 };
 var lastUserGestureMs = 0;
 ['pointerdown', 'keydown', 'wheel'].forEach(function (ev) {
     window.addEventListener(ev, function () { lastUserGestureMs = performance.now(); }, true);
@@ -3837,6 +3849,10 @@ function handleMessage(msg) {
             if (document.getElementById('nnrOverlay').classList.contains('visible')) renderNnrOverlay();
             if (document.getElementById('flexAntOverlay').classList.contains('visible')) renderFlexAntOverlay();
             if (currentPanel === 'func') renderFuncOverlay();
+            break;
+        case 'clients':
+            peopleList = msg.list || [];
+            renderPeopleChip();
             break;
         case 'serverLoad':
             serverLoad = msg;
@@ -5228,7 +5244,8 @@ function meterAnimStep(now) {
 // Flex) used to bypass it while the periodic 'meters' message was delayed,
 // so the meter jumped between the live and the delayed value.
 function syncedSMeter(val) {
-    if (isTransmitting || !scopeSyncDefer(function () { updateSMeter(val); })) updateSMeter(val);
+    syncSample('meter', val);
+    if (isTransmitting || !meterSyncDefer(function () { updateSMeter(val); })) updateSMeter(val);
 }
 function updatePowerMeter(val) { powerVal = val; if (isTransmitting) drawMeter(); }
 function updateSwrMeter(val) { swrVal = val; if (isTransmitting) drawMeter(); }
@@ -6004,6 +6021,60 @@ function updateALCMeter(val) {
         }
     }
 }
+
+// ---- Who is connected (punch list 22) -------------------------------------
+// {type:'clients'}: one entry per browser (name, you, guest, tx, talk,
+// audio). The chip shows the count when this browser is not alone; a tap
+// lists them, guests counted together.
+var peopleList = [];
+function peopleHtml() {
+    var rows = [], guests = 0, guestsMe = false;
+    peopleList.forEach(function (p) {
+        if (p.guest) { guests++; if (p.you) guestsMe = true; return; }
+        var tags = [];
+        if (p.tx) tags.push('<b class="tx">TX</b>');
+        if (p.talk) tags.push('<b class="talk">TALK</b>');
+        if (!p.audio) tags.push('audio off');
+        rows.push('<b>' + ampEsc(p.name) + '</b>' + (p.you ? ' (you)' : '') + (tags.length ? ' \u00b7 ' + tags.join(' \u00b7 ') : ''));
+    });
+    if (guests) rows.push('<b>' + guests + ' guest' + (guests > 1 ? 's' : '') + '</b>' + (guestsMe ? ' (you are one)' : '') + ' \u00b7 view only');
+    return '<b>Connected</b><br>' + rows.join('<br>');
+}
+function renderPeopleChip() {
+    var el = document.getElementById('peopleChip');
+    if (!el) return;
+    var n = peopleList.length;
+    el.hidden = n <= 1;
+    if (n <= 1) { closeTopPop('peoplePop'); return; }
+    el.innerHTML = '<svg viewBox="0 0 26 22" aria-hidden="true"><circle cx="8" cy="6" r="4"/><circle cx="18" cy="6" r="4"/>' +
+        '<path d="M0 21c0-5 4-8 8-8s8 3 8 8z"/><path d="M12 21c0-4 3-8 6-8 4 0 8 3 8 8z"/></svg>' + n;
+    el.title = peopleHtml().replace(/<br>/g, '\n').replace(/<[^>]+>/g, '');
+    var pop = document.getElementById('peoplePop');
+    if (pop && !pop.classList.contains('hidden')) pop.innerHTML = peopleHtml();
+}
+function togglePeoplePop() { toggleTopPop('peoplePop', 'peopleChip', peopleHtml()); }
+function toggleTopPop(id, chipId, html) {
+    var pop = document.getElementById(id);
+    if (pop && !pop.classList.contains('hidden')) { closeTopPop(id); return; }
+    if (!pop) {
+        pop = document.createElement('div');
+        pop.id = id;
+        pop.onclick = function () { closeTopPop(id); };
+        document.body.appendChild(pop);
+    }
+    pop.innerHTML = html;
+    pop.classList.remove('hidden');
+    var r = document.getElementById(chipId).getBoundingClientRect();
+    pop.style.top = Math.round(r.bottom + 4) + 'px';
+    pop.style.left = Math.max(4, Math.min(window.innerWidth - pop.offsetWidth - 4, Math.round(r.left))) + 'px';
+}
+function closeTopPop(id) {
+    var pop = document.getElementById(id);
+    if (pop) pop.classList.add('hidden');
+}
+document.addEventListener('click', function (e) {
+    if (e.target && e.target.closest && !e.target.closest('#peopleChip') && !e.target.closest('#peoplePop')) closeTopPop('peoplePop');
+});
 
 // ---- Server CPU chip (punch list 17) -------------------------------------
 // The server sends {type:'serverLoad'} every 2 s: sysPct (whole machine),
@@ -7675,8 +7746,8 @@ function renderAudioMicOverlay() {
                              scopeSyncOn, toggleScopeSync);
         ss.title = 'Hold the spectrum, waterfall and S meter back by the audio delay, so you see a signal as you hear it.';
         grid.appendChild(ss);
-        var st = makeFuncBtn('SYNC TRIM', (scopeSyncTrim > 0 ? '+' : '') + scopeSyncTrim + ' ms', scopeSyncTrim !== 0, cycleScopeSyncTrim);
-        st.title = 'Fine-tune the scope sync by ear (the radio adds some delay of its own).';
+        var st = makeFuncBtn('SYNC TRIM', syncTrimState(), scopeSyncTrimAuto || scopeSyncTrim !== 0, cycleScopeSyncTrim);
+        st.title = syncTrimTitle();
         grid.appendChild(st);
     }
 
@@ -8973,7 +9044,9 @@ try {
 var txListenSent = null;
 function txListenEffective() {
     var digi = /^(DIG|RTTY|PKT|FT|JS8)|-D$/.test(currentMode || '');   // DIGU/DIGL, RTTY, Icom USB-D...
-    return (digi && !txListenDigi) ? 'off' : txListenMode;
+    // a guest has OPERATOR or OFF: ON-AIR would switch the radio's monitor on
+    var m = (guestView && txListenMode === 'air') ? 'op' : txListenMode;
+    return (digi && !txListenDigi) ? 'off' : m;
 }
 function sendTxListen(force) {
     var m = txListenEffective();
@@ -8982,10 +9055,12 @@ function sendTxListen(force) {
     send({ cmd: 'setTxListen', mode: m });
 }
 function txListenLabel() {
-    return txListenMode === 'op' ? 'OPERATOR' : txListenMode === 'air' ? 'ON-AIR' : 'OFF';
+    var m = (guestView && txListenMode === 'air') ? 'op' : txListenMode;
+    return m === 'op' ? 'OPERATOR' : m === 'air' ? 'ON-AIR' : 'OFF';
 }
 function cycleTxListen() {
-    txListenMode = txListenMode === 'op' ? 'air' : txListenMode === 'air' ? 'off' : 'op';
+    if (guestView) txListenMode = txListenMode === 'off' ? 'op' : 'off';
+    else txListenMode = txListenMode === 'op' ? 'air' : txListenMode === 'air' ? 'off' : 'op';
     try { localStorage.setItem('wfTxListen', txListenMode); } catch (e) {}
     sendTxListen(true);
     renderAudioMicOverlay();
@@ -10240,6 +10315,7 @@ function playRxFloat(floatData) {
         floatData[i] = v;
         pcm[i] = Math.round(v * 32767);
     }
+    syncAudioLevel(floatData, 1);
     recFeedRx(pcm, audioSampleRate);
     if (audioUseWorklet && audioWorkletNode) audioWorkletNode.port.postMessage(floatData, [floatData.buffer]);
     else if (audioJb) audioJb.push(floatData);
@@ -10262,6 +10338,7 @@ function handleAudioData(buffer) {
         if (typeof window._js8ProcessAudioChunk === 'function') window._js8ProcessAudioChunk(pcmData);
         if (typeof window._sstvProcessAudioChunk === 'function') window._sstvProcessAudioChunk(pcmData);
         if (toneScanDetector) feedToneScan(pcmData);
+        syncAudioLevel(pcmData, 1 / 32768);
     }
     recFeedRx(pcmData, audioSampleRate);
 
@@ -10703,18 +10780,75 @@ function initWaterfallBuffer(dataLen) {
 // audio delay (jitter buffer depth + the sound card's output latency), so a
 // signal is seen as it is heard. Off while transmitting (TX meters stay
 // live), with audio off, or with SYNC SCOPE OFF; FUNC > AUDIO has a +/- trim.
-var scopeSyncOn = true, scopeSyncTrim = 0;
+var scopeSyncOn = true, scopeSyncTrim = 0, scopeSyncTrimAuto = true;
 try {
     scopeSyncOn = localStorage.getItem('wfScopeSync') !== 'off';
-    scopeSyncTrim = parseInt(localStorage.getItem('wfScopeSyncTrim'), 10) || 0;
+    var storedTrim = localStorage.getItem('wfScopeSyncTrim');
+    // AUTO unless a non-zero trim was chosen (0 was the old default)
+    scopeSyncTrimAuto = storedTrim === null || storedTrim === 'auto' || storedTrim === '0';
+    scopeSyncTrim = scopeSyncTrimAuto ? 0 : (parseInt(storedTrim, 10) || 0);
 } catch (e) {}
+// SYNC TRIM AUTO (punch list 7): sync-estimator.js measures how much later
+// the scope's passband level and the S-meter follow the received audio's
+// loudness, and each is held back by the audio delay minus its own lag.
+// A manual trim applies to both instead.
+var syncEst = (typeof WfSync !== 'undefined') ? new WfSync.SyncEstimator() : null;
+try {
+    var sl = JSON.parse(localStorage.getItem('wfSyncAutoLag') || 'null');
+    if (syncEst && sl) { syncEst.scopeLag = typeof sl.s === 'number' ? sl.s : null; syncEst.meterLag = typeof sl.m === 'number' ? sl.m : null; }
+} catch (e) {}
+function syncClamp(v) { return Math.max(-600, Math.min(600, v)); }
+function scopeTrimMs() {
+    if (!scopeSyncTrimAuto) return scopeSyncTrim;
+    return syncEst && syncEst.scopeLag !== null ? syncClamp(-syncEst.scopeLag) : 0;
+}
+function meterTrimMs() {
+    if (!scopeSyncTrimAuto) return scopeSyncTrim;
+    return syncEst && syncEst.meterLag !== null ? syncClamp(-syncEst.meterLag) : scopeTrimMs();
+}
+// Samples for the estimator, at arrival (before any sync delay).
+function syncSample(kind, v) {
+    if (!syncEst || !scopeSyncTrimAuto || isTransmitting || !audioEnabled) return;
+    var now = performance.now();
+    syncEst.add(kind, now, v);
+    if (kind === 'audio' && syncEst.run(now)) {
+        try { localStorage.setItem('wfSyncAutoLag', JSON.stringify({ s: syncEst.scopeLag, m: syncEst.meterLag })); } catch (e) {}
+        if (document.getElementById('audioMicOverlay') && document.getElementById('audioMicOverlay').classList.contains('visible')) renderAudioMicOverlay();
+    }
+}
+function syncAudioLevel(pcm, scale) {
+    if (!syncEst || !scopeSyncTrimAuto) return;
+    var s = 0;
+    for (var i = 0; i < pcm.length; i++) s += pcm[i] * pcm[i];
+    syncSample('audio', 10 * Math.log10(s / Math.max(1, pcm.length) * scale * scale + 1e-12));
+}
+// The scope's level inside the receive passband, from a 0x01 frame.
+function syncScopeLevel(buffer) {
+    if (!syncEst || !scopeSyncTrimAuto || buffer.byteLength < 13 || !(currentFreq > 0)) return;
+    var v = new DataView(buffer);
+    if (v.getUint8(2)) return;   // out of range
+    var start = v.getFloat32(4, true) * 1e6, end = v.getFloat32(8, true) * 1e6, n = buffer.byteLength - 12;
+    if (!(end > start) || n < 8) return;
+    var lo, hi;
+    if (flexPassbandKnown()) { lo = flexDsp.rxLo; hi = flexDsp.rxHi; }
+    else if (/^(LSB|DIGL|LSB-D)$/.test(currentMode)) { lo = -2800; hi = -200; }
+    else if (/^(CW|CW-R)$/.test(currentMode)) { lo = -250; hi = 250; }
+    else if (/^(AM|SAM|FM|NFM|DFM|WFM)$/.test(currentMode)) { lo = -3000; hi = 3000; }
+    else { lo = 200; hi = 2800; }
+    var i0 = Math.floor((currentFreq + lo - start) / (end - start) * n), i1 = Math.ceil((currentFreq + hi - start) / (end - start) * n);
+    i0 = Math.max(0, i0); i1 = Math.min(n, i1);
+    if (i1 - i0 < 1) return;
+    var px = new Uint8Array(buffer, 12), s = 0;
+    for (var i = i0; i < i1; i++) s += px[i];
+    syncSample('scope', s / (i1 - i0));
+}
 var scopeSyncQ = [], scopeSyncCur = 0, scopeSyncLastDue = 0, scopeSyncTimer = null;
 var scopeSyncReleasing = false;
 function scopeSyncTarget() {
     if (!scopeSyncOn || !audioEnabled || isTransmitting || !audioJbStats) return 0;
     var out = 0;
     try { if (audioCtx) out = ((audioCtx.outputLatency || 0) + (audioCtx.baseLatency || 0)) * 1000; } catch (e) {}
-    return Math.max(0, Math.min(1500, (audioJbStats.bufMs || 0) + out + scopeSyncTrim));
+    return Math.max(0, Math.min(1500, (audioJbStats.bufMs || 0) + out + scopeTrimMs()));
 }
 // Queue fn to run once it is as old as the audio delay; false = run it now.
 function scopeSyncDefer(fn) {
@@ -10750,6 +10884,31 @@ function scopeSyncFlush() {
     scopeSyncCur = 0;
     scopeSyncLastDue = 0;
     recRxFlush();
+    meterSyncFlush();
+    if (syncEst) syncEst.reset();
+}
+// The S-meter's own queue: held back by the audio delay with its own trim
+// (it lags the audio more than the scope does: the radio's meter averaging).
+var meterSyncQ = [], meterSyncLastDue = 0, meterSyncTimer = null;
+function meterSyncDefer(fn) {
+    if (scopeSyncTarget() <= 0 && !meterSyncQ.length) return false;
+    var d = Math.max(0, scopeSyncCur - scopeTrimMs() + meterTrimMs());
+    var due = Math.max(performance.now() + d, meterSyncLastDue);
+    meterSyncLastDue = due;
+    meterSyncQ.push({ due: due, fn: fn });
+    if (meterSyncQ.length > 200) meterSyncFlush();
+    if (!meterSyncTimer) meterSyncTimer = setInterval(meterSyncRun, 10);
+    return true;
+}
+function meterSyncRun() {
+    var now = performance.now();
+    while (meterSyncQ.length && meterSyncQ[0].due <= now) { try { meterSyncQ.shift().fn(); } catch (e) { console.error(e); } }
+    if (!meterSyncQ.length) { clearInterval(meterSyncTimer); meterSyncTimer = null; meterSyncLastDue = 0; }
+}
+function meterSyncFlush() {
+    while (meterSyncQ.length) { try { meterSyncQ.shift().fn(); } catch (e) { console.error(e); } }
+    if (meterSyncTimer) { clearInterval(meterSyncTimer); meterSyncTimer = null; }
+    meterSyncLastDue = 0;
 }
 // The recorder gets RX audio as it arrives, but the canvases it films are
 // held back by scope sync until that audio is heard. Hold the recorded RX
@@ -10782,17 +10941,34 @@ function toggleScopeSync() {
     renderAudioMicOverlay();
 }
 function cycleScopeSyncTrim() {
-    var steps = [-100, -75, -50, -25, 0, 25, 50, 75, 100];
-    var i = steps.indexOf(scopeSyncTrim);
-    scopeSyncTrim = steps[(i + 1) % steps.length];
-    try { localStorage.setItem('wfScopeSyncTrim', String(scopeSyncTrim)); } catch (e) {}
+    // AUTO, then a fixed trim for both scope and meter
+    var steps = ['auto', -100, -75, -50, -25, 0, 25, 50, 75, 100];
+    var i = steps.indexOf(scopeSyncTrimAuto ? 'auto' : scopeSyncTrim);
+    var next = steps[(i + 1) % steps.length];
+    scopeSyncTrimAuto = next === 'auto';
+    scopeSyncTrim = scopeSyncTrimAuto ? 0 : next;
+    try { localStorage.setItem('wfScopeSyncTrim', String(next)); } catch (e) {}
     renderAudioMicOverlay();
+}
+function fmtTrim(ms) { ms = Math.round(ms); return (ms > 0 ? '+' : '') + ms + ' ms'; }
+function syncTrimState() {
+    if (!scopeSyncTrimAuto) return fmtTrim(scopeSyncTrim);
+    if (!syncEst || syncEst.scopeLag === null) return 'AUTO';
+    return 'AUTO ' + fmtTrim(scopeTrimMs());
+}
+function syncTrimTitle() {
+    if (!scopeSyncTrimAuto) return 'Fixed trim for the scope and the S meter. Tap for AUTO.';
+    if (!syncEst || syncEst.scopeLag === null)
+        return 'AUTO: measuring how the scope and the S meter lag the audio; needs a signal that comes and goes (a voice) for 15 s.';
+    return 'AUTO: scope ' + fmtTrim(scopeTrimMs()) + ' (r ' + syncEst.scopeR.toFixed(2) + '), S meter ' + fmtTrim(meterTrimMs()) +
+        (syncEst.meterLag !== null ? ' (r ' + syncEst.meterR.toFixed(2) + ')' : ' (as the scope)') + '. Tap for a fixed trim.';
 }
 
 function handleBinaryMessage(buffer) {
     if (buffer.byteLength < 2) return;
     var view = new DataView(buffer);
     var msgType = view.getUint8(0);
+    if (msgType === 0x01 && !scopeSyncReleasing) syncScopeLevel(buffer);
     if (msgType === 0x01 && !scopeSyncReleasing && scopeSyncDefer(function () { handleBinaryMessage(buffer); })) return;
     if (msgType === 0x02) { handleAudioData(buffer); return; }
     if (msgType === 0x05) { handleOpusData(buffer); return; }

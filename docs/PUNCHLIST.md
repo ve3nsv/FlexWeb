@@ -282,6 +282,11 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 64 (2026-10-27): items 7, 22 and 23 are done. Item 7 is measured in
+the page (arrival times of audio, scope frames and meter readings on the
+same WebSocket) rather than stamped by the server; the SDR / Kiwi sources
+will feed the same estimator. 22's terminal status page names are not done.
+
 Build 63 (2026-10-27, "quick wins"): items 1, 2, 9, 10, 11, 12, 13, 14,
 16, 17 and 18 are done. Still open: 3, 4, 5, 6, 7, 8, 15, 19, 20, 21.
 Not done from those items: 17's per-feature CPU shares (NNR, Opus) and the

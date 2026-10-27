@@ -10,6 +10,12 @@ Unreleased
 ----------
 
 Web access:
+- Who is connected: a people chip in the top bar shows how many browsers
+  are on when yours is not alone; tap it for the list - names, who has
+  TX or TALK, whose audio is off, guests counted together.
+- Guests hear the transmitting operator: a guest starts on TX LISTEN
+  OPERATOR at its own LISTEN VOL and may switch it OFF; ON-AIR is taken as
+  OPERATOR for a guest (it would switch the radio's monitor on).
 - View only (no password): --guest-view (or [Web] GuestView=true, or the
   launcher's checkbox) adds a button to the sign-in page. A guest sees the
   scope, meters and decoders and hears the audio, but the server refuses
@@ -59,6 +65,12 @@ Web access:
   upstream wfweb version it is based on.
 
 FlexRadio:
+- SYNC TRIM AUTO (the new default): the page measures how much later the
+  scope's level inside the passband and the S meter follow the received
+  audio's loudness (cross-correlation over 15 s, updated only on a clear
+  peak, the last good value kept), and holds each back by the audio delay
+  minus its own lag. FUNC > AUDIO > SYNC TRIM shows "AUTO -170 ms" (the
+  S meter's own value in its tooltip); tapping on gives a fixed trim.
 - S-meter lag: meter readings go to the browser as they arrive (the
   server held them up to 100 ms, and a 200 ms tick re-sent an older
   reading between them). The bar meter now moves like AetherSDR's: it

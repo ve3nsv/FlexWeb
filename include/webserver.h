@@ -325,6 +325,11 @@ private:
     // TX lock: who holds PTT ("user" or the browser's address).
     QString clientLabel(QWebSocket *c) const;
     void broadcastTxState();
+    // Who is connected (punch list 22): {type:'clients'} to every browser,
+    // coalesced by clientsTimer (connects, leaves, TX, talk, audio).
+    void scheduleClientsBroadcast();
+    void broadcastClients();
+    QTimer *clientsTimer = nullptr;
     // Intercom during TX: what each browser hears while ANOTHER browser
     // transmits: "off" (silence), "op" (the operator's mic, sent straight
     // through) or "air" (the radio's monitor of the transmission; MON is

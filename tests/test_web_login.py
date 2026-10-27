@@ -524,10 +524,10 @@ def test_lockout(server):
     assert r.status_code == 429 and "Try again" in r.text
 
 
-def test_guest_view(tmp_path):
-    """--guest-view: the login page's "View only" button gives a session that
-    sees everything but is refused every command that changes the radio, keys
-    it or reaches other browsers (punch list 2)."""
+
+@pytest.fixture()
+def guest_server(tmp_path):
+    """A server with --guest-view, user tom and the mock Flex."""
     if not WFWEB_BIN.exists():
         pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
     home = str(tmp_path)
@@ -546,47 +546,9 @@ def test_guest_view(tmp_path):
                              "--lan-control", str(radio.control_port), "--lan-audio", str(radio.vita_port),
                              "--guest-view"],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
-    base = f"https://127.0.0.1:{port}"
     try:
         assert _wait(lambda: requests.get(f"http://127.0.0.1:{port + 1}/api/v1/radio/info", timeout=2).ok)
-        page = requests.get(base + "/login", verify=False, timeout=5)
-        assert "View only (no password)" in page.text and 'name="guest"' in page.text
-        r = requests.post(base + "/login", data={"guest": "1"}, verify=False, allow_redirects=False, timeout=10)
-        assert r.status_code == 303 and r.headers["Location"] == "/"
-        token = r.cookies["wfweb_session"]
-        jar = {"wfweb_session": token}
-        assert requests.get(base + "/", cookies=jar, verify=False, timeout=5).status_code == 200
-        assert requests.get(base + "/api/v1/radio/info", cookies=jar, verify=False, timeout=5).ok
-        # nothing changes through the API on the web port
-        assert requests.put(base + "/api/v1/radio/frequency", json={"value": 7100000}, cookies=jar,
-                            verify=False, timeout=5).status_code == 403
-
-        st, sock, buf = _ws(port, token)
-        assert " 101" in st, st
-        rd = _Reader(sock, buf)
-        try:
-            info = _drain_until(rd, lambda m: m.get("type") == "rigInfo")
-            assert info and info.get("guest") is True and info.get("webUser") == "guest"
-            before = list(radio.commands)
-            for cmd in ({"cmd": "setFrequency", "value": 7100000}, {"cmd": "setPTT", "value": True},
-                        {"cmd": "setMode", "value": "CW"}, {"cmd": "ampOperate", "value": True},
-                        {"cmd": "flexDsp", "key": "tune", "index": 0, "value": 1}):
-                _ws_send(sock, cmd)
-                ref = _drain_until(rd, lambda m: m.get("type") == "guestRefused")
-                assert ref and ref["cmd"] == cmd["cmd"], (cmd, ref)
-            # binary (mic / intercom) is dropped
-            _ws_send(sock, bytes([0x03, 0, 0, 0, 0, 0]) + bytes(960), opcode=2)
-            # read-only requests still answer
-            _ws_send(sock, {"cmd": "timePing", "t0": 1})
-            assert _drain_until(rd, lambda m: m.get("type") == "timePong")
-            time.sleep(0.5)
-            # what the refused commands would have sent (startup's own
-            # "slice create ... freq=" may still land in this window)
-            new = [c for c in radio.commands[len(before):]
-                   if c.startswith("xmit") or c.startswith("slice tune") or "mode=CW" in c or "tune=1" in c]
-            assert new == [], new
-        finally:
-            sock.close()
+        yield f"https://127.0.0.1:{port}", port, radio
     finally:
         proc.terminate()
         try:
@@ -595,3 +557,105 @@ def test_guest_view(tmp_path):
             proc.kill()
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=2)
+
+
+def _guest_token(base):
+    r = requests.post(base + "/login", data={"guest": "1"}, verify=False, allow_redirects=False, timeout=10)
+    assert r.status_code == 303 and r.headers["Location"] == "/"
+    return r.cookies["wfweb_session"]
+
+
+def test_guest_view(guest_server):
+    """--guest-view: the login page's "View only" button gives a session that
+    sees everything but is refused every command that changes the radio, keys
+    it or reaches other browsers (punch list 2)."""
+    base, port, radio = guest_server
+    page = requests.get(base + "/login", verify=False, timeout=5)
+    assert "View only (no password)" in page.text and 'name="guest"' in page.text
+    token = _guest_token(base)
+    jar = {"wfweb_session": token}
+    assert requests.get(base + "/", cookies=jar, verify=False, timeout=5).status_code == 200
+    assert requests.get(base + "/api/v1/radio/info", cookies=jar, verify=False, timeout=5).ok
+    # nothing changes through the API on the web port
+    assert requests.put(base + "/api/v1/radio/frequency", json={"value": 7100000}, cookies=jar,
+                        verify=False, timeout=5).status_code == 403
+
+    st, sock, buf = _ws(port, token)
+    assert " 101" in st, st
+    rd = _Reader(sock, buf)
+    try:
+        info = _drain_until(rd, lambda m: m.get("type") == "rigInfo")
+        assert info and info.get("guest") is True and info.get("webUser") == "guest"
+        before = list(radio.commands)
+        for cmd in ({"cmd": "setFrequency", "value": 7100000}, {"cmd": "setPTT", "value": True},
+                    {"cmd": "setMode", "value": "CW"}, {"cmd": "ampOperate", "value": True},
+                    {"cmd": "flexDsp", "key": "tune", "index": 0, "value": 1}):
+            _ws_send(sock, cmd)
+            ref = _drain_until(rd, lambda m: m.get("type") == "guestRefused")
+            assert ref and ref["cmd"] == cmd["cmd"], (cmd, ref)
+        # binary (mic / intercom) is dropped
+        _ws_send(sock, bytes([0x03, 0, 0, 0, 0, 0]) + bytes(960), opcode=2)
+        # read-only requests still answer
+        _ws_send(sock, {"cmd": "timePing", "t0": 1})
+        assert _drain_until(rd, lambda m: m.get("type") == "timePong")
+        time.sleep(0.5)
+        # what the refused commands would have sent (startup's own
+        # "slice create ... freq=" may still land in this window)
+        new = [c for c in radio.commands[len(before):]
+               if c.startswith("xmit") or c.startswith("slice tune") or "mode=CW" in c or "tune=1" in c]
+        assert new == [], new
+    finally:
+        sock.close()
+
+
+def test_guest_hears_operator_and_who_is_on(guest_server):
+    """A guest is on TX LISTEN OPERATOR from the start (punch list 23): while
+    tom transmits it gets tom's microphone; asking for ON-AIR is taken as
+    OPERATOR, so the radio's MON is not switched on. Every browser gets the
+    list of who is connected (punch list 22)."""
+    if sys.platform == "darwin":
+        pytest.skip("audio routing test is timing-sensitive on the macOS runner")
+    base, port, radio = guest_server
+    tok_tom = _login(base, "tom", PASSWORD).cookies["wfweb_session"]
+    st, a, abuf = _ws(port, tok_tom)
+    st2, g, gbuf = _ws(port, _guest_token(base))
+    assert " 101" in st and " 101" in st2
+    ra, rg = _Reader(a, abuf), _Reader(g, gbuf)
+    try:
+        assert _drain_until(ra, lambda m: m.get("type") == "rigInfo")
+        assert _drain_until(rg, lambda m: m.get("type") == "rigInfo")
+        cl = _drain_until(ra, lambda m: m.get("type") == "clients" and len(m.get("list", [])) == 2)
+        assert cl, "no clients list"
+        names = sorted((e["name"], e["you"], e["guest"]) for e in cl["list"])
+        assert names == [("guest", False, True), ("tom", True, False)], names
+        for sock, r in ((a, ra), (g, rg)):
+            _ws_send(sock, {"cmd": "enableAudio", "value": True})
+            st_msg = _drain_until(r, lambda m: m.get("type") == "audioStatus")
+            assert st_msg, "no audioStatus"
+            if not st_msg.get("enabled"):
+                pytest.skip(f"browser audio unavailable here: {st_msg.get('reason')}")
+        _ws_send(a, {"cmd": "enableMic", "value": True})
+        time.sleep(0.5)
+        _ws_send(a, {"cmd": "setPTT", "value": True})
+        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 1"], timeout=5)
+        tone = struct.pack("<480h", *([1000, -1000] * 240))
+        for i in range(40):
+            _ws_send(a, bytes([0x03, 0x00]) + struct.pack("<HH", i, 0) + tone, opcode=2)
+            time.sleep(0.01)
+        intercom = sum(1 for op, p in rg.all(2.0) if op == 2 and len(p) > 6 and p[0] == 0x02 and p[1] == 1)
+        assert intercom >= 1, "the guest did not hear the operator"
+        _ws_send(a, {"cmd": "setPTT", "value": False})
+        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 0"], timeout=5)
+
+        # ON-AIR from a guest is OPERATOR: MON stays as it was
+        _ws_send(g, {"cmd": "setTxListen", "mode": "air"})
+        assert not _drain_until(rg, lambda m: m.get("type") == "guestRefused", timeout=1.0)
+        mons = len(radio.find("transmit set mon="))
+        _ws_send(a, {"cmd": "setPTT", "value": True})
+        assert _wait(lambda: radio.find("xmit")[-1:] == ["xmit 1"], timeout=5)
+        time.sleep(1.0)
+        assert "transmit set mon=1" not in radio.find("transmit set mon=")[mons:]
+        _ws_send(a, {"cmd": "setPTT", "value": False})
+    finally:
+        a.close()
+        g.close()
