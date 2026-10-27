@@ -631,3 +631,9 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     OPERATOR or OFF (added to guestAllowed / GUEST_CMDS) but not ON-AIR,
     which switches the radio's monitor on. LISTEN VOL and DIGI LISTEN stay
     local to the guest's browser.
+24. Fine step for Left / Right (user, 2026-10-27; easy). Today Left / Right
+    tune a fixed 50 Hz (HZ_STEP), while Up / Down follow STEP and
+    Shift + Up / Down the fast step. Give Left / Right their own FINE STEP
+    setting (10 / 50 / 100 / 500 Hz, default 50), shown with the STEP pill
+    (e.g. "STEP 1k / 50") and under FUNC > STEP, kept per browser like STEP.
+    The on-screen fine-tune arrows use it too.
