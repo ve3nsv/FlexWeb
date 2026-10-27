@@ -287,7 +287,11 @@ freedv/rade_c c8a3dc1, with the V1 phase renormalisation) was already done
 in build 63. 34c: our decoder reads the off-air freedv-gui EOO (VK5KVA in
 FDV_offair.wav) at any level, so the user's missing callsigns were not a
 decoder incompatibility; the new log lines will tell whether those stations'
-EOOs arrived. Also fixed: RECONNECT after DISCONNECT (30) was under
+EOOs arrived. Root cause found by the macOS CI run of that test: rade_c's
+rade_ofdm_demod_eoo() writes 120 of the 180 EOO values (the rest is stack
+garbage, huge on Windows / macOS) and uses a data symbol as the second
+pilot - patches/rade_c-eoo-demod.patch, applied by CI and build.bat.
+Also fixed: RECONNECT after DISCONNECT (30) was under
 #powerOffOverlay.
 
 Build 69 (2026-10-27): items 32 (RF2K-S peak hold) and 33 (narrow

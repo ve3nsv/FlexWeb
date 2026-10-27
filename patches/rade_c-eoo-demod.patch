@@ -1,0 +1,25 @@
+diff --git a/src/rade_ofdm.c b/src/rade_ofdm.c
+index 60bc9ba..d3dae2b 100644
+--- a/src/rade_ofdm.c
++++ b/src/rade_ofdm.c
+@@ -544,7 +544,8 @@ int rade_ofdm_demod_eoo(const rade_ofdm *ofdm, float *z_hat, const RADE_COMP *rx
+         RADE_COMP sum = rade_czero();
+         sum = rade_cadd(sum, rade_cdiv(rx_sym[0][c], ofdm->P[c]));
+         sum = rade_cadd(sum, rade_cdiv(rx_sym[1][c], ofdm->Pend[c]));
+-        sum = rade_cadd(sum, rade_cdiv(rx_sym[Ns][c], ofdm->Pend[c]));
++        /* second E pilot: symbol Ns+1 (frame P E D D D E); Ns is data */
++        sum = rade_cadd(sum, rade_cdiv(rx_sym[Ns + 1][c], ofdm->Pend[c]));
+         float phase_offset = rade_cangle(sum);
+ 
+         /* Correct all symbols */
+@@ -555,7 +556,9 @@ int rade_ofdm_demod_eoo(const rade_ofdm *ofdm, float *z_hat, const RADE_COMP *rx
+ 
+     /* Extract data symbols (symbols 2 to Ns, i.e., Ns-1 symbols) */
+     int out_idx = 0;
+-    for (int s = 2; s < Ns; s++) {
++    /* s <= Ns: all Ns-1 data symbols, (Ns-1)*Nc*2 = rade_rx_n_eoo_bits
++       values (s < Ns left the last third of eoo_out uninitialised) */
++    for (int s = 2; s <= Ns; s++) {
+         for (int c = 0; c < Nc; c++) {
+             z_hat[out_idx++] = rx_sym[s][c].real;
+             z_hat[out_idx++] = rx_sym[s][c].imag;

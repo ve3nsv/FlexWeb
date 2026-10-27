@@ -400,6 +400,13 @@ queue->add(priorityImmediate, queueItem(funcMemoryContents, QVariant::fromValue<
   (`emit sendToTxConverter` → audio converter → LAN UDP) both work. Radio unkey
   is delayed 300ms so the frame plays out.
 - **RX**: `rade_rx()` detects EOO → `rade_text_rx()` decodes → `rxCallsign` signal → webserver → browser
+- **RX demod fix**: `patches/rade_c-eoo-demod.patch` corrects rade_c's
+  `rade_ofdm_demod_eoo()` (second E pilot is symbol Ns+1; all Ns-1 data
+  symbols extracted - it left 60 of 180 values uninitialised, which broke
+  every callsign on Windows / macOS). CI and build.bat apply it; a local
+  Linux / macOS build must `git -C resources/radae_nopy apply
+  ../../patches/rade_c-eoo-demod.patch` first. `tests/test_rade_eoo.py`
+  (`wfweb --rade-rx-test`) decodes the off-air FDV_offair.wav callsigns.
 - **Important**: The callsign arrives AFTER sync is lost (EOO is the last frame). Do not gate
   reporter or UI updates on `freedvSync`.
 

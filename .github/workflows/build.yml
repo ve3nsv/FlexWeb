@@ -48,6 +48,8 @@ jobs:
       - name: Build RADE
         run: |
           cd resources/radae_nopy
+          # FlexWeb's fix to the V1 end-of-over demodulator (callsigns)
+          git apply --whitespace=nowarn ../../patches/rade_c-eoo-demod.patch
           mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$(nproc)
@@ -185,6 +187,8 @@ jobs:
       - name: Build RADE
         run: |
           cd resources/radae_nopy
+          # FlexWeb's fix to the V1 end-of-over demodulator (callsigns)
+          git apply --whitespace=nowarn ../../patches/rade_c-eoo-demod.patch
           mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$(nproc)
@@ -321,6 +325,8 @@ jobs:
       - name: Build RADE
         run: |
           cd resources/radae_nopy
+          # FlexWeb's fix to the V1 end-of-over demodulator (callsigns)
+          git apply --whitespace=nowarn ../../patches/rade_c-eoo-demod.patch
           mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$(nproc)
@@ -464,6 +470,8 @@ jobs:
       - name: Build RADE
         run: |
           cd resources/radae_nopy
+          # FlexWeb's fix to the V1 end-of-over demodulator (callsigns)
+          git apply --whitespace=nowarn ../../patches/rade_c-eoo-demod.patch
           mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$(nproc)
@@ -613,6 +621,8 @@ jobs:
       - name: Build RADE
         run: |
           cd resources/radae_nopy
+          # FlexWeb's fix to the V1 end-of-over demodulator (callsigns)
+          git apply --whitespace=nowarn ../../patches/rade_c-eoo-demod.patch
           mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$(sysctl -n hw.ncpu)
@@ -714,6 +724,8 @@ jobs:
         run: |
           pacman -S --noconfirm autoconf automake libtool make patch gcc cmake
           cd "$GITHUB_WORKSPACE/resources/radae_nopy"
+          # FlexWeb's fix to the V1 end-of-over demodulator (callsigns)
+          patch -p1 --binary -N < "$GITHUB_WORKSPACE/patches/rade_c-eoo-demod.patch"
           mkdir -p build && cd build
           cmake -DCMAKE_BUILD_TYPE=Release ..
           make -j$(nproc)

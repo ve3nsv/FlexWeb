@@ -70,6 +70,10 @@ exit /b 0
 set RADAE_DIR=%SRCDIR%\resources\radae_nopy
 set RADAE_BUILD=%RADAE_DIR%\build
 set OPUS_MSVC_LIB=%RADAE_BUILD%\opus_msvc_build\Release\opus.lib
+:: FlexWeb's fix to the RADE V1 end-of-over demodulator (callsigns), once
+if exist "%RADAE_DIR%\src\rade_api.h" (
+    git -C "%RADAE_DIR%" apply --reverse --check "%SRCDIR%\patches\rade_c-eoo-demod.patch" >nul 2>&1 || git -C "%RADAE_DIR%" apply --whitespace=nowarn "%SRCDIR%\patches\rade_c-eoo-demod.patch" >> %LOG% 2>&1
+)
 
 if exist "%RADAE_DIR%\src\rade_api.h" (
     if not exist "%OPUS_MSVC_LIB%" (

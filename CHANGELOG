@@ -10,6 +10,12 @@ Unreleased
 ----------
 
 FreeDV:
+- RADE callsigns decode on Windows (and macOS): the RADE library's
+  end-of-over demodulator returned a third of the callsign bits from
+  uninitialised memory and used a data symbol as a pilot (patched in
+  patches/rade_c-eoo-demod.patch until upstream fixes it). On Windows that
+  memory held huge values and no callsign ever decoded - nor reached
+  FreeDV Reporter.
 - The last station's callsign stays on screen: bright for 10 s after it
   decodes, then dimmed with its age for 10 minutes (RADE sends it only at
   the end of each over, and it used to vanish after 5 s); tap it for the
