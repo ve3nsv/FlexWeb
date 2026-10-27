@@ -637,3 +637,15 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     setting (10 / 50 / 100 / 500 Hz, default 50), shown with the STEP pill
     (e.g. "STEP 1k / 50") and under FUNC > STEP, kept per browser like STEP.
     The on-screen fine-tune arrows use it too.
+25. No sync delay while the user is acting (user, 2026-10-27; easy-medium).
+    Scope sync holds the spectrum, waterfall and S meter back by the audio
+    delay (200-400 ms), so dragging the scope, tuning (knob, wheel, keys,
+    click-to-tune), changing band / mode / filter / span or zoom answered
+    that much later than with audio off. Fix: any such input from this
+    browser flushes the scope-sync and meter queues and shows them live;
+    sync stays off until 1.5 s after the last input, then eases back in
+    (the existing slew, ~50 ms per second, so the waterfall never jumps).
+    While live, the scope is ahead of the audio by the audio delay - the
+    trade the user chose. Inputs that do not change what the radio
+    receives (volume, mute, panels) leave sync alone. The audio delay itself
+    stays (it is the jitter buffer that stops dropouts).
