@@ -626,6 +626,21 @@ def test_on_air_message(flex):
                 off = True
                 break
         assert off, "no onAir false after unkey"
+
+        # 26h: TUNE keys the radio without xmit 1. It must not be timed from
+        # the last MOX (it was: "on the air 5510 ms after xmit 1"), which
+        # dragged keyDelayMs - the MOX release and the FT8 / JS8 lead - up.
+        time.sleep(2.5)
+        from test_web_login import _ws_send
+        _ws_send(sock, {"cmd": "flexDsp", "key": "tune", "index": 0, "value": 1})
+        delays = []
+        for text in reader.frames(2.0):
+            m = json.loads(text)
+            if m.get("type") == "flexDsp" and m.get("keyDelayMs") is not None:
+                delays.append(m["keyDelayMs"])
+        _ws_send(sock, {"cmd": "flexDsp", "key": "tune", "index": 0, "value": 0})
+        assert _wait(lambda: radio.transmit.get("tune") == "0", timeout=5)
+        assert all(d < 400 for d in delays), f"TUNE was timed as a key-up: {delays}"
     finally:
         requests.put(f"{rest}/ptt", json={"transmitting": False}, timeout=5)
         radio.key_delay = 0.0

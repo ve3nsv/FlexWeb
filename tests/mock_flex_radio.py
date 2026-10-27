@@ -413,6 +413,11 @@ class MockFlexRadio:
             return 0, ""
         if cmd.startswith("transmit tune "):
             self.transmit["tune"] = words[2]
+            # TUNE keys the radio by itself, no xmit 1 (as a real radio)
+            on = words[2] == "1"
+            if on != self.transmitting:
+                self.transmitting = on
+                self.status(f"interlock state={'TRANSMITTING' if on else 'READY'} source=TUNE")
             return 0, ""
         if cmd.startswith("radio set "):
             return 0, ""

@@ -26,6 +26,13 @@ TX / RX switching:
   ~2 s of keyed silence (Slow ~4.4 s) before returning to receive.
 - The receive buffer no longer counts these switches as dropouts, so it
   stops growing a little with every over.
+- The receive audio stays silent through the whole TX when the rig's MON
+  is off (the Flex still sent a few receive packets after it was on the
+  air, a smaller blip); with MON on it opens 250 ms after key-up.
+- Flex: TUNE (or the radio's own front panel) keying the radio is no longer
+  timed as a key-up from the last MOX ("on the air 5510 ms after xmit 1"),
+  which dragged the learned key-up time - and with it the MOX release and
+  the FT8 / JS8 start - up to seconds.
 
 Web access:
 - Who is connected: a people chip in the top bar shows how many browsers

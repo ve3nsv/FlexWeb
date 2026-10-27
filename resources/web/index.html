@@ -3952,7 +3952,8 @@ function handleMessage(msg) {
             onNnrGain(msg);
             break;
         case 'onAir':
-            if (msg.value) rxGateEnd();
+            if (msg.value) rxGateOnAir();
+            else if (rxTxGate) rxTxEnd();
             break;
         case 'reporterMessage':
             setReporterMessageField(msg.message);
@@ -4821,7 +4822,8 @@ function updateTxStatus(tx) {
     var changed = (isTransmitting !== tx);
     isTransmitting = tx;
     // a Flex reports TX at PTT_REQUESTED, before it is on the air: it ends the gate with onAir
-    if (tx && rxTxGate && !isFlexRig) rxGateEnd();
+    if (tx && rxTxGate && !isFlexRig) rxGateOnAir();
+    if (!tx && changed && rxTxGate) rxTxEnd();
     // The rig went back to RX by itself (another client, its own TX
     // timeout): a latch must not re-key it or wait for a second tap.
     if (changed && !tx && pttLatched) { pttLatched = false; clearTimeout(pttLatchTimer); pttLatchTimer = null; }
@@ -10465,12 +10467,16 @@ function flushAudio(fast) {
 }
 
 // RX <-> TX switching (punch list 26). Keying (PTT from any panel, TUNE):
-// drop the buffered RX audio and keep RX silent until the radio is on the
-// air - a Flex streams RX for its 50-130 ms key-up, which played alone as a
-// blip. The Flex says so ({type:'onAir'}); other rigs when their TX status
-// comes back; 1.5 s at the most. Back to RX: drop what was buffered during
-// TX and start again at half the buffer. The jitter buffer does not count
-// either switch as a dropout (rx-jitter.js flush).
+// drop the buffered RX audio and keep RX silent - a Flex streams RX for its
+// 50-130 ms key-up, and a few RX packets more after it is on the air (its RX
+// audio runs behind the interlock), which played alone as a blip. With the
+// rig's MON off the TX stream is silence anyway, so RX stays muted until
+// unkey; with MON on it opens 250 ms after the rig is on the air (the Flex's
+// {type:'onAir'}, another rig's TX status). 1.5 s at the most if the rig
+// never says it is on the air. Back to RX (unkey, onAir false, the rig's own
+// return to RX): drop what was buffered during TX and start again at half
+// the buffer. The jitter buffer does not count either switch as a dropout
+// (rx-jitter.js flush).
 var rxTxGate = false, rxTxGateTimer = null;
 function rxGateStart() {
     if (txOtherBy) return;
@@ -10484,6 +10490,12 @@ function rxGateEnd() {
     if (!rxTxGate) return;
     rxTxGate = false;
     flushAudio();
+}
+// The rig is on the air: keep the gate through the TX unless MON is on.
+function rxGateOnAir() {
+    if (!rxTxGate) return;
+    clearTimeout(rxTxGateTimer);
+    rxTxGateTimer = monitorEnabled ? setTimeout(rxGateEnd, 250) : null;
 }
 function rxTxEnd() {
     clearTimeout(rxTxGateTimer); rxTxGateTimer = null;

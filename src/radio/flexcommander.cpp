@@ -998,22 +998,30 @@ void flexCommander::handleStatus(const message& msg)
                 // Only the key-up time's worth: anything older (the mic ran
                 // before xmit 1 went out) would leave the voice that far
                 // behind for the whole over and cut its tail at unkey.
-                if (txKeyTimer.isValid()) {
-                    const qint64 keep = txKeyTimer.elapsed() * DAX_RATE / (1000 * DAX_TX_FRAMES) + 1;
+                // Our own key-up only: TUNE, the front panel or another
+                // client key the radio without our xmit 1, and timing those
+                // from the last MOX gave "3-9 s" key-ups (punch list 26h).
+                const bool ours = txRequested && txKeyTimer.isValid();
+                const qint64 keyMs = ours ? txKeyTimer.elapsed() : -1;
+                txKeyTimer.invalidate();
+                if (ours) {
+                    const qint64 keep = keyMs * DAX_RATE / (1000 * DAX_TX_FRAMES) + 1;
                     while (txPending.size() > keep) txPending.removeFirst();
                 }
                 if (!txPending.isEmpty() && udp != nullptr) {
                     for (const QByteArray& pkt : txPending)
                         udp->writeDatagram(pkt, radioAddress, radioUdpPort);
                 }
-                if (txKeyTimer.isValid()) {
-                    const int ms = int(qMin<qint64>(txKeyTimer.elapsed(), 2000));
+                if (ours) {
+                    const int ms = int(qMin<qint64>(keyMs, 2000));
                     keyDelayMs = keyDelayMs < 0 ? ms : (keyDelayMs * 3 + ms) / 4;
                     publishDsp();
                 }
-                qInfo(logRig()).noquote() << QString("Flex: on the air %1 ms after xmit 1, sent %2 ms of held audio")
-                    .arg(txKeyTimer.isValid() ? txKeyTimer.elapsed() : -1)
-                    .arg(txPending.size() * DAX_TX_FRAMES * 1000 / DAX_RATE);
+                if (ours)
+                    qInfo(logRig()).noquote() << QString("Flex: on the air %1 ms after xmit 1, sent %2 ms of held audio")
+                        .arg(keyMs).arg(txPending.size() * DAX_TX_FRAMES * 1000 / DAX_RATE);
+                else
+                    qInfo(logRig()) << "Flex: on the air (keyed by TUNE, the radio or another client)";
                 txPending.clear();
                 emit onAirChanged(true);
             } else if (!nowOnAir && onAir) {

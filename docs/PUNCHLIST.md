@@ -282,6 +282,9 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 67 (2026-10-27): 26h and 26i are done (TUNE no longer timed as a
+key-up; RX stays muted through TX unless MON is on).
+
 Build 66 (2026-10-27): item 26 (a-g) is done - TX / RX switching. The
 Flex reports the interlock as {type:'onAir'}; the page's send() starts the
 RX gate on any setPTT true (MOX, FT8, JS8, SSTV, packet) and TUNE, and

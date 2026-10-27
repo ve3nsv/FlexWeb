@@ -234,9 +234,12 @@ OFF warning) has a BUFFER tile (AUTO, or pinned to 50/100/200/400 ms,
 drift and TX gaps — run it after any change to the class.
 RX <-> TX switching (server page, punch list 26): `send()` calls
 `rxGateStart()` on any `setPTT` true (and TUNE): flush, and RX frames are
-not played until the radio is on the air — the Flex's interlock
-(`flexCommander::onAirChanged` → `{type:'onAir'}`), another rig's TX status,
-or 1.5 s. `setPTT` false / TUNE off → `rxTxEnd()`: `flush(true)` restarts at
+not played — through the whole TX while the rig's MON is off (the Flex's
+RX stream runs behind its interlock, so RX packets still arrive just after
+it is on the air), until 250 ms after on-air with MON on (the Flex's
+interlock, `flexCommander::onAirChanged` → `{type:'onAir'}`, or another
+rig's TX status; 1.5 s if neither comes). Only a key-up flexCommander asked
+for (`txRequested`) is timed into `keyDelayMs`. `setPTT` false / TUNE off / onAir false / the rig's own return to RX → `rxTxEnd()`: `flush(true)` restarts at
 half the target. A flush opens a 3 s window in which an underrun re-buffers
 without counting or growing the target. `txTailMs()` is how long PTT stays
 keyed after the last TX audio (MOX release, digital TX end): the Flex's
