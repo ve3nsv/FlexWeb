@@ -813,3 +813,22 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
       copied, as today).
     - aeLayout() re-runs on resize (matchMedia listeners), so dragging the
       window edge switches cleanly; resizeCanvases() follows.
+34. FreeDV callsign not shown while someone talks (user, 2026-10-27;
+    easy). Two causes:
+    a. RADE (V1) sends the callsign only in its end-of-over frame (EOO): it
+       is decoded when the station unkeys ("Web: RADE decoded callsign:"
+       in the log), shown, and cleared 5 s later (radeCallsignClearTimer,
+       webserver.cpp ~6563). While that station talks again nothing is
+       shown. Keep the last callsign heard on screen - bright for 10 s
+       after the decode, then dimmed with its age ("VE3ABC 2m") until a
+       different one is decoded or 10 minutes pass; a tap lists the last
+       10 heard (callsign, time, SNR). Late joiners get it from the
+       server's state on connect.
+    b. Classic FreeDV (700D / 700E / 1600) sends the callsign in its text
+       channel during the over and the server decodes it
+       (FreeDVProcessor::txtRxCallback -> onFreeDVRxCallsign), but only
+       logs it and reports it to FreeDV Reporter: it never reaches the
+       page, and the page draws #freedvCallsign only for RADE. Send it to
+       the page (one {type:'freedvCallsign'} for both modes, replacing
+       'radeCallsign') and show it the same way, live during the over.
+    The recorder's freedvView reads radeRxCallsign: keep it working.
