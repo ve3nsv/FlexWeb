@@ -580,7 +580,10 @@ def test_guest_view(tmp_path):
             _ws_send(sock, {"cmd": "timePing", "t0": 1})
             assert _drain_until(rd, lambda m: m.get("type") == "timePong")
             time.sleep(0.5)
-            new = [c for c in radio.commands[len(before):] if "xmit" in c or "freq" in c or "mode" in c]
+            # what the refused commands would have sent (startup's own
+            # "slice create ... freq=" may still land in this window)
+            new = [c for c in radio.commands[len(before):]
+                   if c.startswith("xmit") or c.startswith("slice tune") or "mode=CW" in c or "tune=1" in c]
             assert new == [], new
         finally:
             sock.close()
