@@ -858,3 +858,14 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
        EOO callsign did not decode" when no text follows, so the log says
        which; then test against freedv-gui's own all_radev1.wav and an
        on-air station known to send its call.
+35. RF2K-S FWD reads low on voice peaks (user, 2026-10-27; easy). User's
+    recording (19:43, 80 m SSB) side by side with the amp's own screen:
+    the amp shows 499 / 548 / 503 / 474 W where FlexWeb shows 267 / 270 /
+    59 / 60 W at the same moment; FlexWeb's "pk" (565, 568) matches the
+    amp. The REST "forward" value is one momentary sample every 250 ms, and
+    FlexWeb draws that sample; the amp's display has meter ballistics (fast
+    rise, slow fall), so on speech it sits near the peaks. Show FWD (bar
+    and number) with the amp's kind of ballistics: rise at once, hold
+    ~500 ms, fall ~1000 W/s - so it reads like the amp; REF the same.
+    Keep the white "pk" tick (1.5 s hold) on top. FUNC > AMP gets a FWD
+    PEAK / RAW choice (per browser, default PEAK).
