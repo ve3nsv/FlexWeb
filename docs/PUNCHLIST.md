@@ -1033,6 +1033,9 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     e. Note in the code: the wake relies on the modified /tuner handler
        waking the amp before it checks the request. Same change wanted in
        AetherSDR rfkit-tune-pr (its connect check also wakes the amp).
+    Tested by the user (2026-10-28): the empty PUT /tuner every 60 s kept
+    the amp (3 min sleep timer) awake for the whole run; after the loop
+    stopped it went to sleep on its own timer.
     Open: how long the amp takes to be ready after a wake, and whether RF
     alone wakes it (decides whether a short hold before the first TX is
     worth adding). Tests: mock RF-KIT server counts PUT /tuner - one at
