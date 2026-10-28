@@ -1101,3 +1101,21 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
        readings.
     d. The FWD / REF bar ballistics (item 35) stay as they are.
     Check against the amp's display on a voice over and after unkey.
+45. RF2K-S: shorter transmit poll interval (user, 2026-10-28; easy). Item
+    43's transmit schedule asks at most every 50 ms (up to 16 /power reads
+    a second); measured on the user's amp it cost under 1 % of one core and
+    the peaks matched the amp within 1 W.
+    a. Transmit interval 25 ms by default (up to ~32 requests/s, /power 4 of
+       5). The amp's server answers one request at a time, so the real rate
+       is capped by how fast it replies.
+    b. Settings so the user can try values without a build: [Amplifier]
+       TxPollMs (10-1000, default 25) and RxPollMs (100-5000, default 250).
+    c. The page's ballistics / peak painter runs on a 50 ms timer (20
+       frames/s): move it to requestAnimationFrame so faster readings show
+       as smoother motion.
+    d. A log line (the polling log idea from 2026-10-28, folded in here):
+       once per over at unkey the server logs how many /power readings the over got and the rate
+       ("RF-KIT: over 6.1 s, 172 /power reads = 28/s"), so the real rate the
+       amp sustains is visible.
+    Check on the amp: top during a 20-30 s over (was ~14.8 % at 50 ms),
+    rf-kit-gui.log growth, and the meter against the amp's display.
