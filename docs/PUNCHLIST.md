@@ -1087,3 +1087,17 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     Not for rfkit-tune-pr until it is tested in FlexWeb (user, 2026-10-28).
     Tests: test_rfkit counts GETs on the stub (receive rate, /power during
     TX, no /data during TX, slow again after the hold).
+44. RF2K-S "pk" works like the amp's own peak (user, 2026-10-28; easy;
+    replaces item 36's 3 s hold). From the user's screen recording on
+    Actions #83: FlexWeb's pk now matches the amp's peak within 1 W
+    (700 / 701, 711 / 712), but it dropped to 376 when the 3 s hold ran out
+    while the amp still showed 712, and FlexWeb clears pk at unkey while the
+    amp keeps showing the last over's peak in receive ("0 W / 687 W").
+    a. pk = the highest FWD (and REF) of the whole over: it only goes up
+       while transmitting, no 3 s fall.
+    b. At unkey it stays on screen (the bar goes to 0, pk shows the over's
+       peak, e.g. "0 W pk 712") until the next key-up.
+    c. The next key-up starts a new over: pk restarts from that over's
+       readings.
+    d. The FWD / REF bar ballistics (item 35) stay as they are.
+    Check against the amp's display on a voice over and after unkey.
