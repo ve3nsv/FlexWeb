@@ -2108,6 +2108,16 @@ body.digi-open #bottomBar { grid-row: 5; }
     padding: 0 4px;
 }
 
+/* FreeDV status line (punch list 37): below the -/+ zoom keys and the VFO
+   flag, which share the scope's top edge, on a solid tile; wraps on a
+   narrow scope instead of running under them. */
+#freedvIndicator {
+    top: 44px !important; right: 8px !important; left: auto !important;
+    max-width: calc(100% - 16px); flex-wrap: wrap; white-space: normal !important;
+    background: rgba(5, 10, 16, 0.88) !important; border: 1px solid rgba(80, 110, 130, 0.45);
+    z-index: 60 !important;
+}
+#freedvIndicator > span { white-space: nowrap; }
 /* ============ SPECTRUM WARNINGS ============ */
 .spectrum-warning {
     position: absolute;
@@ -7769,7 +7779,8 @@ function ampBar(label, value, max, text, level, peakKey) {
 // cleared at unkey (FWD under 1 W). Kept from each {type:'amp'} (4 per
 // second); the tick and the "pk" text are moved by a timer between updates,
 // without rebuilding the applet or the panel.
-var AMP_PEAK_HOLD_MS = 1500, AMP_PEAK_FALL = { fwd: 400, ref: 50 };
+// 3 s: the amp's own peak reading and AetherSDR's window peak (punch list 36)
+var AMP_PEAK_HOLD_MS = 3000, AMP_PEAK_FALL = { fwd: 400, ref: 50 };
 var ampPeak = { fwd: null, ref: null };   // { v, at, cur, max }
 var ampPeakTimer = null;
 function ampPeakValue(k) {
@@ -9993,7 +10004,7 @@ function toggleFdvHeardPop() {
         pop = document.createElement('div');
         pop.id = 'fdvHeardPop';
         pop.hidden = true;
-        pop.style.cssText = 'position:absolute; right:8px; top:34px; z-index:320; padding:8px 12px; border-radius:4px; font-size:12px; line-height:1.6;' +
+        pop.style.cssText = 'position:absolute; right:8px; top:78px; z-index:320; padding:8px 12px; border-radius:4px; font-size:12px; line-height:1.6;' +
             'background:rgba(10,16,24,0.96); border:1px solid #234; color:#cde; max-width:90%;';
         document.getElementById('scopeArea').appendChild(pop);
         document.addEventListener('pointerdown', function (e) {

@@ -46,6 +46,10 @@ Page:
   0.5 s, then fall (the amp sends one momentary reading every 250 ms, so on
   speech the plain reading sat far below the voice peaks). FUNC > AMP >
   FWD METER switches PEAK / RAW.
+- RF2K-S peak tick and "pk" hold 3 s, like the amp's own peak reading
+  and AetherSDR's RF-KIT applet.
+- The FreeDV status line sits under the scope's -/+ keys and VFO flag on a
+  solid tile (the callsign was hidden under the VFO flag).
 - RF2K-S peak hold: the FWD and REF bars (AMP applet and FUNC > AMP) show a
   tick at the highest reading, held 1.5 s then falling, and "pk" with the
   value; cleared at unkey.

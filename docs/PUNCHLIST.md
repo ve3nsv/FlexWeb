@@ -282,6 +282,9 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 72 (2026-10-27): items 36 (3 s pk) and 37 (FreeDV line placement)
+are done; 36's rfkit-tune-pr part is not.
+
 Build 71 (2026-10-27): the RADE EOO demod patch (34c root cause) and item
 35 (RF2K-S ballistics) are done.
 
