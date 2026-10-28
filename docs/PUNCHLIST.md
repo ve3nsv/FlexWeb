@@ -282,7 +282,9 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
-Build 75 (2026-10-28): item 41 (request access) is done, opt-in:
+From here on builds go by their GitHub Actions run number.
+
+Build 75 = Actions #82 (2026-10-28): item 41 (request access) is done, opt-in:
 --allow-requests / [Web] AllowRequests=true / the launcher's "Request
 access" box. Roles admin / operator / listener / suspended (users from
 before roles are admins). FUNC > USERS (admins) and the launcher's Web
@@ -295,14 +297,14 @@ from [Lookup] HamQthUser / HamQthPassword / QrzUser / QrzPassword (no
 launcher fields yet). Not done: email (SMTP), the approval mail to the
 applicant. Station rules text: [Web] StationRules (a default otherwise).
 
-Build 74 (2026-10-28): item 40 (listen & tune guests) is done:
+Build 74 = Actions #81, cancelled; in #82 (2026-10-28): item 40 (listen & tune guests) is done:
 --guest-tune / [Web] GuestTune=true / the launcher's "Guests may also
 tune" box, with --guest-view. Not done from 40a: RIT (no command yet) and
 FT8 / JS8 spotting to PSK Reporter (setDigiActive stays refused: spots go
 out under the station's callsign; decoding in the browser still works).
 Packet RX enable is allowed; packet TX is not.
 
-Build 73 (2026-10-28): items 38 (memory names) and 39 (Reporter callsign
+Build 73 = Actions #80 (2026-10-28): items 38 (memory names) and 39 (Reporter callsign
 while synced) are done. 39 is not covered by a test against the live
 Reporter server (field names follow AetherSDR's FreeDvClient).
 
