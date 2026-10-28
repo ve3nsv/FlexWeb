@@ -1036,6 +1036,15 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     Tested by the user (2026-10-28): the empty PUT /tuner every 60 s kept
     the amp (3 min sleep timer) awake for the whole run; after the loop
     stopped it went to sleep on its own timer.
+    Also measured (2026-10-28, user's amp): FlexWeb's 250 ms polling adds
+    about 1-2 % of one core to the amp's main.py (13-14.5 % without the
+    server, 15-16 % with it) and is not logged (rf-kit-gui.log has no
+    request lines), so no slower idle polling is needed for the amp's sake.
+    Not FlexWeb: the amp's CAT link to the Flex (USB, Flex6xxx) logs
+    timeouts / late replies to rf-kit-gui.log - ~22 KB/min at 38400,
+    ~4 KB/min at 19200 (now set on both sides), constant refusals while
+    no client holds the radio (no TX slice). The log restarts with the
+    amp's program. Left for RF-POWER (CAT reply timeout 0.5 s).
     Open: how long the amp takes to be ready after a wake, and whether RF
     alone wakes it (decides whether a short hold before the first TX is
     worth adding). Tests: mock RF-KIT server counts PUT /tuner - one at
