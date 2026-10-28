@@ -908,3 +908,20 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     a single 0x7F. Log a refused "memory set" with the radio's code. Mock:
     refuse "key=" with no value as the radio does; test a create with a
     blank group.
+39. Callsign from FreeDV Reporter while the over is on (user, 2026-10-27;
+    medium). RADE sends the callsign once, in the end-of-over frame, so it
+    is missed whenever the end of the over is weak (user's log 20:34-20:40:
+    3 of 7 decoded; the misses had SNR -3..+0.5 dB at the EOO). freedv-gui
+    has the same limit. But nearly every RADE station also reports to
+    qso.freedv.org, and our FreeDVReporter is already connected there and
+    ignores what the server pushes (freedvreporter.cpp: "Other events ...
+    ignored for now"). Keep a station table from those events (bulk_update
+    on connect, new_connection, remove_connection, freq_change, tx_report
+    with transmitting + last_tx, rx_report) and, while RADE / FreeDV is
+    synced, name the station that reports it is transmitting within
+    +-1 kHz of our frequency: shown as "K8CHY?" (dimmed, a question mark:
+    from Reporter, not off the air) until the EOO confirms it. Two or more
+    candidates: the most recent tx. A decoded EOO always wins. The heard
+    list marks which entries came from Reporter. Our own rx_report stays
+    as now (only decoded callsigns are reported - Reporter's guesses are
+    never reported back as heard).
