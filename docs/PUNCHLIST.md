@@ -292,6 +292,11 @@ sets TUNE support); chip shows AMP WAKING until the reply. 43: the antenna
 list is read whole every 3 s (no /antennas/active parser yet). To check on
 the amp: CPU (top) and rf-kit-gui.log while transmitting, FWD on voice
 peaks against the amp's display.
+That build is Actions #83. Checked by the user (2026-10-28): wake at sign-in
+and TUNE support from the wake reply (server log), no amp errors through
+TUNE and voice TX; amp main.py CPU ~14.1 % in receive (same as with
+FlexWeb stopped) and ~14.8 % while transmitting; "meter is much more
+responsive". Sleep after the last user leaves not yet checked.
 
 Build 75 = Actions #82 (2026-10-28): item 41 (request access) is done, opt-in:
 --allow-requests / [Web] AllowRequests=true / the launcher's "Request
