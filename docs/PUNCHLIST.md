@@ -925,3 +925,32 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     list marks which entries came from Reporter. Our own rx_report stays
     as now (only decoded callsigns are reported - Reporter's guesses are
     never reported back as heard).
+40. "Listen & tune" guests, radio put back afterwards (user, 2026-10-28;
+    medium). Today a guest (--guest-view) is view-only. Add a second guest
+    level, chosen in the launcher / [Web] GuestLevel: VIEW ONLY (today) or
+    LISTEN & TUNE: the guest may do everything on the receive side and
+    nothing that transmits.
+    a. Allowed (an allow-list in webServer::guestAllowed / GUEST_CMDS, not a
+       deny-list, so a new command is refused until it is classified):
+       frequency, VFO, band, mode, filter / width / shift, RIT, scope span /
+       centre / ref, RX antenna, preamp / ATT, AGC, NB / NR / ANF / NNR /
+       APF / notches, RX EQ, memory recall (not create / rename / delete),
+       the receive decoders (FT8 / JS8 / SSTV / CW / packet RX, FreeDV RX).
+    b. Refused, whatever the panel: PTT / MOX / TUNE, CW keying, any digital
+       TX (FT8, JS8, SSTV, packet, FreeDV / RADE), mic / TALK / intercom,
+       TX power, TX antenna, TX EQ / PROC / mic level, the amplifier, ATU,
+       split / XIT, power on / off, LAN disconnect, the station callsign,
+       reporter, logbook, CW macros, server settings. The page hides or
+       greys these for the guest.
+    c. Only while no signed-in user is connected: when one is, guests drop
+       back to view-only (the signed-in user has the radio).
+    d. Put back: when the first tuning guest arrives with no signed-in user
+       on, the server snapshots the receive state (frequency, mode, filter,
+       band, RX antenna, preamp / ATT, AGC, noise tools, scope span /
+       centre); when the last guest leaves, or a signed-in user connects,
+       it restores the snapshot (the user finds the radio as they left it).
+       The guest sees "Tuning as guest - the radio is put back when you
+       leave".
+    Flex: a guest's changes go to the same slice; the snapshot is taken from
+    flexCommander's state. Tests: guest may tune / cannot key (test_web_login),
+    snapshot restored on guest leave and on user arrival (mock radio).
