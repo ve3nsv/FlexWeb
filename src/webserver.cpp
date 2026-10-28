@@ -1849,6 +1849,11 @@ void webServer::onWsNewConnection()
     qInfo().noquote() << "Web client connected:" << pSocket->peerAddress().toString()
                       << (user.isEmpty() ? QString() : QString("(%1)").arg(user));
     onDemandBrowserArrived();
+    // A signed-in user takes the radio back from tuning guests (punch list 40).
+    if (!user.isEmpty() && user != QLatin1String(webAuth::kGuest)) {
+        if (guestSnapTaken_) restoreGuestSnapshot("a signed-in user connected");
+        if (guestTune_) QTimer::singleShot(0, this, [this]() { broadcastGuestMode(); });
+    }
 
     // Send current state to new client
     sendCurrentState(pSocket);
@@ -1935,6 +1940,13 @@ void webServer::onWsDisconnected()
         browserCount_ = wsClients.size();
         scheduleClientsBroadcast();
         pClient->deleteLater();
+        // The last guest gone: the radio goes back as it was (punch list 40).
+        if (guestSnapTaken_) {
+            bool guestLeft = false;
+            for (QWebSocket *c : wsClients) if (isGuest(c)) guestLeft = true;
+            if (!guestLeft) restoreGuestSnapshot("the last guest left");
+        }
+        if (guestTune_) broadcastGuestMode();
         onDemandBrowserLeft();
     }
 }
@@ -2204,11 +2216,15 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     QString type = cmd["cmd"].toString();
 
     if (isGuest(client) && !guestAllowed(type)) {
-        QJsonObject r;
-        r["type"] = "guestRefused";
-        r["cmd"] = type;
-        sendJsonTo(client, r);
-        return;
+        if (!(guestMayTune() && guestTuneAllowed(type, cmd))) {
+            QJsonObject r;
+            r["type"] = "guestRefused";
+            r["cmd"] = type;
+            sendJsonTo(client, r);
+            return;
+        }
+        // The first change a tuning guest makes: remember the radio first.
+        if (!guestSnapTaken_) takeGuestSnapshot();
     }
 
     if (type == "qsoLogged") {
@@ -4099,6 +4115,7 @@ void webServer::sendCurrentState(QWebSocket *client)
     // Web login: who this browser is signed in as ("" when login is off).
     info["webUser"] = isGuest(client) ? QStringLiteral("guest") : wsUser.value(client);
     info["guest"] = isGuest(client);
+    info["guestTune"] = isGuest(client) && guestMayTune();
     info["webLogin"] = webAuth::hasUsers();
     info["txOpus"] = true;      // accepts 0x09 Opus voice frames (onWsBinaryMessage)
     // The browser adopts these on connect instead of pushing its own copy.
@@ -9354,6 +9371,140 @@ void webServer::setGuestView(bool on)
         for (QWebSocket *c : clients)
             if (isGuest(c))
                 c->close(QWebSocketProtocol::CloseCodePolicyViolated, "guest view is off");
+    }
+}
+
+void webServer::setGuestTune(bool on)
+{
+    guestTune_ = on;
+    if (on) qInfo() << "Web: guests may tune (receive side only, no transmit) while no signed-in user is on";
+}
+
+bool webServer::guestMayTune() const
+{
+    if (!guestTune_ || !guestView_) return false;
+    for (QWebSocket *c : wsClients) {
+        const QString u = wsUser.value(c);
+        if (!u.isEmpty() && u != QLatin1String(webAuth::kGuest)) return false;
+    }
+    return true;
+}
+
+// LISTEN & TUNE (punch list 40): what a guest may change while it may tune -
+// the receive side only. An allow-list: a command not named here (anything
+// that transmits, keys, changes TX settings, the amplifier, the station, the
+// log or the server) stays refused until it is classified.
+bool webServer::guestTuneAllowed(const QString &cmd, const QJsonObject &obj)
+{
+    static const QSet<QString> rx = {
+        "setFrequency", "setMode", "setFilter", "setFilterWidth", "setFilterShape", "setPBTInner",
+        "setPBTOuter", "setBand", "selectVFO", "swapVFO", "equalizeVFO", "setSpan", "setScopeEdges",
+        "setScopeMode", "setScopeRef", "setScopeSpeed", "setAGC", "setAttenuator", "setPreamp",
+        "setAntenna", "setNoiseBlanker", "setNoiseReduction", "setAutoNotch", "setNnr", "setRfGain",
+        "setSquelch", "setAfGain", "recallMemory", "setFreeDV", "setFreeDVMonitor", "packetEnable",
+        "packetSetMode",
+    };
+    if (rx.contains(cmd)) return true;
+    if (cmd == QLatin1String("flexMemory"))
+        return obj.value("action").toString() == QLatin1String("apply");
+    if (cmd == QLatin1String("flexDsp")) {
+        static const QSet<QString> keys = {
+            "rxAnt", "rxEqOn", "rxEqBand", "rxEqFlat", "apf", "apfLevel", "wnb", "wnbLevel", "nbLevel",
+            "nrLevel", "anfLevel", "tnfEnabled", "panCenter", "panBandwidth", "panFree", "panRfGain",
+            "filterLo", "filterHi", "band", "nnr", "nnrStrength", "nnrModel", "nnrAlpha", "nnrKnee",
+            "nnrTau", "nnrMaxGain", "nnrAttack", "nnrRelease",
+        };
+        return keys.contains(obj.value("key").toString());
+    }
+    return false;
+}
+
+// The receive state a tuning guest may change, read from the cache (and the
+// Flex's own state), so it can be put back exactly.
+void webServer::takeGuestSnapshot()
+{
+    guestSnap_.clear();
+    guestSnapFlex_.clear();
+    if (!queue || !rigCaps) return;
+    auto take = [this](funcs f, uchar rx = 0) {
+        if (!rigCaps->commands.contains(f)) return;
+        const cacheItem c = queue->getCache(f, rx);
+        if (c.value.isValid()) guestSnap_.append({f, c.value, rx});
+    };
+    // Mode and frequency as the rest of the server reads and sets them.
+    const vfoCommandType t = queue->getVfoCommand(vfoA, 0, true);
+    const cacheItem mc = operatingModeCache(t), fc = operatingFreqCache(t);
+    if (mc.value.isValid()) guestSnap_.append({t.modeFunc, mc.value, t.receiver});
+    if (fc.value.isValid()) guestSnap_.append({t.freqFunc, fc.value, t.receiver});
+    for (funcs f : {funcFilterWidth, funcPBTInner, funcPBTOuter, funcAGC, funcPreamp, funcAttenuator,
+                    funcNoiseBlanker, funcNoiseReduction, funcAutoNotch, funcRfGain, funcSquelch,
+                    funcAfGain, funcScopeSpan})
+        take(f);
+    if (flexDspJson_.isEmpty()) {
+        take(funcAntenna);
+    } else {
+        const QJsonObject &d = flexDspJson_;
+        const int ant = d.value("rxAntList").toArray().toVariantList().indexOf(d.value("rxAnt").toString());
+        if (ant >= 0) guestSnapFlex_.append({QStringLiteral("rxAnt"), {0, ant}});
+        const QJsonObject eq = d.value("rxEq").toObject();
+        if (!eq.isEmpty()) {
+            const QJsonArray b = eq.value("bands").toArray();
+            for (int i = 0; i < b.size() && i < 8; ++i) guestSnapFlex_.append({QStringLiteral("rxEqBand"), {i, b.at(i).toInt()}});
+            guestSnapFlex_.append({QStringLiteral("rxEqOn"), {0, eq.value("on").toVariant().toInt()}});
+        }
+        // JSON keeps on/off as booleans: toVariant().toInt() reads them as 0/1.
+        auto num = [&d](const char *k) { return d.value(QLatin1String(k)).toVariant().toInt(); };
+        for (const char *k : {"apf", "apfLevel", "wnb", "wnbLevel", "nbLevel", "nrLevel", "anfLevel",
+                              "tnfEnabled", "nnr", "nnrStrength", "nnrModel", "nnrAlpha", "nnrKnee",
+                              "nnrTau", "nnrMaxGain", "nnrAttack", "nnrRelease"}) {
+            if (d.contains(QLatin1String(k))) guestSnapFlex_.append({QString::fromLatin1(k), {0, num(k)}});
+        }
+        if (d.contains("rfg")) guestSnapFlex_.append({QStringLiteral("panRfGain"), {0, num("rfg")}});
+        // The receive filter after the mode (queued first): high, low, high again
+        // so neither edge is clamped by the other's old value.
+        if (d.contains("rxLo") && d.contains("rxHi")) {
+            guestSnapFlex_.append({QStringLiteral("filterHi"), {0, num("rxHi")}});
+            guestSnapFlex_.append({QStringLiteral("filterLo"), {0, num("rxLo")}});
+            guestSnapFlex_.append({QStringLiteral("filterHi"), {0, num("rxHi")}});
+        }
+    }
+    guestSnapFreeDV_ = freedvEnabled;
+    guestSnapTaken_ = true;
+    qInfo() << "Web: a guest is tuning; the radio's receive settings are saved to put back"
+            << "(" << guestSnap_.size() + guestSnapFlex_.size() << "settings )";
+}
+
+void webServer::restoreGuestSnapshot(const char *why)
+{
+    if (!guestSnapTaken_) return;
+    guestSnapTaken_ = false;
+    // FreeDV the guest turned on goes off first (it may have forced the mode).
+    if (freedvEnabled && !guestSnapFreeDV_) disableFreeDV();
+    if (queue) {
+        for (const GuestSnapItem &i : guestSnap_)
+            queue->addUnique(priorityImmediate, queueItem(i.func, i.value, false, i.receiver));
+    }
+    // The Flex settings after the mode (queued above) has landed, so a mode
+    // change does not reset the filter or levels just put back.
+    const auto flex = guestSnapFlex_;
+    QTimer::singleShot(500, this, [this, flex]() {
+        for (const auto &k : flex) emit flexDspSet(k.first, k.second.first, k.second.second);
+    });
+    qInfo() << "Web: radio put back as it was before the guest tuned -" << why;
+    guestSnap_.clear();
+    guestSnapFlex_.clear();
+}
+
+// Each guest learns whether it may tune now (no signed-in user on).
+void webServer::broadcastGuestMode()
+{
+    const bool may = guestMayTune();
+    for (QWebSocket *c : wsClients) {
+        if (!isGuest(c)) continue;
+        QJsonObject o;
+        o["type"] = "guestMode";
+        o["tune"] = may;
+        sendJsonTo(c, o);
     }
 }
 

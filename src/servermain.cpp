@@ -117,6 +117,10 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
         QMetaObject::invokeMethod(web, "setGuestView", Qt::QueuedConnection,
                                   Q_ARG(bool, cliOverrides.guestView
                                               || (settings && settings->value("Web/GuestView", false).toBool())));
+        // Listen & tune guests (punch list 40): --guest-tune, else [Web] GuestTune=true.
+        QMetaObject::invokeMethod(web, "setGuestTune", Qt::QueuedConnection,
+                                  Q_ARG(bool, cliOverrides.guestTune
+                                              || (settings && settings->value("Web/GuestTune", false).toBool())));
         QMetaObject::invokeMethod(web, "configureLogbook", Qt::QueuedConnection,
                                   Q_ARG(QString, cliOverrides.logbook),
                                   Q_ARG(QString, cliOverrides.remoteLogTarget),

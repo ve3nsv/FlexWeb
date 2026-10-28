@@ -331,6 +331,12 @@ void MainWindow::buildUi()
     m_guestViewCheck = new QCheckBox(QStringLiteral("Offer \"View only (no password)\" on the sign-in page"), m_serverGroup);
     m_guestViewCheck->setToolTip("Guests see the scope and meters and hear the audio, but cannot change or key the radio, use the amplifier or talk on the intercom (--guest-view).");
     srv->addWidget(m_guestViewCheck, row, 0, 1, 5);
+    ++row;
+    m_guestTuneCheck = new QCheckBox(QStringLiteral("Guests may also tune (receive only) while no signed-in user is on"), m_serverGroup);
+    m_guestTuneCheck->setToolTip("Guests can change frequency, mode, filters, band and receive settings but never transmit. "
+                                 "When the last guest leaves, or a signed-in user connects, the radio is put back as it was (--guest-tune).");
+    srv->addWidget(m_guestTuneCheck, row, 0, 1, 5);
+    connect(m_guestViewCheck, &QCheckBox::toggled, m_guestTuneCheck, &QCheckBox::setEnabled);
 #ifndef Q_OS_WIN
     m_autostartCheck->hide();
 #endif
@@ -502,6 +508,8 @@ void MainWindow::applyConfigToForm()
     m_onDemandSpin->setValue(m_cfg.onDemandSeconds);
     m_restLanCheck->setChecked(m_cfg.restLan);
     m_guestViewCheck->setChecked(m_cfg.guestView);
+    m_guestTuneCheck->setChecked(m_cfg.guestTune);
+    m_guestTuneCheck->setEnabled(m_cfg.guestView);
     updateSmartLinkStatus();
     refreshUsers();
     refreshSerialPorts();
@@ -546,6 +554,7 @@ void MainWindow::applyFormToConfig()
     m_cfg.onDemandSeconds = m_onDemandSpin->value();
     m_cfg.restLan = m_restLanCheck->isChecked();
     m_cfg.guestView = m_guestViewCheck->isChecked();
+    m_cfg.guestTune = m_guestTuneCheck->isChecked();
     m_cfg.serialPort = m_serialCombo->currentData().toString();
     m_cfg.manufacturer = LaunchConfig::Manufacturer(m_manufacturerCombo->currentData().toInt());
     m_cfg.civAddress = m_civEdit->text().trimmed();

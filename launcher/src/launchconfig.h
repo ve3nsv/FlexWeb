@@ -47,6 +47,7 @@ struct LaunchConfig {
     int onDemandSeconds = 0;     // --on-demand N; 0 = stay connected
     bool restLan = false;        // --rest
     bool guestView = false;      // --guest-view: "View only" on the login page
+    bool guestTune = false;      // --guest-tune: guests may also tune (receive only)
 
     bool isNetwork() const { return transport != Usb; }
 

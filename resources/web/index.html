@@ -118,8 +118,8 @@ html, body {
    red above 90 %; tap for FlexWeb's own share, cores and memory. */
 /* Guest view-only: radio controls greyed (the server refuses them anyway);
    this browser's own volume / mute stay live. */
-body.guest-view input[type=range]:not(.rx-vol-slider) { opacity: 0.4; pointer-events: none; }
-body.guest-view .gain-row:not(.rx-vol-row) .gain-bar-fill { opacity: 0.4; }
+body.guest-view:not(.guest-tune) input[type=range]:not(.rx-vol-slider) { opacity: 0.4; pointer-events: none; }
+body.guest-view:not(.guest-tune) .gain-row:not(.rx-vol-row) .gain-bar-fill { opacity: 0.4; }
 #userBtn.guest::after { content: ' \00b7  VIEW ONLY'; color: #e0a020; }
 #discBtn.confirm { color: #f0a020; border-color: #f0a020; max-width: none; }
 /* DISCONNECT (punch list 30): the screen shown after this browser left */
@@ -3801,14 +3801,34 @@ function setGuestView(on) {
     if (b && guestView) { b.title = 'View only. Tap to sign out'; b.classList.add('guest'); }
 }
 var guestNoticeTimer = null, guestResyncTimer = null;
-function guestNotice() {
+// Listen & tune guests (punch list 40): rigInfo.guestTune / {type:'guestMode'}
+// say whether this guest may tune right now (no signed-in user connected).
+var guestTune = false;
+function setGuestTune(on) {
+    on = !!on && guestView;
+    var was = guestTune;
+    guestTune = on;
+    document.body.classList.toggle('guest-tune', guestTune);
+    var b = document.getElementById('userBtn');
+    if (b && guestView) b.title = (guestTune ? 'Guest: tune and listen, no transmit' : 'View only') + '. Tap to sign out';
+    if (on && !was) guestNotice('Tuning as guest - receive only. The radio is put back when you leave', 5000);
+    else if (!on && was) guestNotice('A signed-in user is on - view only now', 4000);
+}
+function guestNotice(text, ms) {
     var n = document.getElementById('guestNotice');
     if (!n) {
         n = document.createElement('div');
         n.id = 'guestNotice';
         n.setAttribute('role', 'status');
-        n.textContent = 'View only - sign in to change or key the radio';
         document.body.appendChild(n);
+    }
+    n.textContent = text || (guestTune ? 'Guest: receive only - sign in to transmit or change that'
+                                       : 'View only - sign in to change or key the radio');
+    if (text) {
+        n.classList.add('show');
+        clearTimeout(guestNoticeTimer);
+        guestNoticeTimer = setTimeout(function () { n.classList.remove('show'); }, ms || 2200);
+        return;
     }
     n.classList.add('show');
     clearTimeout(guestNoticeTimer);
@@ -3909,6 +3929,25 @@ function scheduleReconnect() {
 // What a guest may send: the server's webServer::guestAllowed list.
 var GUEST_CMDS = { enableAudio: 1, setAudioCodec: 1, getStatus: 1, timePing: 1,
     aprsRequestSnapshot: 1, termList: 1, termHistory: 1, getMemories: 1, setTxListen: 1 };
+// ...and what a tuning guest may also send: webServer::guestTuneAllowed.
+var GUEST_TUNE_CMDS = { setFrequency: 1, setMode: 1, setFilter: 1, setFilterWidth: 1, setFilterShape: 1,
+    setPBTInner: 1, setPBTOuter: 1, setBand: 1, selectVFO: 1, swapVFO: 1, equalizeVFO: 1, setSpan: 1,
+    setScopeEdges: 1, setScopeMode: 1, setScopeRef: 1, setScopeSpeed: 1, setAGC: 1, setAttenuator: 1,
+    setPreamp: 1, setAntenna: 1, setNoiseBlanker: 1, setNoiseReduction: 1, setAutoNotch: 1, setNnr: 1,
+    setRfGain: 1, setSquelch: 1, setAfGain: 1, recallMemory: 1, setFreeDV: 1, setFreeDVMonitor: 1,
+    packetEnable: 1, packetSetMode: 1 };
+var GUEST_TUNE_DSP = { rxAnt: 1, rxEqOn: 1, rxEqBand: 1, rxEqFlat: 1, apf: 1, apfLevel: 1, wnb: 1,
+    wnbLevel: 1, nbLevel: 1, nrLevel: 1, anfLevel: 1, tnfEnabled: 1, panCenter: 1, panBandwidth: 1,
+    panFree: 1, panRfGain: 1, filterLo: 1, filterHi: 1, band: 1, nnr: 1, nnrStrength: 1, nnrModel: 1,
+    nnrAlpha: 1, nnrKnee: 1, nnrTau: 1, nnrMaxGain: 1, nnrAttack: 1, nnrRelease: 1 };
+function guestMaySend(obj) {
+    if (GUEST_CMDS[obj.cmd]) return true;
+    if (!guestTune) return false;
+    if (GUEST_TUNE_CMDS[obj.cmd]) return true;
+    if (obj.cmd === 'flexDsp') return !!GUEST_TUNE_DSP[obj.key];
+    if (obj.cmd === 'flexMemory') return obj.action === 'apply';
+    return false;
+}
 var lastUserGestureMs = 0;
 ['pointerdown', 'keydown', 'wheel'].forEach(function (ev) {
     window.addEventListener(ev, function () { lastUserGestureMs = performance.now(); }, true);
@@ -3916,7 +3955,7 @@ var lastUserGestureMs = 0;
 // a drag that lasts is still the user acting
 window.addEventListener('pointermove', function (e) { if (e.buttons) lastUserGestureMs = performance.now(); }, true);
 function send(obj) {
-    if (guestView && obj && !GUEST_CMDS[obj.cmd]) {
+    if (guestView && obj && !guestMaySend(obj)) {
         // Not sent: the server would refuse it. Say so only when the user
         // did something (not for the page's own background messages).
         if (performance.now() - lastUserGestureMs < 1500) guestNotice();
@@ -4030,6 +4069,9 @@ function handleMessage(msg) {
             if (document.getElementById('ampOverlay').classList.contains('visible')) renderAmpOverlay();
             if (currentPanel === 'func') renderFuncOverlay();
             break;
+        case 'guestMode':
+            setGuestTune(!!msg.tune);
+            break;
         case 'guestRefused':
             if (performance.now() - lastUserGestureMs < 1500) guestNotice();
             break;
@@ -4068,6 +4110,7 @@ function handleMessage(msg) {
         case 'rigInfo':
             if (msg.webUser !== undefined) setWebUser(msg.webUser);
             if (msg.guest !== undefined) setGuestView(msg.guest);
+            if (msg.guest !== undefined) setGuestTune(!!msg.guestTune);
             if (msg.webLogin !== undefined) webLoginOn = !!msg.webLogin;
             if (msg.txOpus !== undefined) serverTxOpus = !!msg.txOpus;
             if (msg.reporterMessage !== undefined) setReporterMessageField(msg.reporterMessage);

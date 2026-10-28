@@ -36,6 +36,7 @@ QStringList LaunchConfig::toArguments(const QString &logFile) const
     if (isNetwork() && onDemandSeconds > 0) args << "--on-demand" << QString::number(onDemandSeconds);
     if (restLan) args << "--rest";
     if (guestView) args << "--guest-view";
+    if (guestView && guestTune) args << "--guest-tune";
 
     if (webPort > 0 && webPort != defaultWebPort) args << "-p" << QString::number(webPort);
     if (!nameTag.trimmed().isEmpty()) args << "-n" << nameTag.trimmed();
@@ -78,6 +79,7 @@ void LaunchConfig::load(const QSettings &s)
     onDemandSeconds = qBound(0, s.value("onDemandSeconds", 0).toInt(), 86400);
     restLan = s.value("restLan", false).toBool();
     guestView = s.value("guestView", false).toBool();
+    guestTune = s.value("guestTune", false).toBool();
     webPort = s.value("webPort", defaultWebPort).toInt();
     if (webPort <= 0 || webPort > 65535) webPort = defaultWebPort;
     nameTag = s.value("nameTag").toString();
@@ -105,6 +107,7 @@ void LaunchConfig::save(QSettings &s) const
     s.setValue("onDemandSeconds", onDemandSeconds);
     s.setValue("restLan", restLan);
     s.setValue("guestView", guestView);
+    s.setValue("guestTune", guestTune);
     s.setValue("webPort", webPort);
     s.setValue("nameTag", nameTag);
     s.setValue("settingsFile", settingsFile);

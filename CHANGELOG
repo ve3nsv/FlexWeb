@@ -9,6 +9,17 @@ upstream wfview history.
 Unreleased
 ----------
 
+Guests:
+- Listen & tune (--guest-tune with --guest-view, [Web] GuestTune=true, or
+  the launcher's "Guests may also tune" box): while no signed-in user is
+  connected, a guest may change frequency, band, mode, filters, the
+  receive antenna and the receive-side DSP, recall memories and turn on
+  FreeDV / packet receive. Nothing that transmits or changes the transmit
+  side is allowed (an allow-list: a new command is refused until it is
+  classified). The receive settings are saved at the guest's first change
+  and put back when the last guest leaves or a signed-in user connects;
+  while a signed-in user is on, guests are view-only.
+
 FlexRadio:
 - A new memory keeps its name when the group is left blank: name and group
   go to the radio as separate commands and a blank one is not sent (the

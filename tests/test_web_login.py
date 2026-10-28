@@ -528,6 +528,16 @@ def test_lockout(server):
 @pytest.fixture()
 def guest_server(tmp_path):
     """A server with --guest-view, user tom and the mock Flex."""
+    yield from _guest_server(tmp_path, [])
+
+
+@pytest.fixture()
+def guest_tune_server(tmp_path):
+    """The same with --guest-tune: guests may tune while no user is on."""
+    yield from _guest_server(tmp_path, ["--guest-tune"])
+
+
+def _guest_server(tmp_path, extra):
     if not WFWEB_BIN.exists():
         pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
     home = str(tmp_path)
@@ -544,7 +554,7 @@ def guest_server(tmp_path):
     port = _free_port()
     proc = subprocess.Popen([str(WFWEB_BIN), "-p", str(port), "--manufacturer", "3", "--lan", "127.0.0.1",
                              "--lan-control", str(radio.control_port), "--lan-audio", str(radio.vita_port),
-                             "--guest-view"],
+                             "--guest-view"] + extra,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
     try:
         assert _wait(lambda: requests.get(f"http://127.0.0.1:{port + 1}/api/v1/radio/info", timeout=2).ok)
@@ -660,3 +670,64 @@ def test_guest_hears_operator_and_who_is_on(guest_server):
     finally:
         a.close()
         g.close()
+
+
+def test_guest_tune(guest_tune_server):
+    """--guest-tune (punch list 40): with no signed-in user on, a guest may
+    tune and change the receive side but never transmit; when the last guest
+    leaves the radio goes back as it was. A signed-in user connecting puts the
+    radio back at once and makes the guests view-only again."""
+    base, port, radio = guest_tune_server
+    assert _wait(lambda: radio.slice.get("RF_frequency") is not None, timeout=10)
+    time.sleep(1.0)
+    start = f'{float(radio.slice.get("RF_frequency")):.6f}'
+    st, g, gbuf = _ws(port, _guest_token(base))
+    assert " 101" in st, st
+    rg = _Reader(g, gbuf)
+    try:
+        info = _drain_until(rg, lambda m: m.get("type") == "rigInfo")
+        assert info and info.get("guest") is True and info.get("guestTune") is True, info
+        _ws_send(g, {"cmd": "setFrequency", "value": 7123000})
+        assert _wait(lambda: "slice tune 0 7.123000" in radio.commands, timeout=5), radio.commands[-8:]
+        # never transmit, nor change the transmit side
+        for cmd in ({"cmd": "setPTT", "value": True}, {"cmd": "setRfPower", "value": 0.5},
+                    {"cmd": "flexDsp", "key": "tune", "index": 0, "value": 1},
+                    {"cmd": "flexDsp", "key": "micLevel", "index": 0, "value": 10},
+                    {"cmd": "flexMemory", "action": "remove", "id": 1},
+                    {"cmd": "ampOperate", "value": True}, {"cmd": "sendCW", "text": "TEST"}):
+            _ws_send(g, cmd)
+            ref = _drain_until(rg, lambda m: m.get("type") == "guestRefused")
+            assert ref and ref["cmd"] == cmd["cmd"], (cmd, ref)
+        assert not radio.find("xmit 1") and not radio.find("transmit tune 1")
+    finally:
+        g.close()
+    # the last guest left: back where it was
+    assert _wait(lambda: f"slice tune 0 {start}" in radio.commands, timeout=5), (start, radio.commands[-8:])
+
+    # A guest tunes, then tom signs in: the radio goes back and the guest is view-only.
+    st, g, gbuf = _ws(port, _guest_token(base))
+    rg = _Reader(g, gbuf)
+    tok_tom = _login(base, "tom", PASSWORD).cookies["wfweb_session"]
+    a = None
+    try:
+        assert _drain_until(rg, lambda m: m.get("type") == "rigInfo")
+        _ws_send(g, {"cmd": "setFrequency", "value": 7155000})
+        assert _wait(lambda: "slice tune 0 7.155000" in radio.commands, timeout=5)
+        n = len(radio.commands)
+        st2, a, abuf = _ws(port, tok_tom)
+        assert " 101" in st2
+        mode = _drain_until(rg, lambda m: m.get("type") == "guestMode")
+        assert mode and mode["tune"] is False, mode
+        assert _wait(lambda: f"slice tune 0 {start}" in radio.commands[n:], timeout=5), radio.commands[n:]
+        _ws_send(g, {"cmd": "setFrequency", "value": 7166000})
+        ref = _drain_until(rg, lambda m: m.get("type") == "guestRefused")
+        assert ref and ref["cmd"] == "setFrequency"
+        # tom leaves: the guest may tune again
+        a.close()
+        a = None
+        mode = _drain_until(rg, lambda m: m.get("type") == "guestMode")
+        assert mode and mode["tune"] is True, mode
+    finally:
+        g.close()
+        if a:
+            a.close()

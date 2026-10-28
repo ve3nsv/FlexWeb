@@ -444,6 +444,10 @@ int main(int argc, char *argv[])
         "  --guest-view            Add a \"View only (no password)\" button to the login\n"
         "                          page: guests see and hear everything but cannot\n"
         "                          change or key the radio (also [Web] GuestView=true)\n"
+        "  --guest-tune            With --guest-view: guests may also tune and change\n"
+        "                          receive settings (never transmit) while no signed-in\n"
+        "                          user is connected; the radio is put back when the\n"
+        "                          last guest leaves (also [Web] GuestTune=true)\n"
         "  --remote-log-decodes    Also forward FT8/FT4 decodes to the remote logger\n"
         "  -l --logfile <file>     Log file\n"
         "  -b --background         Run as daemon (not Windows)\n"
@@ -720,6 +724,7 @@ int main(int argc, char *argv[])
             else { std::cout << "Error: --rfkit requires host[:port]\n"; return -1; }
         }
         else if (currentArg == "--guest-view") overrides.guestView = true;
+        else if (currentArg == "--guest-tune") overrides.guestTune = true;
         else if (currentArg == "--no-remote-log") overrides.noRemoteLog = true;
         else if (currentArg == "--remote-log-decodes") overrides.remoteLogDecodes = true;
         else if (currentArg == "--lan-control")

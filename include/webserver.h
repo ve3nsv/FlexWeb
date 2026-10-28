@@ -162,6 +162,9 @@ public slots:
     // With web users set up, LAN requests to it need HTTP Basic auth.
     void setRestLan(bool lan);
     void setGuestView(bool on);
+    // Punch list 40: guests may also tune (receive side only) while no
+    // signed-in user is connected; the radio is put back afterwards.
+    void setGuestTune(bool on);
     // Logbook path and remote-logging (WSJT-X UDP) setup from settings +
     // command-line overrides; runs once on the web thread at startup.
     void configureLogbook(const QString &logbookOverride,
@@ -331,6 +334,18 @@ private:
     bool guestView_ = false;
     bool isGuest(QWebSocket *c) const { return c && wsUser.value(c) == QLatin1String(webAuth::kGuest); }
     static bool guestAllowed(const QString &cmd);
+    // LISTEN & TUNE guests (punch list 40)
+    bool guestTune_ = false;
+    bool guestMayTune() const;                    // the level is on and no signed-in user is connected
+    static bool guestTuneAllowed(const QString &cmd, const QJsonObject &obj);
+    struct GuestSnapItem { funcs func; QVariant value; uchar receiver; };
+    QList<GuestSnapItem> guestSnap_;              // rig functions, in restore order
+    QList<QPair<QString, QPair<int, int>>> guestSnapFlex_;   // flexDsp key, (index, value)
+    bool guestSnapTaken_ = false;
+    bool guestSnapFreeDV_ = false;
+    void takeGuestSnapshot();
+    void restoreGuestSnapshot(const char *why);
+    void broadcastGuestMode();
     QHash<QByteArray, qint64> restBasicOk;   // sha256(user:pass) -> valid until (ms)
     QString requestUser(QTcpSocket *socket, const QByteArray &headers);
     // TX lock: who holds PTT ("user" or the browser's address).

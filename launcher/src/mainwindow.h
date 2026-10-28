@@ -162,6 +162,7 @@ private:
     QList<QWidget *> m_networkWidgets;
     QCheckBox *m_restLanCheck = nullptr;
     QCheckBox *m_guestViewCheck = nullptr;
+    QCheckBox *m_guestTuneCheck = nullptr;
 
     // Web users
     QListWidget *m_userList = nullptr;

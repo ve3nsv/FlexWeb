@@ -282,6 +282,13 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 74 (2026-10-28): item 40 (listen & tune guests) is done:
+--guest-tune / [Web] GuestTune=true / the launcher's "Guests may also
+tune" box, with --guest-view. Not done from 40a: RIT (no command yet) and
+FT8 / JS8 spotting to PSK Reporter (setDigiActive stays refused: spots go
+out under the station's callsign; decoding in the browser still works).
+Packet RX enable is allowed; packet TX is not.
+
 Build 73 (2026-10-28): items 38 (memory names) and 39 (Reporter callsign
 while synced) are done. 39 is not covered by a test against the live
 Reporter server (field names follow AetherSDR's FreeDvClient).
