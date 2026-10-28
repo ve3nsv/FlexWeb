@@ -1126,3 +1126,22 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
        amp sustains is visible.
     Check on the amp: top during a 20-30 s over (was ~14.8 % at 50 ms),
     rf-kit-gui.log growth, and the meter against the amp's display.
+46. RF2K-S wake times out on a sleeping amp (user's log on Actions #84,
+    2026-10-28; easy). The first wake at sign-in got "transport error on
+    /tuner Operation canceled" after 4 s ("wake request got no answer"); the
+    keep-awake repeat a minute later was answered. Measured by the user: a
+    PUT /tuner {} to the sleeping amp takes 5.1 s to answer (it wakes before
+    replying); an awake amp answers at once. Every request has a 4 s transfer
+    timeout (kRequestTimeoutMs) and a 10 s deadline.
+    a. The wake request gets its own limits: 15 s transfer timeout and
+       deadline (PgTG's RF-KIT plugin uses 15 s); ordinary polls keep 4 s.
+    b. A timed-out wake does not count toward the 3 consecutive failures
+       that drop the connection.
+    c. No body read on a cancelled reply (the "QIODevice::read ... device
+       not open" warning).
+    d. AMP WAKING stays on the chip until the answer (up to the 15 s).
+    Effect today: polling is paused while the amp wakes (its server answers
+    one request at a time, so it could not answer polls meanwhile anyway),
+    and TUNE support stays unknown until the first answered wake.
+    Test: the stub amp delays its PUT /tuner {} reply by 5 s; the wake must
+    be answered (tuneApi supported, no transport error, still connected).
