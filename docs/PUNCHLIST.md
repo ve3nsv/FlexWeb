@@ -954,3 +954,35 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     Flex: a guest's changes go to the same slice; the snapshot is taken from
     flexCommander's state. Tests: guest may tune / cannot key (test_web_login),
     snapshot restored on guest leave and on user arrival (mock radio).
+41. Request access / user registration (user, 2026-10-28, chose the
+    suggested design; medium-hard; builds on 40).
+    a. Sign-in page "Request access" form: callsign (becomes the user name,
+       upper-cased, one request per callsign), name, email (optional),
+       password (PBKDF2 like today's users, kept with the request), a note,
+       and a checkbox agreeing to the station rules (text set by the admin,
+       [Web] StationRules). Rate-limited per address; the password is never
+       shown to the admin.
+    b. Roles: admin (the station owner: today's existing users become admin
+       on upgrade), operator (full access), listener (item 40's listen &
+       tune), plus the anonymous guest. webauth gains a role per user;
+       webServer checks the role where it checks guestAllowed today.
+    c. Callsign lookup shown with the request: Canadian calls from ISED's
+       public amateur database (name, qualifications Basic / Basic+Honours /
+       Advanced / 5 wpm - HF access, address city); others from HamQTH
+       (free, needs a HamQTH login in settings) or QRZ XML if the admin has
+       a subscription. Lookup only informs the admin; it never approves.
+    d. Pending until the admin decides: FUNC > USERS (admin only) and the
+       launcher's Web users tab list requests with the lookup; Approve as
+       LISTENER (default) / OPERATOR, Reject, and later Promote / Demote /
+       Suspend / Remove. Until approved, signing in says "waiting for
+       approval" (guest access at most).
+    e. Notification to the admin: a badge on the people chip ("1 request")
+       for a signed-in admin, and a push via ntfy (admin sets a private
+       topic, [Notify] NtfyTopic / server; plain HTTPS POST "VE3ABC requests
+       access - ISED: Advanced"), sent on each new request. Optional later:
+       email (SMTP) and the approval mail to the applicant.
+    f. Approved users start as LISTENER (item 40) until promoted to
+       OPERATOR. Operators transmit under the station licence: the admin
+       sees each operator's qualification from the lookup when promoting.
+    Tests: request / approve / reject / role checks (test_web_login),
+    ntfy POST against a local stub, ISED lookup parser on a saved sample.
