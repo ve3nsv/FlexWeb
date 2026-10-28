@@ -1010,3 +1010,31 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
        sees each operator's qualification from the lookup when promoting.
     Tests: request / approve / reject / role checks (test_web_login),
     ntfy POST against a local stub, ISED lookup parser on a saved sample.
+42. RF2K-S: wake the amp when a user connects and keep it awake while they
+    are on (user, 2026-10-28; small-medium). Found with the user's tests:
+    the amp's REST server answers while the amp sleeps, and no GET wakes
+    it (/info, /data, /power, /operate-mode, /antennas, /tuner,
+    /operational-interface all tried); FlexWeb's 250 ms polling lets it
+    sleep. What wakes it is PUT /tuner, even the empty {} tune-support
+    check FlexWeb sends once per connect (400 "tuner_mode START required",
+    no tune). PUT to an unknown path (/wake, 404) does not wake it. The
+    API has no sleep state, so the page cannot show SLEEP.
+    a. Wake: the empty PUT /tuner (no rest.py change needed). Sent when a
+       browser that may transmit (signed-in admin / operator) connects.
+       Guests and listeners cannot transmit and do not wake it.
+    b. Keep awake: repeat it every 60 s while such a browser is connected
+       ([Amplifier] KeepAwakeSecs, 0 = off). When the last one leaves the
+       repeats stop and the amp's own sleep timer runs.
+    c. The connect-time tune check goes: the wake replies double as it
+       (400 / 2xx = TUNE supported, 404 / 405 / 501 = stock amp, which
+       answers 405 and stays as today).
+    d. The page: the amp chip shows AMP WAKING for the first wake until
+       the reply; nothing else changes.
+    e. Note in the code: the wake relies on the modified /tuner handler
+       waking the amp before it checks the request. Same change wanted in
+       AetherSDR rfkit-tune-pr (its connect check also wakes the amp).
+    Open: how long the amp takes to be ready after a wake, and whether RF
+    alone wakes it (decides whether a short hold before the first TX is
+    worth adding). Tests: mock RF-KIT server counts PUT /tuner - one at
+    browser connect, repeats while connected, none after it leaves, none
+    for a guest.
