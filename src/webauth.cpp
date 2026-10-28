@@ -3,11 +3,13 @@
 #include "webauth.h"
 
 #include <QCryptographicHash>
+#include <QJsonDocument>
 #include <QPasswordDigestor>
 #include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QSettings>
 
+#include <algorithm>
 #include <memory>
 
 namespace {
@@ -101,6 +103,7 @@ bool webAuth::removeUser(const QString& name)
         return false;
     auto s = openStore();
     s->remove("users/" + name);
+    s->remove("roles/" + name);
     s->sync();
     endUserSessions(name);
     return true;
@@ -144,6 +147,165 @@ bool webAuth::verifyHash(const QString& password, const QString& stored)
     return !want.isEmpty() && sameBytes(got, want);
 }
 
+// ─── roles ─────────────────────────────────────────────────────────────────
+
+bool webAuth::validRole(const QString& role)
+{
+    return role == QLatin1String("admin") || role == QLatin1String("operator")
+        || role == QLatin1String("listener") || role == QLatin1String("suspended");
+}
+
+QString webAuth::role(const QString& name)
+{
+    if (!validUserName(name))
+        return QString();
+    auto s = openStore();
+    if (!s->contains("users/" + name))
+        return QString();
+    const QString r = s->value("roles/" + name).toString();
+    return validRole(r) ? r : QStringLiteral("admin");
+}
+
+bool webAuth::setRole(const QString& name, const QString& r)
+{
+    if (!userExists(name) || !validRole(r))
+        return false;
+    auto s = openStore();
+    s->setValue("roles/" + name, r);
+    s->sync();
+    if (r == QLatin1String("suspended"))
+        endUserSessions(name);
+    return s->status() == QSettings::NoError;
+}
+
+int webAuth::adminCount()
+{
+    int n = 0;
+    for (const QString& u : users())
+        if (role(u) == QLatin1String("admin"))
+            ++n;
+    return n;
+}
+
+// ─── access requests ───────────────────────────────────────────────────────
+
+bool webAuth::validCallsign(const QString& call)
+{
+    // Letters and digits with at least one digit, 3 to 8 long (no portable
+    // suffix: it becomes the user name).
+    static const QRegularExpression re("^(?=[A-Z0-9]*[0-9])[A-Z0-9]{3,8}$");
+    return re.match(call).hasMatch();
+}
+
+namespace {
+QJsonObject readRequest(QSettings* s, const QString& call)
+{
+    return QJsonDocument::fromJson(s->value("requests/" + call).toString().toUtf8()).object();
+}
+}
+
+bool webAuth::addRequest(const QString& callIn, const QJsonObject& info, const QString& password, QString* error)
+{
+    const QString call = callIn.trimmed().toUpper();
+    auto fail = [error](const char* e) { if (error) *error = QString::fromLatin1(e); return false; };
+    if (!validCallsign(call)) return fail("That does not look like a callsign.");
+    if (password.size() < 8) return fail("Choose a password of at least 8 characters.");
+    if (userExists(call)) return fail("That callsign already has an account. Sign in instead.");
+    {
+        auto s = openStore();
+        if (s->contains("requests/" + call)) return fail("A request for that callsign is already waiting.");
+        if (requestCount() >= kMaxPendingRequests) return fail("Too many requests are waiting. Try again later.");
+    }
+    QJsonObject o;
+    for (const char* k : {"name", "email", "note", "address"})
+        o[QLatin1String(k)] = info.value(QLatin1String(k)).toString().left(k == QLatin1String("note") ? 500 : 100);
+    o["time"] = QDateTime::currentSecsSinceEpoch();
+    o["hash"] = hashPassword(password);
+    auto s = openStore();
+    s->setValue("requests/" + call, QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact)));
+    s->sync();
+    return s->status() == QSettings::NoError;
+}
+
+QJsonArray webAuth::requests()
+{
+    auto s = openStore();
+    s->beginGroup("requests");
+    const QStringList calls = s->childKeys();
+    s->endGroup();
+    QList<QJsonObject> list;
+    for (const QString& c : calls) {
+        QJsonObject o = readRequest(s.get(), c);
+        if (o.isEmpty()) continue;
+        o.remove("hash");
+        o["call"] = c;
+        list << o;
+    }
+    std::sort(list.begin(), list.end(), [](const QJsonObject& a, const QJsonObject& b) {
+        return a.value("time").toDouble() < b.value("time").toDouble(); });
+    QJsonArray out;
+    for (const QJsonObject& o : list) out.append(o);
+    return out;
+}
+
+QJsonObject webAuth::request(const QString& call)
+{
+    auto s = openStore();
+    QJsonObject o = readRequest(s.get(), call.toUpper());
+    if (!o.isEmpty()) { o.remove("hash"); o["call"] = call.toUpper(); }
+    return o;
+}
+
+int webAuth::requestCount()
+{
+    auto s = openStore();
+    s->beginGroup("requests");
+    return s->childKeys().size();
+}
+
+void webAuth::setRequestLookup(const QString& call, const QJsonObject& lookup)
+{
+    auto s = openStore();
+    QJsonObject o = readRequest(s.get(), call.toUpper());
+    if (o.isEmpty()) return;
+    o["lookup"] = lookup;
+    s->setValue("requests/" + call.toUpper(), QString::fromUtf8(QJsonDocument(o).toJson(QJsonDocument::Compact)));
+    s->sync();
+}
+
+bool webAuth::approveRequest(const QString& callIn, const QString& r)
+{
+    const QString call = callIn.toUpper();
+    if (!validRole(r) || r == QLatin1String("suspended")) return false;
+    auto s = openStore();
+    const QJsonObject o = readRequest(s.get(), call);
+    const QString hash = o.value("hash").toString();
+    if (hash.isEmpty() || !validUserName(call) || s->contains("users/" + call)) return false;
+    s->setValue("users/" + call, hash);
+    s->setValue("roles/" + call, r);
+    s->remove("requests/" + call);
+    s->sync();
+    return s->status() == QSettings::NoError;
+}
+
+bool webAuth::rejectRequest(const QString& call)
+{
+    auto s = openStore();
+    if (!s->contains("requests/" + call.toUpper())) return false;
+    s->remove("requests/" + call.toUpper());
+    s->sync();
+    return true;
+}
+
+bool webAuth::checkRequestPassword(const QString& call, const QString& password)
+{
+    if (!validCallsign(call.toUpper()))
+        return false;
+    auto s = openStore();
+    const QString hash = readRequest(s.get(), call.toUpper()).value("hash").toString();
+    return !hash.isEmpty() && verifyHash(password, hash);
+}
+
 // ─── sessions ──────────────────────────────────────────────────────────────
 
 QString webAuth::createSession(const QString& user, bool remember)
@@ -175,6 +337,8 @@ QString webAuth::sessionUser(const QString& token)
     if (v[0] == QLatin1String(kGuest))
         return v[0];
     if (!s->contains("users/" + v[0]))
+        return QString();
+    if (s->value("roles/" + v[0]).toString() == QLatin1String("suspended"))
         return QString();
     return v[0];
 }

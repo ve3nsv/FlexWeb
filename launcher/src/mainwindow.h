@@ -108,6 +108,9 @@ private:
     void addWebUser();
     void changeWebPassword();
     void removeWebUser();
+    void setWebUserRole();
+    void refreshRequests();
+    void decideRequest(const QString &role);   // "" rejects
     bool askNewPassword(const QString &user, QString *password);
 
     void setAutostart(bool enabled);
@@ -170,6 +173,15 @@ private:
     QPushButton *m_userAddButton = nullptr;
     QPushButton *m_userPasswdButton = nullptr;
     QPushButton *m_userRemoveButton = nullptr;
+    QPushButton *m_userRoleButton = nullptr;
+    QListWidget *m_requestList = nullptr;
+    QLabel *m_requestLabel = nullptr;
+    QPushButton *m_reqListenerButton = nullptr;
+    QPushButton *m_reqOperatorButton = nullptr;
+    QPushButton *m_reqRejectButton = nullptr;
+    QString m_requestsSeen;                       // to refresh only on change
+    QCheckBox *m_allowRequestsCheck = nullptr;
+    QLineEdit *m_ntfyTopicEdit = nullptr;
 
     // Server
     QGroupBox *m_serverGroup = nullptr;

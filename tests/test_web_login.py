@@ -731,3 +731,140 @@ def test_guest_tune(guest_tune_server):
         g.close()
         if a:
             a.close()
+
+
+class _NtfyStub:
+    """A local stand-in for ntfy.sh: records each POST (path, headers, body)."""
+
+    def __init__(self):
+        import http.server
+        posts = self.posts = []
+
+        class H(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                n = int(self.headers.get("Content-Length", 0))
+                posts.append((self.path, dict(self.headers), self.rfile.read(n).decode()))
+                self.send_response(200)
+                self.send_header("Content-Length", "2")
+                self.end_headers()
+                self.wfile.write(b"{}")
+
+            def log_message(self, *a):
+                pass
+
+        self.httpd = http.server.HTTPServer(("127.0.0.1", 0), H)
+        self.port = self.httpd.server_address[1]
+        threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
+
+
+@pytest.fixture()
+def request_server(tmp_path):
+    """--allow-requests with a settings file: ntfy pointed at a local stub."""
+    stub = _NtfyStub()
+    ini = tmp_path / "flexweb.ini"
+    ini.write_text("[Web]\nStationRules=Be nice on the air.\n"
+                   f"[Notify]\nNtfyServer=http://127.0.0.1:{stub.port}\nNtfyTopic=fltest\n")
+    for v in _guest_server(tmp_path, ["--allow-requests", "-s", str(ini)]):
+        yield v + (stub,)
+    stub.httpd.shutdown()
+
+
+def test_request_access_and_roles(request_server):
+    """Punch list 41: a ham requests access from the sign-in page; the admin
+    is told (ntfy push, a count on the page), approves as LISTENER (receive
+    only, tunes while no operator is on), promotes to OPERATOR, suspends."""
+    base, port, radio, stub = request_server
+    assert 'href="/request"' in requests.get(base + "/login", verify=False, timeout=5).text
+    page = requests.get(base + "/request", verify=False, timeout=5).text
+    assert "Be nice on the air." in page and 'name="call"' in page
+
+    form = {"call": "k0tst", "name": "Terry Test", "email": "t@example.com", "password": "longpassword1",
+            "note": "Club member", "rules": "1"}
+    no_rules = dict(form)
+    del no_rules["rules"]
+    r = requests.post(base + "/request", data=no_rules, verify=False, timeout=10)
+    assert r.status_code == 400 and "station rules" in r.text
+    r = requests.post(base + "/request", data=form, verify=False, timeout=10)
+    assert r.status_code == 200 and "Request sent" in r.text, r.text[-400:]
+    r = requests.post(base + "/request", data=form, verify=False, timeout=10)
+    assert r.status_code == 400 and "already waiting" in r.text
+    # the push: no lookup configured for a US call, so it goes at once
+    assert _wait(lambda: stub.posts, timeout=20), "no ntfy push"
+    path, headers, body = stub.posts[0]
+    assert path == "/fltest" and "K0TST requests access" in body and "Terry Test" in body, stub.posts
+    assert "access request" in headers.get("Title", "")
+    # not approved yet
+    r = _login(base, "K0TST", "longpassword1")
+    assert r.status_code == 401 and "waiting for the station owner" in r.text
+    # rate limit: three per address per hour (the refused one without the
+    # rules box did not count)
+    assert requests.post(base + "/request", data=dict(form, call="X"), verify=False, timeout=10).status_code == 400
+    assert requests.post(base + "/request", data=dict(form, call="K0TSU"), verify=False, timeout=10).status_code == 429
+
+    tok_tom = _login(base, "tom", PASSWORD).cookies["wfweb_session"]
+    st, a, abuf = _ws(port, tok_tom)
+    ra = _Reader(a, abuf)
+    k = None
+    try:
+        info = _drain_until(ra, lambda m: m.get("type") == "rigInfo")
+        assert info["role"] == "admin" and info["guest"] is False
+        cnt = _drain_until(ra, lambda m: m.get("type") == "accessRequests")
+        assert cnt and cnt["count"] == 1, cnt
+        _ws_send(a, {"cmd": "usersList"})
+        lst = _drain_until(ra, lambda m: m.get("type") == "usersResult")
+        assert [q["call"] for q in lst["requests"]] == ["K0TST"]
+        q = lst["requests"][0]
+        assert q["name"] == "Terry Test" and q["note"] == "Club member" and "hash" not in q
+        assert q.get("lookup", {}).get("found") is False
+        _ws_send(a, {"cmd": "userApprove", "name": "K0TST", "role": "listener"})
+        res = _drain_until(ra, lambda m: m.get("type") == "usersResult" and m.get("cmd") == "userApprove")
+        assert res["ok"] and res["requests"] == []
+        assert {"K0TST": "listener", "tom": "admin"} == {u["name"]: u["role"] for u in res["users"]}
+
+        # The listener: receive only; view only while tom (admin) is on.
+        tok_k = _login(base, "K0TST", "longpassword1").cookies["wfweb_session"]
+        st2, k, kbuf = _ws(port, tok_k)
+        rk = _Reader(k, kbuf)
+        kinfo = _drain_until(rk, lambda m: m.get("type") == "rigInfo")
+        assert kinfo["role"] == "listener" and kinfo["guest"] is True and kinfo["guestTune"] is False
+        assert kinfo["webUser"] == "K0TST"
+        _ws_send(k, {"cmd": "setFrequency", "value": 7111000})
+        assert _drain_until(rk, lambda m: m.get("type") == "guestRefused")
+        _ws_send(k, {"cmd": "usersList"})
+        assert _drain_until(rk, lambda m: m.get("type") == "guestRefused" and m.get("cmd") == "usersList")
+        # nothing changes through the API either
+        assert requests.put(base + "/api/v1/radio/frequency", json={"value": 7100000}, cookies={"wfweb_session": tok_k},
+                            verify=False, timeout=5).status_code == 403
+        a.close()
+        a = None
+        mode = _drain_until(rk, lambda m: m.get("type") == "guestMode")
+        assert mode and mode["tune"] is True, mode
+        _ws_send(k, {"cmd": "setFrequency", "value": 7111000})
+        assert _wait(lambda: "slice tune 0 7.111000" in radio.commands, timeout=5)
+        _ws_send(k, {"cmd": "setPTT", "value": True})
+        assert _drain_until(rk, lambda m: m.get("type") == "guestRefused" and m.get("cmd") == "setPTT")
+        assert not radio.find("xmit 1")
+
+        # tom promotes K0TST: the open browser follows at once.
+        st, a, abuf = _ws(port, tok_tom)
+        ra = _Reader(a, abuf)
+        assert _drain_until(ra, lambda m: m.get("type") == "rigInfo")
+        _ws_send(a, {"cmd": "userSetRole", "name": "K0TST", "role": "operator"})
+        res = _drain_until(ra, lambda m: m.get("type") == "usersResult" and m.get("cmd") == "userSetRole")
+        assert res["ok"], res
+        kinfo = _drain_until(rk, lambda m: m.get("type") == "rigInfo" and m.get("role") == "operator")
+        assert kinfo and kinfo["guest"] is False
+        # the admin cannot demote or remove itself
+        _ws_send(a, {"cmd": "userSetRole", "name": "tom", "role": "listener"})
+        res = _drain_until(ra, lambda m: m.get("type") == "usersResult" and m.get("cmd") == "userSetRole")
+        assert res["ok"] is False
+        # suspended: the browser is closed and signing in is refused
+        _ws_send(a, {"cmd": "userSetRole", "name": "K0TST", "role": "suspended"})
+        assert _drain_until(ra, lambda m: m.get("type") == "usersResult" and m.get("ok") is True)
+        r = _login(base, "K0TST", "longpassword1")
+        assert r.status_code == 401 and "suspended" in r.text
+    finally:
+        if a:
+            a.close()
+        if k:
+            k.close()

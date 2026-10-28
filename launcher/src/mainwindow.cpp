@@ -19,6 +19,11 @@
 #include <QGroupBox>
 #include <QButtonGroup>
 #include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRegularExpression>
+#include <QTimer>
 #include <QListWidget>
 #include <QProcess>
 #include <QTabWidget>
@@ -337,6 +342,16 @@ void MainWindow::buildUi()
                                  "When the last guest leaves, or a signed-in user connects, the radio is put back as it was (--guest-tune).");
     srv->addWidget(m_guestTuneCheck, row, 0, 1, 5);
     connect(m_guestViewCheck, &QCheckBox::toggled, m_guestTuneCheck, &QCheckBox::setEnabled);
+    ++row;
+    m_allowRequestsCheck = new QCheckBox(QStringLiteral("Offer \"Request access\" on the sign-in page"), m_serverGroup);
+    m_allowRequestsCheck->setToolTip("Hams can ask for an account with their callsign; you approve each one under Web users "
+                                     "or FUNC > USERS. Approved users start as listeners (--allow-requests).");
+    srv->addWidget(m_allowRequestsCheck, row, 0, 1, 2);
+    m_ntfyTopicEdit = new QLineEdit(m_serverGroup);
+    m_ntfyTopicEdit->setPlaceholderText("ntfy topic (optional)");
+    m_ntfyTopicEdit->setToolTip("New requests are pushed to https://ntfy.sh/<topic>: subscribe to the same topic in the ntfy "
+                                "phone app. Pick a long, private name: anyone who knows it can read it (--ntfy-topic).");
+    srv->addWidget(m_ntfyTopicEdit, row, 2, 1, 3);
 #ifndef Q_OS_WIN
     m_autostartCheck->hide();
 #endif
@@ -353,14 +368,40 @@ void MainWindow::buildUi()
     m_userAddButton = new QPushButton("Add…", usersPage);
     m_userPasswdButton = new QPushButton("Change password…", usersPage);
     m_userRemoveButton = new QPushButton("Remove", usersPage);
+    m_userRoleButton = new QPushButton("Role…", usersPage);
+    m_userRoleButton->setToolTip("Admin: everything, manages users. Operator: full access. "
+                                 "Listener: receive only, tunes while no operator is on. Suspended: cannot sign in.");
     auto *userButtons = new QVBoxLayout;
     userButtons->addWidget(m_userAddButton);
     userButtons->addWidget(m_userPasswdButton);
+    userButtons->addWidget(m_userRoleButton);
     userButtons->addWidget(m_userRemoveButton);
     userButtons->addStretch(1);
     users->addWidget(m_loginLabel, 0, 0, 1, 2);
     users->addWidget(m_userList, 1, 0);
     users->addLayout(userButtons, 1, 1);
+    // Access requests from the sign-in page (punch list 41).
+    m_requestLabel = new QLabel(usersPage);
+    m_requestLabel->setWordWrap(true);
+    m_requestList = new QListWidget(usersPage);
+    m_requestList->setWordWrap(true);
+    m_reqListenerButton = new QPushButton("Approve as listener", usersPage);
+    m_reqOperatorButton = new QPushButton("Approve as operator", usersPage);
+    m_reqRejectButton = new QPushButton("Reject", usersPage);
+    auto *reqButtons = new QVBoxLayout;
+    reqButtons->addWidget(m_reqListenerButton);
+    reqButtons->addWidget(m_reqOperatorButton);
+    reqButtons->addWidget(m_reqRejectButton);
+    reqButtons->addStretch(1);
+    users->addWidget(m_requestLabel, 2, 0, 1, 2);
+    users->addWidget(m_requestList, 3, 0);
+    users->addLayout(reqButtons, 3, 1);
+    {
+        auto *t = new QTimer(this);
+        t->setInterval(10000);
+        connect(t, &QTimer::timeout, this, &MainWindow::refreshRequests);
+        t->start();
+    }
 
     m_tabs = new QTabWidget(central);
     m_tabs->addTab(m_rigGroup, "Radio");
@@ -432,10 +473,21 @@ void MainWindow::buildUi()
     connect(m_userAddButton, &QPushButton::clicked, this, &MainWindow::addWebUser);
     connect(m_userPasswdButton, &QPushButton::clicked, this, &MainWindow::changeWebPassword);
     connect(m_userRemoveButton, &QPushButton::clicked, this, &MainWindow::removeWebUser);
+    connect(m_userRoleButton, &QPushButton::clicked, this, &MainWindow::setWebUserRole);
     connect(m_userList, &QListWidget::itemSelectionChanged, this, [this]() {
         const bool sel = m_userList->currentItem() != nullptr;
         m_userPasswdButton->setEnabled(sel);
         m_userRemoveButton->setEnabled(sel);
+        m_userRoleButton->setEnabled(sel);
+    });
+    connect(m_reqListenerButton, &QPushButton::clicked, this, [this]() { decideRequest("listener"); });
+    connect(m_reqOperatorButton, &QPushButton::clicked, this, [this]() { decideRequest("operator"); });
+    connect(m_reqRejectButton, &QPushButton::clicked, this, [this]() { decideRequest(QString()); });
+    connect(m_requestList, &QListWidget::itemSelectionChanged, this, [this]() {
+        const bool sel = m_requestList->currentItem() != nullptr;
+        m_reqListenerButton->setEnabled(sel);
+        m_reqOperatorButton->setEnabled(sel);
+        m_reqRejectButton->setEnabled(sel);
     });
     connect(m_serialCombo, &RefreshingComboBox::aboutToShowPopup, this, &MainWindow::refreshSerialPorts);
     connect(m_audioCombo, &RefreshingComboBox::aboutToShowPopup, this, &MainWindow::refreshAudioDevices);
@@ -509,6 +561,8 @@ void MainWindow::applyConfigToForm()
     m_restLanCheck->setChecked(m_cfg.restLan);
     m_guestViewCheck->setChecked(m_cfg.guestView);
     m_guestTuneCheck->setChecked(m_cfg.guestTune);
+    m_allowRequestsCheck->setChecked(m_cfg.allowRequests);
+    m_ntfyTopicEdit->setText(m_cfg.ntfyTopic);
     m_guestTuneCheck->setEnabled(m_cfg.guestView);
     updateSmartLinkStatus();
     refreshUsers();
@@ -555,6 +609,8 @@ void MainWindow::applyFormToConfig()
     m_cfg.restLan = m_restLanCheck->isChecked();
     m_cfg.guestView = m_guestViewCheck->isChecked();
     m_cfg.guestTune = m_guestTuneCheck->isChecked();
+    m_cfg.allowRequests = m_allowRequestsCheck->isChecked();
+    m_cfg.ntfyTopic = m_ntfyTopicEdit->text().trimmed();
     m_cfg.serialPort = m_serialCombo->currentData().toString();
     m_cfg.manufacturer = LaunchConfig::Manufacturer(m_manufacturerCombo->currentData().toInt());
     m_cfg.civAddress = m_civEdit->text().trimmed();
@@ -1237,7 +1293,13 @@ void MainWindow::refreshUsers()
 {
     m_userList->clear();
     const QStringList names = webAuth::users();
-    m_userList->addItems(names);
+    for (const QString &n : names) {
+        auto *item = new QListWidgetItem(QStringLiteral("%1  \u2014  %2").arg(n, webAuth::role(n).toUpper()), m_userList);
+        item->setData(Qt::UserRole, n);
+    }
+    m_userRoleButton->setEnabled(false);
+    m_requestsSeen.clear();
+    refreshRequests();
     m_loginLabel->setText(names.isEmpty()
         ? QStringLiteral("<b>Login is off:</b> anyone who can reach the web page can use the radio. "
                          "Add a user before forwarding the web port on your router.")
@@ -1285,13 +1347,93 @@ void MainWindow::addWebUser()
     if (!askNewPassword(name, &pw)) return;
     if (!webAuth::setPassword(name, pw))
         QMessageBox::warning(this, "Web user", "Could not save the user.");
+    else if (webAuth::users().size() > 1) {
+        // The first user is the admin; later ones get a role (punch list 41).
+        const QStringList roles = {"Operator", "Listener", "Admin"};
+        bool ok = false;
+        const QString r = QInputDialog::getItem(this, "Web user", QStringLiteral("Role for %1:").arg(name), roles, 0, false, &ok);
+        webAuth::setRole(name, ok ? r.toLower() : QStringLiteral("listener"));
+    }
+    refreshUsers();
+}
+
+void MainWindow::setWebUserRole()
+{
+    if (!m_userList->currentItem()) return;
+    const QString name = m_userList->currentItem()->data(Qt::UserRole).toString();
+    const QStringList roles = {"Admin", "Operator", "Listener", "Suspended"};
+    const QString cur = webAuth::role(name);
+    int at = 0;
+    for (int i = 0; i < roles.size(); ++i) if (roles[i].toLower() == cur) at = i;
+    bool ok = false;
+    const QString r = QInputDialog::getItem(this, "Web user", QStringLiteral("Role for %1:").arg(name), roles, at, false, &ok).toLower();
+    if (!ok || r == cur) return;
+    if (cur == QLatin1String("admin") && webAuth::adminCount() <= 1) {
+        QMessageBox::warning(this, "Web user", "This is the only admin. Make someone else admin first.");
+        return;
+    }
+    if (!webAuth::setRole(name, r))
+        QMessageBox::warning(this, "Web user", "Could not save the role.");
+    else
+        QMessageBox::information(this, "Web user", QStringLiteral("%1 is now %2. Browsers already open get it at their next "
+                                                                  "sign-in (FUNC > USERS on the page applies it at once).").arg(name, r));
+    refreshUsers();
+}
+
+void MainWindow::refreshRequests()
+{
+    if (!m_requestList) return;
+    const QJsonArray reqs = webAuth::requests();
+    const QString seen = QString::fromUtf8(QJsonDocument(reqs).toJson(QJsonDocument::Compact));
+    if (seen == m_requestsSeen) return;
+    m_requestsSeen = seen;
+    m_requestList->clear();
+    for (const QJsonValue &v : reqs) {
+        const QJsonObject r = v.toObject();
+        const QJsonObject lk = r.value("lookup").toObject();
+        QString text = r.value("call").toString() + "  \u2014  " + r.value("name").toString();
+        if (!r.value("email").toString().isEmpty()) text += "  <" + r.value("email").toString() + ">";
+        if (lk.isEmpty()) text += "\n  Lookup pending";
+        else if (lk.value("found").toBool()) {
+            text += "\n  " + lk.value("source").toString() + ": " + lk.value("name").toString();
+            if (!lk.value("qual").toString().isEmpty()) text += ", " + lk.value("qual").toString()
+                + (lk.value("source").toString() == "ISED" ? (lk.value("hf").toBool() ? " (HF)" : " (no HF)") : QString());
+            if (!lk.value("class").toString().isEmpty()) text += ", class " + lk.value("class").toString();
+            const QString where = QStringList({lk.value("city").toString(), lk.value("region").toString(),
+                                               lk.value("country").toString()}).filter(QRegularExpression("\\S")).join(", ");
+            if (!where.isEmpty()) text += " (" + where + ")";
+        } else {
+            text += "\n  " + (lk.value("source").toString().isEmpty() ? QString() : lk.value("source").toString() + ": ")
+                  + (lk.value("error").toString().isEmpty() ? QStringLiteral("not found") : lk.value("error").toString());
+        }
+        if (!r.value("note").toString().isEmpty()) text += "\n  \u201c" + r.value("note").toString() + "\u201d";
+        auto *item = new QListWidgetItem(text, m_requestList);
+        item->setData(Qt::UserRole, r.value("call").toString());
+    }
+    m_requestLabel->setText(reqs.isEmpty()
+        ? QStringLiteral("<b>Access requests:</b> none waiting. Turn on \"Request access\" on the Server tab to let hams ask.")
+        : QStringLiteral("<b>Access requests:</b> %1 waiting. Approved users sign in with their callsign and the password they chose.")
+              .arg(reqs.size()));
+    m_reqListenerButton->setEnabled(false);
+    m_reqOperatorButton->setEnabled(false);
+    m_reqRejectButton->setEnabled(false);
+    if (!reqs.isEmpty()) m_tabs->setTabText(2, QStringLiteral("Web users (%1)").arg(reqs.size()));
+    else m_tabs->setTabText(2, "Web users");
+}
+
+void MainWindow::decideRequest(const QString &role)
+{
+    if (!m_requestList->currentItem()) return;
+    const QString call = m_requestList->currentItem()->data(Qt::UserRole).toString();
+    const bool ok = role.isEmpty() ? webAuth::rejectRequest(call) : webAuth::approveRequest(call, role);
+    if (!ok) QMessageBox::warning(this, "Access request", QStringLiteral("Could not update the request from %1.").arg(call));
     refreshUsers();
 }
 
 void MainWindow::changeWebPassword()
 {
     if (!m_userList->currentItem()) return;
-    const QString name = m_userList->currentItem()->text();
+    const QString name = m_userList->currentItem()->data(Qt::UserRole).toString();
     QString pw;
     if (askNewPassword(name, &pw) && !webAuth::setPassword(name, pw))
         QMessageBox::warning(this, "Web user", "Could not save the password.");
@@ -1301,7 +1443,7 @@ void MainWindow::changeWebPassword()
 void MainWindow::removeWebUser()
 {
     if (!m_userList->currentItem()) return;
-    const QString name = m_userList->currentItem()->text();
+    const QString name = m_userList->currentItem()->data(Qt::UserRole).toString();
     const bool last = webAuth::users().size() == 1;
     if (QMessageBox::question(this, "Web user",
             last ? QStringLiteral("Remove %1? It is the last user: login turns off and anyone who can reach "

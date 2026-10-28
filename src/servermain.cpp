@@ -117,6 +117,20 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
         QMetaObject::invokeMethod(web, "setGuestView", Qt::QueuedConnection,
                                   Q_ARG(bool, cliOverrides.guestView
                                               || (settings && settings->value("Web/GuestView", false).toBool())));
+        // Request access, roles, lookup, ntfy (punch list 41).
+        {
+            QVariantMap acc;
+            auto sv = [&](const char *k) { return settings ? settings->value(QLatin1String(k)) : QVariant(); };
+            acc["allowRequests"] = cliOverrides.allowRequests || sv("Web/AllowRequests").toBool();
+            acc["stationRules"] = sv("Web/StationRules").toString();
+            acc["ntfyServer"] = sv("Notify/NtfyServer").toString();
+            acc["ntfyTopic"] = cliOverrides.ntfyTopic.isEmpty() ? sv("Notify/NtfyTopic").toString() : cliOverrides.ntfyTopic;
+            acc["hamqthUser"] = sv("Lookup/HamQthUser").toString();
+            acc["hamqthPassword"] = sv("Lookup/HamQthPassword").toString();
+            acc["qrzUser"] = sv("Lookup/QrzUser").toString();
+            acc["qrzPassword"] = sv("Lookup/QrzPassword").toString();
+            QMetaObject::invokeMethod(web, "setAccessConfig", Qt::QueuedConnection, Q_ARG(QVariantMap, acc));
+        }
         // Listen & tune guests (punch list 40): --guest-tune, else [Web] GuestTune=true.
         QMetaObject::invokeMethod(web, "setGuestTune", Qt::QueuedConnection,
                                   Q_ARG(bool, cliOverrides.guestTune

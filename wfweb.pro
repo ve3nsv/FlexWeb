@@ -371,6 +371,10 @@ SOURCES += \
     src/nnrstage.cpp \
     src/radio/smartlinkclient.cpp \
     src/webauth.cpp \
+    src/calllookup.cpp \
+    src/calllookupparse.cpp \
+    src/thirdparty/tinf/tinflate.c \
+    src/thirdparty/tinf/crc32.c \
     src/radio/flexprotocol.cpp \
     src/rfkitconnection.cpp \
     src/rfkitprotocol.cpp \
@@ -455,6 +459,8 @@ HEADERS  += \
     include/nnrstage.h \
     include/smartlinkclient.h \
     include/webauth.h \
+    include/calllookup.h \
+    include/calllookupparse.h \
     include/flexprotocol.h \
     include/rfkitconnection.h \
     include/rfkitprotocol.h \

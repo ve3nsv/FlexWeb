@@ -9,6 +9,22 @@ upstream wfview history.
 Unreleased
 ----------
 
+Access requests (--allow-requests, or the launcher's "Request access" box):
+- The sign-in page offers "Request access": callsign (the user name), name,
+  email, password, a note and the station rules to agree to. Three per
+  address per hour, 50 waiting at most.
+- Roles: ADMIN (users from before roles), OPERATOR (full access),
+  LISTENER (receive only; tunes while no operator is on, and the radio is
+  put back), SUSPENDED (cannot sign in). Signing in before approval says
+  the request is waiting.
+- Admins approve, reject and change roles in FUNC > USERS (the people chip
+  shows how many requests wait) or on the launcher's Web users tab.
+- Each request is looked up: Canadian calls in ISED's public amateur list
+  (name, city, qualifications, whether they allow HF), others on QRZ or
+  HamQTH when [Lookup] has an account. The lookup only informs.
+- A push to the admin's phone through ntfy (--ntfy-topic or [Notify]
+  NtfyTopic; NtfyServer for a self-hosted server).
+
 Guests:
 - Listen & tune (--guest-tune with --guest-view, [Web] GuestTune=true, or
   the launcher's "Guests may also tune" box): while no signed-in user is

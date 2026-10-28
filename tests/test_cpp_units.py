@@ -31,10 +31,12 @@ UNITS = {
                  "launcher/src/portowner.cpp"],
     # Web login: PBKDF2 hashes, users, sessions, cookie parsing, lockout.
     "webauth": ["src/webauth.cpp"],
+    # Callsign lookup for access requests: zip reader, ISED list, HamQTH / QRZ XML.
+    "calllookup": ["src/calllookupparse.cpp", "src/thirdparty/tinf/tinflate.c", "src/thirdparty/tinf/crc32.c"],
 }
 
 # Units that need more than Qt5Core.
-MODULES = {"webauth": ["Qt5Core", "Qt5Network"]}
+MODULES = {"webauth": ["Qt5Core", "Qt5Network"], "calllookup": ["Qt5Core", "Qt5Network"]}
 
 
 @pytest.mark.parametrize("unit", sorted(UNITS))

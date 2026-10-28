@@ -282,6 +282,19 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 75 (2026-10-28): item 41 (request access) is done, opt-in:
+--allow-requests / [Web] AllowRequests=true / the launcher's "Request
+access" box. Roles admin / operator / listener / suspended (users from
+before roles are admins). FUNC > USERS (admins) and the launcher's Web
+users tab approve, reject, change roles; the people chip shows a count.
+ntfy: --ntfy-topic / [Notify] NtfyTopic (NtfyServer, default ntfy.sh).
+Lookup: ISED's amateur_delim.zip, fetched weekly into the data folder;
+its column order is taken from the file's header line, else the order
+other tools use - not yet checked against the live file. HamQTH / QRZ
+from [Lookup] HamQthUser / HamQthPassword / QrzUser / QrzPassword (no
+launcher fields yet). Not done: email (SMTP), the approval mail to the
+applicant. Station rules text: [Web] StationRules (a default otherwise).
+
 Build 74 (2026-10-28): item 40 (listen & tune guests) is done:
 --guest-tune / [Web] GuestTune=true / the launcher's "Guests may also
 tune" box, with --guest-view. Not done from 40a: RIT (no command yet) and

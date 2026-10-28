@@ -7,6 +7,12 @@
 #include "logcategories.h"
 #include "wfweb_version.h"
 #include "wsjtxmessage.h"
+#include "calllookup.h"
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QJsonDocument>
+#include <QRegularExpression>
+#include <algorithm>
 
 #include <QStandardPaths>
 #include <QDir>
@@ -813,13 +819,21 @@ void webServer::onHttpReadyRead()
             else serveLoginPage(socket, 200, QString());
             return;
         }
+        if (path == "/request") {
+            // Request access (punch list 41): only when the admin allows it.
+            if (!loginOn || !allowRequests_) sendRedirect(socket, "/login");
+            else if (method == "POST") handleAccessRequest(socket, body);
+            else serveRequestPage(socket, 200, QString());
+            return;
+        }
         if (path == "/logout") {
             webAuth::endSession(webAuth::cookieToken(headerSection));
             sendRedirect(socket, loginOn ? "/login" : "/", webAuth::clearCookieHeader());
             return;
         }
         const QString reqUser = loginOn ? requestUser(socket, headerSection) : QString();
-        if (reqUser == QLatin1String(webAuth::kGuest) && method != "GET") {
+        if (method != "GET" && (reqUser == QLatin1String(webAuth::kGuest)
+                                || (!reqUser.isEmpty() && webAuth::role(reqUser) == QLatin1String("listener")))) {
             // View only: the page and its files, never a change through /api/.
             QJsonObject err;
             err["error"] = "view only";
@@ -1835,6 +1849,10 @@ void webServer::onWsNewConnection()
         }
     }
     wsUser.insert(pSocket, user);
+    // Login off: everyone has the radio, as before roles.
+    wsRole.insert(pSocket, user.isEmpty() ? QStringLiteral("admin")
+                         : user == QLatin1String(webAuth::kGuest) ? QStringLiteral("guest")
+                         : webAuth::role(user));
     // A guest hears the transmitting operator from the start, as a signed-in
     // browser does once its page has sent setTxListen (punch list 23).
     if (user == QLatin1String(webAuth::kGuest))
@@ -1849,10 +1867,15 @@ void webServer::onWsNewConnection()
     qInfo().noquote() << "Web client connected:" << pSocket->peerAddress().toString()
                       << (user.isEmpty() ? QString() : QString("(%1)").arg(user));
     onDemandBrowserArrived();
-    // A signed-in user takes the radio back from tuning guests (punch list 40).
-    if (!user.isEmpty() && user != QLatin1String(webAuth::kGuest)) {
+    // A signed-in operator takes the radio back from tuning guests and
+    // listeners (punch list 40, 41).
+    if (!user.isEmpty() && !isGuest(pSocket)) {
         if (guestSnapTaken_) restoreGuestSnapshot("a signed-in user connected");
-        if (guestTune_) QTimer::singleShot(0, this, [this]() { broadcastGuestMode(); });
+        QTimer::singleShot(0, this, [this]() { broadcastGuestMode(); });
+    }
+    if (isAdmin(pSocket) && webAuth::hasUsers()) {
+        QPointer<QWebSocket> s(pSocket);
+        QTimer::singleShot(0, this, [this, s]() { if (s) sendAccessRequests(s); });
     }
 
     // Send current state to new client
@@ -1931,6 +1954,7 @@ void webServer::onWsDisconnected()
         packetUsbTxActive = false;
         audioClients.remove(pClient);
         wsUser.remove(pClient);
+        wsRole.remove(pClient);
         txListen.remove(pClient);
         if (talkLastMs.remove(pClient)) QTimer::singleShot(0, this, [this]() { broadcastTalkers(); });
         talkerId.remove(pClient);
@@ -1946,7 +1970,7 @@ void webServer::onWsDisconnected()
             for (QWebSocket *c : wsClients) if (isGuest(c)) guestLeft = true;
             if (!guestLeft) restoreGuestSnapshot("the last guest left");
         }
-        if (guestTune_) broadcastGuestMode();
+        broadcastGuestMode();
         onDemandBrowserLeft();
     }
 }
@@ -2216,7 +2240,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     QString type = cmd["cmd"].toString();
 
     if (isGuest(client) && !guestAllowed(type)) {
-        if (!(guestMayTune() && guestTuneAllowed(type, cmd))) {
+        if (!(guestMayTune(client) && guestTuneAllowed(type, cmd))) {
             QJsonObject r;
             r["type"] = "guestRefused";
             r["cmd"] = type;
@@ -2225,6 +2249,11 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         }
         // The first change a tuning guest makes: remember the radio first.
         if (!guestSnapTaken_) takeGuestSnapshot();
+    }
+    if (type == "usersList" || type == "userApprove" || type == "userReject"
+        || type == "userSetRole" || type == "userRemove") {
+        handleUserAdmin(client, type, cmd);
+        return;
     }
 
     if (type == "qsoLogged") {
@@ -4113,9 +4142,10 @@ void webServer::sendCurrentState(QWebSocket *client)
     info["logbookCount"] = logbook_.count();
     info["logbookPersistent"] = logbookPersistent_;
     // Web login: who this browser is signed in as ("" when login is off).
-    info["webUser"] = isGuest(client) ? QStringLiteral("guest") : wsUser.value(client);
+    info["webUser"] = isAnonGuest(client) ? QStringLiteral("guest") : wsUser.value(client);
     info["guest"] = isGuest(client);
-    info["guestTune"] = isGuest(client) && guestMayTune();
+    info["guestTune"] = isGuest(client) && guestMayTune(client);
+    info["role"] = wsRole.value(client);
     info["webLogin"] = webAuth::hasUsers();
     info["txOpus"] = true;      // accepts 0x09 Opus voice frames (onWsBinaryMessage)
     // The browser adopts these on connect instead of pushing its own copy.
@@ -9233,7 +9263,7 @@ void webServer::broadcastClients()
         QStringList names;
         int guests = 0;
         for (QWebSocket *c : wsClients) {
-            if (isGuest(c)) { guests++; continue; }
+            if (isAnonGuest(c)) { guests++; continue; }
             const QString user = wsUser.value(c);
             names << (user.isEmpty() ? clientLabel(c) : user) + (c == pttClient ? QStringLiteral(" (TX)") : QString());
         }
@@ -9242,12 +9272,13 @@ void webServer::broadcastClients()
         browserNames_ = names.join(QStringLiteral(", "));
     }
     for (QWebSocket *to : wsClients) {
-        const bool toGuest = isGuest(to);
+        const bool toGuest = isAnonGuest(to);
         QJsonArray list;
         for (QWebSocket *c : wsClients) {
             QJsonObject e;
             const QString user = wsUser.value(c);
-            const bool guest = isGuest(c);
+            const bool guest = isAnonGuest(c);
+            e["listener"] = !guest && isGuest(c);
             e["name"] = guest ? QStringLiteral("guest")
                       : !user.isEmpty() ? user
                       : toGuest ? QStringLiteral("browser") : clientLabel(c);
@@ -9380,13 +9411,19 @@ void webServer::setGuestTune(bool on)
     if (on) qInfo() << "Web: guests may tune (receive side only, no transmit) while no signed-in user is on";
 }
 
-bool webServer::guestMayTune() const
+bool webServer::operatorPresent() const
 {
-    if (!guestTune_ || !guestView_) return false;
-    for (QWebSocket *c : wsClients) {
-        const QString u = wsUser.value(c);
-        if (!u.isEmpty() && u != QLatin1String(webAuth::kGuest)) return false;
-    }
+    for (QWebSocket *c : wsClients)
+        if (!wsUser.value(c).isEmpty() && !isGuest(c)) return true;
+    return false;
+}
+
+// A LISTENER (punch list 41) tunes whenever no operator is on; the anonymous
+// guest only with --guest-tune.
+bool webServer::guestMayTune(QWebSocket *c) const
+{
+    if (!isGuest(c) || operatorPresent()) return false;
+    if (isAnonGuest(c)) return guestTune_ && guestView_;
     return true;
 }
 
@@ -9498,12 +9535,12 @@ void webServer::restoreGuestSnapshot(const char *why)
 // Each guest learns whether it may tune now (no signed-in user on).
 void webServer::broadcastGuestMode()
 {
-    const bool may = guestMayTune();
     for (QWebSocket *c : wsClients) {
         if (!isGuest(c)) continue;
+        if (isAnonGuest(c) && !guestTune_) continue;
         QJsonObject o;
         o["type"] = "guestMode";
-        o["tune"] = may;
+        o["tune"] = guestMayTune(c);
         sendJsonTo(c, o);
     }
 }
@@ -9612,7 +9649,7 @@ form.guest p.sub{margin:8px 0 0;text-align:center}
 <label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required>
 <label class="row"><input type="checkbox" name="remember" value="1" checked> Keep me signed in on this device</label>
 <button type="submit">Sign in</button>%2
-</form>%3</body></html>
+</form>%3%4</body></html>
 )HTML");
     const QString err = error.isEmpty() ? QString() : QString("<div class=\"err\" role=\"alert\">%1</div>").arg(error.toHtmlEscaped());
     // Guest view-only (setGuestView): a second form, no password.
@@ -9620,7 +9657,11 @@ form.guest p.sub{margin:8px 0 0;text-align:center}
         "<form method=\"post\" action=\"/login\" class=\"guest\"><input type=\"hidden\" name=\"guest\" value=\"1\">"
         "<button type=\"submit\">View only (no password)</button>"
         "<p class=\"sub\">See and hear the radio; nothing can be changed or transmitted.</p></form>");
-    page = page.arg(title.toHtmlEscaped(), err, guest);
+    // Request access (punch list 41)
+    const QString req = !allowRequests_ ? QString() : QStringLiteral(
+        "<p class=\"sub\" style=\"margin:0\"><a href=\"/request\" style=\"color:#7fd3e6\">Request access</a>"
+        " - the station owner approves each request</p>");
+    page = page.arg(title.toHtmlEscaped(), err, guest, req);
     sendHttpResponse(socket, status, status == 200 ? "OK" : (status == 429 ? "Too Many Requests" : "Unauthorized"),
                      "text/html; charset=utf-8", page.toUtf8());
 }
@@ -9653,9 +9694,20 @@ void webServer::handleLogin(QTcpSocket *socket, const QByteArray &body)
     QPointer<QTcpSocket> sock(socket);
     QPointer<webServer> self(this);
     QThreadPool::globalInstance()->start([self, sock, user, password, remember, address]() {
-        const bool ok = webAuth::checkPassword(user, password);
+        bool ok = webAuth::checkPassword(user, password);
+        // Punch list 41: say why instead of "wrong password".
+        const bool suspended = ok && webAuth::role(user) == QLatin1String("suspended");
+        const bool pending = !ok && webAuth::checkRequestPassword(user, password);
+        if (suspended) ok = false;
         if (!self) return;
-        QMetaObject::invokeMethod(self.data(), [self, sock, user, remember, address, ok]() {
+        QMetaObject::invokeMethod(self.data(), [self, sock, user, remember, address, ok, suspended, pending]() {
+            if (suspended || pending) {
+                qInfo().noquote() << "Web:" << user << (suspended ? "is suspended" : "is waiting for approval") << "- sign-in from" << address;
+                if (sock) self->serveLoginPage(sock, 401, suspended
+                    ? QStringLiteral("This account is suspended. Ask the station owner.")
+                    : QStringLiteral("Your request is waiting for the station owner's approval."));
+                return;
+            }
             if (ok) {
                 self->auth.recordSuccess(address);
                 qInfo().noquote() << "Web:" << user << "signed in from" << address;
@@ -9675,6 +9727,287 @@ void webServer::handleLogin(QTcpSocket *socket, const QByteArray &body)
             }
         }, Qt::QueuedConnection);
     });
+}
+
+// ─── Request access, roles, notification (punch list 41) ──────────────────
+
+void webServer::setAccessConfig(const QVariantMap &cfg)
+{
+    allowRequests_ = cfg.value("allowRequests").toBool();
+    stationRules_ = cfg.value("stationRules").toString();
+    ntfyServer_ = cfg.value("ntfyServer").toString().trimmed();
+    if (ntfyServer_.isEmpty()) ntfyServer_ = QStringLiteral("https://ntfy.sh");
+    while (ntfyServer_.endsWith('/')) ntfyServer_.chop(1);
+    ntfyTopic_ = cfg.value("ntfyTopic").toString().trimmed();
+    if (!lookup_) {
+        lookup_ = new callLookup(this);
+        connect(lookup_, &callLookup::looked, this, &webServer::onLookedUp);
+    }
+    QString dir = qEnvironmentVariable("WFWEB_CONFIG_DIR");
+    if (dir.isEmpty()) dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    lookup_->configure(dir, cfg.value("hamqthUser").toString(), cfg.value("hamqthPassword").toString(),
+                       cfg.value("qrzUser").toString(), cfg.value("qrzPassword").toString());
+    if (allowRequests_)
+        qInfo().noquote() << "Web: the sign-in page offers \"Request access\""
+                          << (ntfyTopic_.isEmpty() ? QString("(no ntfy topic set)") : "- new requests push to " + ntfyServer_ + "/<topic>");
+}
+
+void webServer::serveRequestPage(QTcpSocket *socket, int status, const QString &error, bool sent)
+{
+    const QString title = instanceName_.isEmpty() ? QStringLiteral("wfweb") : instanceName_;
+    QString page = QStringLiteral(R"HTML(<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>%1 request access</title>
+<style>
+:root{color-scheme:dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+ background:#0f0f1a;color:#c8d8e8;font:15px system-ui,-apple-system,Segoe UI,sans-serif}
+form,div.box{width:min(380px,calc(100vw - 32px));background:#121a26;border:1px solid #2a3a4d;border-radius:6px;padding:24px;margin:16px 0}
+h1{margin:0 0 4px;font-size:20px;color:#e6f0fa}
+p.sub{margin:0 0 14px;color:#8ea8c0;font-size:13px}
+label{display:block;margin:12px 0 4px;font-size:13px;color:#8ea8c0}
+input[type=text],input[type=password],input[type=email],textarea{box-sizing:border-box;width:100%;padding:10px;border-radius:4px;
+ border:1px solid #304050;background:#0b0b14;color:#e6f0fa;font-size:16px;font-family:inherit}
+textarea{min-height:70px}
+input:focus,textarea:focus{outline:2px solid #00b4d8;outline-offset:1px}
+.rules{margin-top:14px;padding:10px;border:1px solid #2a3a4d;border-radius:4px;background:#0b0b14;font-size:13px;white-space:pre-wrap;max-height:180px;overflow:auto}
+.row{display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-size:14px}
+button{margin-top:18px;width:100%;padding:11px;border:0;border-radius:4px;background:#00b4d8;color:#041019;font-weight:700;font-size:15px;cursor:pointer}
+.err{margin-top:14px;padding:8px 10px;border-radius:4px;background:#3a1418;color:#ffb4b4;font-size:13px}
+a{color:#7fd3e6}
+</style></head><body>%2</body></html>
+)HTML");
+    QString inner;
+    if (sent) {
+        inner = QStringLiteral("<div class=\"box\" role=\"status\"><h1>Request sent</h1><p class=\"sub\">The station owner has been told. "
+                               "Once your request is approved, sign in with your callsign and the password you chose.</p>"
+                               "<a href=\"/login\">Back to sign in</a></div>");
+    } else {
+        const QString err = error.isEmpty() ? QString() : QString("<div class=\"err\" role=\"alert\">%1</div>").arg(error.toHtmlEscaped());
+        const QString rules = stationRules_.trimmed().isEmpty()
+            ? QStringLiteral("Transmit only within your licence, identify as required, and follow the station owner's instructions.")
+            : stationRules_.trimmed();
+        inner = QString(R"HTML(<form method="post" action="/request" autocomplete="on">
+<h1>%1</h1><p class="sub">Request access. The station owner approves each request; you start as a listener.</p>
+<label for="c">Callsign (your user name)</label><input id="c" name="call" type="text" autocapitalize="characters" maxlength="8" required autofocus>
+<label for="n">Name</label><input id="n" name="name" type="text" autocomplete="name" maxlength="100" required>
+<label for="e">Email (optional)</label><input id="e" name="email" type="email" autocomplete="email" maxlength="100">
+<label for="p">Password (at least 8 characters)</label><input id="p" name="password" type="password" autocomplete="new-password" minlength="8" required>
+<label for="t">Note to the station owner (optional)</label><textarea id="t" name="note" maxlength="500"></textarea>
+<div class="rules">%2</div>
+<label class="row"><input type="checkbox" name="rules" value="1" required> I agree to the station rules</label>
+<button type="submit">Send request</button>%3
+<p class="sub" style="margin:14px 0 0"><a href="/login">Back to sign in</a></p>
+</form>)HTML").arg(title.toHtmlEscaped(), rules.toHtmlEscaped(), err);
+    }
+    page = page.arg(title.toHtmlEscaped(), inner);
+    sendHttpResponse(socket, status, status == 200 ? "OK" : (status == 429 ? "Too Many Requests" : "Bad Request"),
+                     "text/html; charset=utf-8", page.toUtf8());
+}
+
+void webServer::handleAccessRequest(QTcpSocket *socket, const QByteArray &body)
+{
+    QUrlQuery form(QString::fromUtf8(body).replace('+', ' '));
+    auto val = [&form](const char *k) { return form.queryItemValue(QLatin1String(k), QUrl::FullyDecoded).trimmed(); };
+    const QString call = val("call").toUpper();
+    const QString password = form.queryItemValue("password", QUrl::FullyDecoded);
+    const QString address = socket->peerAddress().toString();
+    // Three requests per address per hour.
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (requestTimes_.size() > 10000 && !requestTimes_.contains(address)) requestTimes_.clear();
+    QList<qint64> &times = requestTimes_[address];
+    times.erase(std::remove_if(times.begin(), times.end(), [now](qint64 t) { return now - t > 3600000; }), times.end());
+    if (times.size() >= 3) {
+        serveRequestPage(socket, 429, "Too many requests from this address. Try again later.");
+        return;
+    }
+    if (val("rules") != QLatin1String("1")) {
+        serveRequestPage(socket, 400, "Please agree to the station rules.");
+        return;
+    }
+    if (val("name").isEmpty()) {
+        serveRequestPage(socket, 400, "Please give your name.");
+        return;
+    }
+    times << now;
+    QJsonObject info;
+    info["name"] = val("name");
+    info["email"] = val("email");
+    info["note"] = val("note");
+    info["address"] = address;
+    // PBKDF2 off the web thread.
+    QPointer<QTcpSocket> sock(socket);
+    QPointer<webServer> self(this);
+    QThreadPool::globalInstance()->start([self, sock, call, info, password]() {
+        QString error;
+        const bool ok = webAuth::addRequest(call, info, password, &error);
+        if (!self) return;
+        QMetaObject::invokeMethod(self.data(), [self, sock, call, ok, error, info]() {
+            if (!ok) {
+                if (sock) self->serveRequestPage(sock, 400, error);
+                return;
+            }
+            qInfo().noquote() << "Web: access requested by" << call << "(" << info.value("name").toString() << ") from"
+                              << info.value("address").toString();
+            if (sock) self->serveRequestPage(sock, 200, QString(), true);
+            self->sendAccessRequests();
+            // The push waits for the lookup (at most 15 s).
+            if (self->lookup_) {
+                self->lookup_->lookup(call);
+                QPointer<webServer> s2(self);
+                QTimer::singleShot(15000, self.data(), [s2, call]() {
+                    if (s2 && !webAuth::request(call).isEmpty() && !webAuth::request(call).contains("lookup"))
+                        s2->notifyNewRequest(call);
+                });
+            } else {
+                self->notifyNewRequest(call);
+            }
+        }, Qt::QueuedConnection);
+    });
+}
+
+void webServer::onLookedUp(const QString &call, const QJsonObject &result)
+{
+    if (webAuth::request(call).isEmpty()) return;
+    const bool first = !webAuth::request(call).contains("lookup");
+    webAuth::setRequestLookup(call, result);
+    qInfo().noquote() << "Web: lookup" << call << result.value("source").toString()
+                      << (result.value("found").toBool() ? result.value("name").toString() + " " + result.value("qual").toString()
+                                                          : "not found " + result.value("error").toString());
+    if (first) notifyNewRequest(call);
+    sendAccessRequests();
+}
+
+// ntfy: a plain HTTPS POST to <server>/<topic>; the admin's phone app
+// subscribes to the topic (keep it private: anyone who knows it can read it).
+void webServer::notifyNewRequest(const QString &call)
+{
+    if (ntfyTopic_.isEmpty()) return;
+    const QJsonObject r = webAuth::request(call);
+    const QJsonObject lk = r.value("lookup").toObject();
+    QString line = call + " requests access";
+    if (!r.value("name").toString().isEmpty()) line += " - " + r.value("name").toString();
+    if (lk.value("found").toBool()) {
+        line += "\n" + lk.value("source").toString() + ": " + lk.value("name").toString();
+        if (!lk.value("qual").toString().isEmpty()) line += ", " + lk.value("qual").toString();
+        if (!lk.value("class").toString().isEmpty()) line += ", class " + lk.value("class").toString();
+        const QString where = QStringList({lk.value("city").toString(), lk.value("region").toString(), lk.value("country").toString()})
+                                  .filter(QRegularExpression("\\S")).join(", ");
+        if (!where.isEmpty()) line += " (" + where + ")";
+    } else if (!lk.isEmpty()) {
+        line += "\nLookup: not found";
+    }
+    if (!r.value("note").toString().isEmpty()) line += "\n\"" + r.value("note").toString() + "\"";
+    if (!notifyNam_) notifyNam_ = new QNetworkAccessManager(this);
+    QNetworkRequest req(QUrl(ntfyServer_ + "/" + QString::fromLatin1(QUrl::toPercentEncoding(ntfyTopic_))));
+    req.setHeader(QNetworkRequest::ContentTypeHeader, "text/plain; charset=utf-8");
+    const QString title = (instanceName_.isEmpty() ? QStringLiteral("FlexWeb") : instanceName_) + ": access request";
+    req.setRawHeader("Title", title.toUtf8());
+    req.setRawHeader("Tags", "radio");
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
+    req.setTransferTimeout(20000);
+#endif
+    QNetworkReply *reply = notifyNam_->post(req, line.toUtf8());
+    connect(reply, &QNetworkReply::finished, this, [reply, call]() {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError)
+            qWarning().noquote() << "Web: ntfy push for" << call << "failed:" << reply->errorString();
+        else
+            qInfo().noquote() << "Web: ntfy push sent for" << call;
+    });
+}
+
+void webServer::sendAccessRequests(QWebSocket *to)
+{
+    QJsonObject o;
+    o["type"] = "accessRequests";
+    o["count"] = webAuth::requestCount();
+    const QList<QWebSocket *> targets = to ? QList<QWebSocket *>{to} : wsClients;
+    for (QWebSocket *c : targets)
+        if (isAdmin(c)) sendJsonTo(c, o);
+}
+
+// FUNC > USERS, admins only.
+void webServer::handleUserAdmin(QWebSocket *client, const QString &type, const QJsonObject &cmd)
+{
+    QJsonObject r;
+    r["type"] = "usersResult";
+    r["cmd"] = type;
+    if (!isAdmin(client) || !webAuth::hasUsers()) {
+        r["ok"] = false;
+        r["error"] = "Only the station's admin can manage users.";
+        sendJsonTo(client, r);
+        return;
+    }
+    const QString me = wsUser.value(client);
+    const QString name = cmd.value("name").toString();
+    const QString role = cmd.value("role").toString();
+    bool ok = true;
+    QString error;
+    if (type == "usersList") {
+        // answered below
+    } else if (type == "userApprove") {
+        const QString want = role.isEmpty() ? QStringLiteral("listener") : role;
+        ok = webAuth::approveRequest(name, want);
+        if (!ok) error = "Could not approve " + name + ".";
+        else qInfo().noquote() << "Web:" << me << "approved" << name << "as" << want;
+    } else if (type == "userReject") {
+        ok = webAuth::rejectRequest(name);
+        if (ok) qInfo().noquote() << "Web:" << me << "rejected the request from" << name;
+    } else if (type == "userSetRole") {
+        if (name == me && role != QLatin1String("admin")) { ok = false; error = "You cannot change your own role."; }
+        else if (webAuth::role(name) == QLatin1String("admin") && role != QLatin1String("admin") && webAuth::adminCount() <= 1) {
+            ok = false; error = "The last admin cannot be demoted.";
+        } else {
+            ok = webAuth::setRole(name, role);
+            if (ok) { qInfo().noquote() << "Web:" << me << "set" << name << "to" << role; applyRoleChange(name); }
+        }
+    } else if (type == "userRemove") {
+        if (name == me) { ok = false; error = "You cannot remove yourself."; }
+        else if (webAuth::role(name) == QLatin1String("admin") && webAuth::adminCount() <= 1) { ok = false; error = "The last admin cannot be removed."; }
+        else {
+            ok = webAuth::removeUser(name);
+            if (ok) { qInfo().noquote() << "Web:" << me << "removed user" << name; applyRoleChange(name); }
+        }
+    }
+    if (!ok && error.isEmpty()) error = "That did not work.";
+    QJsonArray users;
+    for (const QString &u : webAuth::users()) {
+        QJsonObject e;
+        e["name"] = u;
+        e["role"] = webAuth::role(u);
+        e["you"] = u == me;
+        bool on = false;
+        for (QWebSocket *c : wsClients) if (wsUser.value(c) == u) on = true;
+        e["online"] = on;
+        users.append(e);
+    }
+    r["ok"] = ok;
+    if (!error.isEmpty()) r["error"] = error;
+    r["users"] = users;
+    r["requests"] = webAuth::requests();
+    sendJsonTo(client, r);
+    if (type != "usersList") sendAccessRequests();
+}
+
+// A user's role changed (or the user was removed): the open browsers follow.
+void webServer::applyRoleChange(const QString &user)
+{
+    const QString role = webAuth::role(user);
+    const QList<QWebSocket *> clients = wsClients;
+    for (QWebSocket *c : clients) {
+        if (wsUser.value(c) != user) continue;
+        if (role.isEmpty() || role == QLatin1String("suspended")) {
+            c->close(QWebSocketProtocol::CloseCodePolicyViolated, role.isEmpty() ? "account removed" : "account suspended");
+            continue;
+        }
+        wsRole.insert(c, role);
+        sendCurrentState(c);
+    }
+    if (guestSnapTaken_ && operatorPresent()) restoreGuestSnapshot("a user became an operator");
+    broadcastGuestMode();
+    scheduleClientsBroadcast();
 }
 
 void webServer::setOnDemand(int idleSeconds)

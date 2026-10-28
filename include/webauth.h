@@ -15,6 +15,8 @@
 
 #include <QDateTime>
 #include <QHash>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QString>
 #include <QStringList>
 
@@ -34,6 +36,33 @@ public:
 
     static QString hashPassword(const QString& password, int iterations = kIterations);
     static bool verifyHash(const QString& password, const QString& stored);
+
+    // ── roles (punch list 41) ──
+    // admin (the station owner; users from before roles have no entry and
+    // are admins), operator (full access), listener (receive only, tunes
+    // while no operator is on), suspended (cannot sign in).
+    static QString role(const QString& name);
+    static bool setRole(const QString& name, const QString& role);   // ends a suspended user's sessions
+    static bool validRole(const QString& role);
+    static int adminCount();
+
+    // ── access requests (punch list 41) ──
+    // Kept under requests/<CALL> as JSON: name, email, note, time, address,
+    // lookup, and the PBKDF2 hash of the password chosen (never the password).
+    static bool validCallsign(const QString& call);
+    // Slow (PBKDF2). False with *error set: bad callsign, taken, already
+    // requested, too many pending, empty password.
+    static bool addRequest(const QString& call, const QJsonObject& info, const QString& password, QString* error);
+    static QJsonArray requests();                        // oldest first, without the hash
+    static QJsonObject request(const QString& call);     // without the hash; empty if none
+    static int requestCount();
+    static void setRequestLookup(const QString& call, const QJsonObject& lookup);
+    // Approve: the request becomes user <CALL> with its password and the role.
+    static bool approveRequest(const QString& call, const QString& role);
+    static bool rejectRequest(const QString& call);
+    // Slow: the password matches a pending request (sign-in says "waiting").
+    static bool checkRequestPassword(const QString& call, const QString& password);
+    static constexpr int kMaxPendingRequests = 50;
 
     // ── sessions ──
     // remember: 30 days, else 12 hours. Returns the cookie token.

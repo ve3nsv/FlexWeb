@@ -153,6 +153,28 @@ body.ae-phone #cpuChip .cpu-lbl { display: none; }
 }
 #peopleChip[hidden] { display: none; }
 #peopleChip svg { width: 13px; height: 11px; fill: currentColor; }
+#peopleChip .req-badge { margin-left: 3px; padding: 0 4px; border-radius: 7px; background: #e0a020; color: #1a1200; }
+#peoplePop .req-link { color: #e0a020; text-decoration: underline; cursor: pointer; }
+/* FUNC > USERS (punch list 41) */
+#usersOverlay { position: fixed; inset: 0; z-index: 9000; background: rgba(0,0,0,.6); display: none;
+    align-items: flex-start; justify-content: center; overflow: auto; padding: 24px 12px; box-sizing: border-box; }
+#usersOverlay.visible { display: flex; }
+#usersBox { width: min(640px, 100%); background: #121a26; border: 1px solid #2a3a4d; border-radius: 6px;
+    padding: 14px 16px; color: #c8d8e8; font-size: 14px; }
+#usersBox h3 { margin: 14px 0 6px; font-size: 13px; letter-spacing: .05em; color: #8ea8c0; }
+#usersBox h3:first-of-type { margin-top: 0; }
+#usersBox .u-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+#usersBox .u-head b { font-size: 16px; color: #e6f0fa; }
+#usersBox .u-row { border-top: 1px solid #22303f; padding: 8px 0; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+#usersBox .u-main { flex: 1 1 260px; min-width: 0; }
+#usersBox .u-sub { color: #8ea8c0; font-size: 12px; overflow-wrap: anywhere; }
+#usersBox .u-hf { color: #7fd38a; } #usersBox .u-nohf { color: #e0a020; }
+#usersBox button, #usersBox select { background: #1d2b3a; color: #c8d8e8; border: 1px solid #304050; border-radius: 4px;
+    padding: 5px 9px; font-size: 13px; cursor: pointer; }
+#usersBox button.ok { background: #0f4a5a; border-color: #00b4d8; }
+#usersBox button.bad { border-color: #8a3a3a; color: #ffb4b4; }
+#usersBox .u-err { color: #ffb4b4; margin: 6px 0; }
+#usersBox .u-empty { color: #8ea8c0; padding: 6px 0; }
 #peoplePop b.tx { color: #ff6b6b; }
 #peoplePop b.talk { color: #ffd27a; }
 #peoplePop, #cpuPop {
@@ -3780,6 +3802,8 @@ function onTransportClose() {
 
 // Web login: the signed-in user in the top bar; tap twice to sign out.
 var webUser = '';
+var webRole = '';           // admin / operator / listener / guest (punch list 41)
+var accessReqCount = 0;     // pending access requests (admins)
 var webLoginOn = false;      // the server has named users (web login on)
 var userBtnTimer = null;
 function setWebUser(name) {
@@ -3798,7 +3822,8 @@ function setGuestView(on) {
     guestView = !!on;
     document.body.classList.toggle('guest-view', guestView);
     var b = document.getElementById('userBtn');
-    if (b && guestView) { b.title = 'View only. Tap to sign out'; b.classList.add('guest'); }
+    if (b && guestView) { b.title = (webRole === 'listener' ? 'Listener' : 'View only') + '. Tap to sign out'; b.classList.add('guest'); }
+    else if (b) b.classList.remove('guest');
 }
 var guestNoticeTimer = null, guestResyncTimer = null;
 // Listen & tune guests (punch list 40): rigInfo.guestTune / {type:'guestMode'}
@@ -3811,8 +3836,9 @@ function setGuestTune(on) {
     document.body.classList.toggle('guest-tune', guestTune);
     var b = document.getElementById('userBtn');
     if (b && guestView) b.title = (guestTune ? 'Guest: tune and listen, no transmit' : 'View only') + '. Tap to sign out';
-    if (on && !was) guestNotice('Tuning as guest - receive only. The radio is put back when you leave', 5000);
-    else if (!on && was) guestNotice('A signed-in user is on - view only now', 4000);
+    var who = webRole === 'listener' ? 'listener' : 'guest';
+    if (on && !was) guestNotice('Tuning as ' + who + ' - receive only. The radio is put back when you leave', 5000);
+    else if (!on && was) guestNotice('An operator is on - view only now', 4000);
 }
 function guestNotice(text, ms) {
     var n = document.getElementById('guestNotice');
@@ -3822,8 +3848,11 @@ function guestNotice(text, ms) {
         n.setAttribute('role', 'status');
         document.body.appendChild(n);
     }
-    n.textContent = text || (guestTune ? 'Guest: receive only - sign in to transmit or change that'
-                                       : 'View only - sign in to change or key the radio');
+    n.textContent = text || (webRole === 'listener'
+        ? (guestTune ? 'Listener: receive only - the station owner can make you an operator'
+                     : 'Listener: view only while an operator is on')
+        : (guestTune ? 'Guest: receive only - sign in to transmit or change that'
+                     : 'View only - sign in to change or key the radio'));
     if (text) {
         n.classList.add('show');
         clearTimeout(guestNoticeTimer);
@@ -4057,6 +4086,16 @@ function handleMessage(msg) {
             peopleList = msg.list || [];
             renderPeopleChip();
             break;
+        case 'accessRequests':
+            accessReqCount = msg.count || 0;
+            renderPeopleChip();
+            if (document.getElementById('usersOverlay') && document.getElementById('usersOverlay').classList.contains('visible'))
+                send({ cmd: 'usersList' });
+            break;
+        case 'usersResult':
+            usersData = msg;
+            renderUsersPanel();
+            break;
         case 'serverLoad':
             serverLoad = msg;
             renderCpuChip();
@@ -4109,6 +4148,7 @@ function handleMessage(msg) {
             break;
         case 'rigInfo':
             if (msg.webUser !== undefined) setWebUser(msg.webUser);
+            if (msg.role !== undefined) webRole = msg.role || '';
             if (msg.guest !== undefined) setGuestView(msg.guest);
             if (msg.guest !== undefined) setGuestTune(!!msg.guestTune);
             if (msg.webLogin !== undefined) webLoginOn = !!msg.webLogin;
@@ -6297,8 +6337,12 @@ function peopleHtml() {
         if (p.tx) tags.push('<b class="tx">TX</b>');
         if (p.talk) tags.push('<b class="talk">TALK</b>');
         if (!p.audio) tags.push('audio off');
+        if (p.listener) tags.push('listener');
         rows.push('<b>' + ampEsc(p.name) + '</b>' + (p.you ? ' (you)' : '') + (tags.length ? ' \u00b7 ' + tags.join(' \u00b7 ') : ''));
     });
+    if (webRole === 'admin' && accessReqCount)
+        rows.push('<span class="req-link" onclick="openUsersPanel()">' + accessReqCount + ' access request' +
+                  (accessReqCount > 1 ? 's' : '') + ' \u2192 USERS</span>');
     if (guests) rows.push('<b>' + guests + ' guest' + (guests > 1 ? 's' : '') + '</b>' + (guestsMe ? ' (you are one)' : '') + ' \u00b7 view only');
     return '<b>Connected</b><br>' + rows.join('<br>');
 }
@@ -6306,10 +6350,12 @@ function renderPeopleChip() {
     var el = document.getElementById('peopleChip');
     if (!el) return;
     var n = peopleList.length;
-    el.hidden = n <= 1;
-    if (n <= 1) { closeTopPop('peoplePop'); return; }
+    var reqs = webRole === 'admin' ? accessReqCount : 0;
+    el.hidden = n <= 1 && !reqs;
+    if (el.hidden) { closeTopPop('peoplePop'); return; }
     el.innerHTML = '<svg viewBox="0 0 26 22" aria-hidden="true"><circle cx="8" cy="6" r="4"/><circle cx="18" cy="6" r="4"/>' +
-        '<path d="M0 21c0-5 4-8 8-8s8 3 8 8z"/><path d="M12 21c0-4 3-8 6-8 4 0 8 3 8 8z"/></svg>' + n;
+        '<path d="M0 21c0-5 4-8 8-8s8 3 8 8z"/><path d="M12 21c0-4 3-8 6-8 4 0 8 3 8 8z"/></svg>' + n +
+        (reqs ? '<span class="req-badge" title="Access requests">' + reqs + '</span>' : '');
     el.title = peopleHtml().replace(/<br>/g, '\n').replace(/<[^>]+>/g, '');
     var pop = document.getElementById('peoplePop');
     if (pop && !pop.classList.contains('hidden')) pop.innerHTML = peopleHtml();
@@ -6333,6 +6379,89 @@ function toggleTopPop(id, chipId, html) {
 function closeTopPop(id) {
     var pop = document.getElementById(id);
     if (pop) pop.classList.add('hidden');
+}
+
+// ---- FUNC > USERS (punch list 41): access requests and roles, admins only.
+var usersData = null;
+function openUsersPanel() {
+    closeTopPop('peoplePop');
+    var ov = document.getElementById('usersOverlay');
+    if (!ov) {
+        ov = document.createElement('div');
+        ov.id = 'usersOverlay';
+        ov.innerHTML = '<div id="usersBox" role="dialog" aria-label="Users"></div>';
+        ov.addEventListener('click', function (e) { if (e.target === ov) closeUsersPanel(); });
+        document.body.appendChild(ov);
+    }
+    ov.classList.add('visible');
+    if (!usersData) document.getElementById('usersBox').innerHTML = '<div class="u-empty">Loading\u2026</div>';
+    send({ cmd: 'usersList' });
+}
+function closeUsersPanel() {
+    var ov = document.getElementById('usersOverlay');
+    if (ov) ov.classList.remove('visible');
+}
+var ROLE_TEXT = { admin: 'ADMIN', operator: 'OPERATOR', listener: 'LISTENER', suspended: 'SUSPENDED' };
+function lookupText(lk) {
+    if (!lk) return 'Looking up\u2026';
+    if (!lk.found) return (lk.source ? lk.source + ': ' : '') + (lk.error || 'not found');
+    var where = [lk.city, lk.region, lk.country].filter(function (x) { return x; }).join(', ');
+    var t = lk.source + ': ' + ampEsc(lk.name || '') + (where ? ' \u00b7 ' + ampEsc(where) : '');
+    if (lk.qual) t += ' \u00b7 <span class="' + (lk.hf ? 'u-hf' : 'u-nohf') + '">' + ampEsc(lk.qual) +
+        (lk.source === 'ISED' ? (lk.hf ? ' (HF)' : ' (no HF below 30 MHz)') : '') + '</span>';
+    if (lk['class']) t += ' \u00b7 class ' + ampEsc(lk['class']);
+    return t;
+}
+function renderUsersPanel() {
+    var box = document.getElementById('usersBox');
+    if (!box || !usersData) return;
+    var d = usersData, h = [];
+    h.push('<div class="u-head"><b>USERS</b><button onclick="closeUsersPanel()">CLOSE</button></div>');
+    if (d.ok === false && d.error) h.push('<div class="u-err" role="alert">' + ampEsc(d.error) + '</div>');
+    h.push('<h3>ACCESS REQUESTS</h3>');
+    var reqs = d.requests || [];
+    if (!reqs.length) h.push('<div class="u-empty">None waiting.</div>');
+    reqs.forEach(function (r) {
+        var when = r.time ? new Date(r.time * 1000).toLocaleString() : '';
+        var c = ampEsc(r.call);
+        h.push('<div class="u-row"><div class="u-main"><b>' + c + '</b> \u00b7 ' + ampEsc(r.name || '') +
+            (r.email ? ' \u00b7 ' + ampEsc(r.email) : '') +
+            '<div class="u-sub">' + lookupText(r.lookup) + '</div>' +
+            (r.note ? '<div class="u-sub">\u201c' + ampEsc(r.note) + '\u201d</div>' : '') +
+            '<div class="u-sub">' + ampEsc(when) + (r.address ? ' \u00b7 ' + ampEsc(r.address) : '') + '</div></div>' +
+            '<button class="ok" onclick="usersCmd(\'userApprove\',\'' + c + '\',\'listener\')">APPROVE LISTENER</button>' +
+            '<button onclick="usersCmd(\'userApprove\',\'' + c + '\',\'operator\')">APPROVE OPERATOR</button>' +
+            '<button class="bad" onclick="usersCmd(\'userReject\',\'' + c + '\')">REJECT</button></div>');
+    });
+    h.push('<h3>USERS</h3>');
+    (d.users || []).forEach(function (u) {
+        var n = ampEsc(u.name), opts = '';
+        ['admin', 'operator', 'listener', 'suspended'].forEach(function (r) {
+            opts += '<option value="' + r + '"' + (u.role === r ? ' selected' : '') + '>' + ROLE_TEXT[r] + '</option>';
+        });
+        h.push('<div class="u-row"><div class="u-main"><b>' + n + '</b>' + (u.you ? ' (you)' : '') +
+            (u.online ? ' \u00b7 <span class="u-hf">online</span>' : '') + '</div>' +
+            (u.you ? '<span class="u-sub">' + ROLE_TEXT[u.role] + '</span>'
+                   : '<select aria-label="Role for ' + n + '" onchange="usersCmd(\'userSetRole\',\'' + n + '\',this.value)">' + opts + '</select>' +
+                     '<button class="bad" onclick="if(confirmUsersRemove(this))usersCmd(\'userRemove\',\'' + n + '\')">REMOVE</button>') +
+            '</div>');
+    });
+    h.push('<div class="u-sub" style="margin-top:10px">LISTENER: receive only, tunes while no operator is on (the radio is put back). ' +
+           'OPERATOR: full access, transmits under the station licence. SUSPENDED: cannot sign in.</div>');
+    box.innerHTML = h.join('');
+}
+// REMOVE asks once: the button turns into SURE? for 3 s.
+function confirmUsersRemove(btn) {
+    if (btn.dataset.armed) return true;
+    btn.dataset.armed = '1';
+    btn.textContent = 'SURE?';
+    setTimeout(function () { if (btn.isConnected) { delete btn.dataset.armed; btn.textContent = 'REMOVE'; } }, 3000);
+    return false;
+}
+function usersCmd(cmd, name, role) {
+    var o = { cmd: cmd, name: name };
+    if (role) o.role = role;
+    send(o);
 }
 document.addEventListener('click', function (e) {
     if (e.target && e.target.closest && !e.target.closest('#peopleChip') && !e.target.closest('#peoplePop')) closeTopPop('peoplePop');
@@ -7728,6 +7857,11 @@ function renderFuncOverlay() {
     }));
 
     // Look: the AetherSDR skin and layout, or the classic wfweb page.
+    if (webRole === 'admin' && webLoginOn) {
+        var ub = makeFuncBtn('USERS', accessReqCount ? accessReqCount + ' REQ' : 'MANAGE', accessReqCount > 0, openUsersPanel);
+        ub.title = 'Web users and access requests';
+        grid.appendChild(ub);
+    }
     grid.appendChild(makeFuncBtn('LOOK', aeClassic ? 'CLASSIC' : 'AETHER', aeClassic, function() {
         setLook(!aeClassic);
         renderFuncOverlay();

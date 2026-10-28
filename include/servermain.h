@@ -83,6 +83,8 @@ struct cmdLineOverrides {
     bool remoteLogDecodes = false;
     QString rfkit;             // --rfkit host[:port]: RF-KIT (RF2K-S) amplifier
     bool guestView = false;    // --guest-view: "View only" button on the login page
+    bool allowRequests = false; // --allow-requests: "Request access" on the login page
+    QString ntfyTopic;          // --ntfy-topic: push new access requests
     bool guestTune = false;    // --guest-tune: guests may tune (RX only) while no signed-in user is on
 };
 

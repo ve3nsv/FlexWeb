@@ -37,6 +37,8 @@ QStringList LaunchConfig::toArguments(const QString &logFile) const
     if (restLan) args << "--rest";
     if (guestView) args << "--guest-view";
     if (guestView && guestTune) args << "--guest-tune";
+    if (allowRequests) args << "--allow-requests";
+    if (!ntfyTopic.trimmed().isEmpty()) args << "--ntfy-topic" << ntfyTopic.trimmed();
 
     if (webPort > 0 && webPort != defaultWebPort) args << "-p" << QString::number(webPort);
     if (!nameTag.trimmed().isEmpty()) args << "-n" << nameTag.trimmed();
@@ -80,6 +82,8 @@ void LaunchConfig::load(const QSettings &s)
     restLan = s.value("restLan", false).toBool();
     guestView = s.value("guestView", false).toBool();
     guestTune = s.value("guestTune", false).toBool();
+    allowRequests = s.value("allowRequests", false).toBool();
+    ntfyTopic = s.value("ntfyTopic").toString();
     webPort = s.value("webPort", defaultWebPort).toInt();
     if (webPort <= 0 || webPort > 65535) webPort = defaultWebPort;
     nameTag = s.value("nameTag").toString();
@@ -108,6 +112,8 @@ void LaunchConfig::save(QSettings &s) const
     s.setValue("restLan", restLan);
     s.setValue("guestView", guestView);
     s.setValue("guestTune", guestTune);
+    s.setValue("allowRequests", allowRequests);
+    s.setValue("ntfyTopic", ntfyTopic);
     s.setValue("webPort", webPort);
     s.setValue("nameTag", nameTag);
     s.setValue("settingsFile", settingsFile);

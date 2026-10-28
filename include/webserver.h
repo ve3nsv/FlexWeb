@@ -78,6 +78,9 @@ protected:
     }
 };
 
+class callLookup;
+class QNetworkAccessManager;
+
 class webServer : public QObject
 {
     Q_OBJECT
@@ -165,6 +168,10 @@ public slots:
     // Punch list 40: guests may also tune (receive side only) while no
     // signed-in user is connected; the radio is put back afterwards.
     void setGuestTune(bool on);
+    // Punch list 41: request access, roles, callsign lookup, ntfy push.
+    // Keys: allowRequests, stationRules, ntfyServer, ntfyTopic, hamqthUser,
+    // hamqthPassword, qrzUser, qrzPassword.
+    void setAccessConfig(const QVariantMap &cfg);
     // Logbook path and remote-logging (WSJT-X UDP) setup from settings +
     // command-line overrides; runs once on the web thread at startup.
     void configureLogbook(const QString &logbookOverride,
@@ -332,11 +339,32 @@ private:
     // Guest view-only (punch list 2): the login page's "View only" button.
     // A guest's commands are refused except the read-only ones (guestAllowed).
     bool guestView_ = false;
-    bool isGuest(QWebSocket *c) const { return c && wsUser.value(c) == QLatin1String(webAuth::kGuest); }
+    // Restricted: the anonymous guest, or a signed-in LISTENER (punch list
+    // 41): every guest rule applies to both.
+    bool isGuest(QWebSocket *c) const {
+        return c && (wsUser.value(c) == QLatin1String(webAuth::kGuest) || wsRole.value(c) == QLatin1String("listener"));
+    }
+    bool isAnonGuest(QWebSocket *c) const { return c && wsUser.value(c) == QLatin1String(webAuth::kGuest); }
+    bool isAdmin(QWebSocket *c) const { return c && wsRole.value(c) == QLatin1String("admin") && !wsUser.value(c).isEmpty(); }
+    QHash<QWebSocket *, QString> wsRole;          // admin / operator / listener / guest
+    // Access requests (punch list 41)
+    bool allowRequests_ = false;
+    QString stationRules_, ntfyServer_, ntfyTopic_;
+    callLookup *lookup_ = nullptr;
+    QNetworkAccessManager *notifyNam_ = nullptr;
+    QHash<QString, QList<qint64>> requestTimes_;  // per address, for the rate limit
+    void serveRequestPage(QTcpSocket *socket, int status, const QString &error, bool sent = false);
+    void handleAccessRequest(QTcpSocket *socket, const QByteArray &body);
+    void onLookedUp(const QString &call, const QJsonObject &result);
+    void notifyNewRequest(const QString &call);
+    void sendAccessRequests(QWebSocket *to = nullptr);   // count to the admins (or one)
+    void handleUserAdmin(QWebSocket *client, const QString &type, const QJsonObject &cmd);
+    void applyRoleChange(const QString &user);
     static bool guestAllowed(const QString &cmd);
     // LISTEN & TUNE guests (punch list 40)
     bool guestTune_ = false;
-    bool guestMayTune() const;                    // the level is on and no signed-in user is connected
+    bool guestMayTune(QWebSocket *c) const;       // may this guest / listener tune now
+    bool operatorPresent() const;                 // a signed-in admin or operator is connected
     static bool guestTuneAllowed(const QString &cmd, const QJsonObject &obj);
     struct GuestSnapItem { funcs func; QVariant value; uchar receiver; };
     QList<GuestSnapItem> guestSnap_;              // rig functions, in restore order

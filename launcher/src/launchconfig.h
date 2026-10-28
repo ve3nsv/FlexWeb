@@ -48,6 +48,8 @@ struct LaunchConfig {
     bool restLan = false;        // --rest
     bool guestView = false;      // --guest-view: "View only" on the login page
     bool guestTune = false;      // --guest-tune: guests may also tune (receive only)
+    bool allowRequests = false;  // --allow-requests: "Request access" on the sign-in page
+    QString ntfyTopic;           // --ntfy-topic: push new requests to ntfy.sh/<topic>
 
     bool isNetwork() const { return transport != Usb; }
 

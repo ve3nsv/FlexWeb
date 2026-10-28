@@ -448,6 +448,13 @@ int main(int argc, char *argv[])
         "                          receive settings (never transmit) while no signed-in\n"
         "                          user is connected; the radio is put back when the\n"
         "                          last guest leaves (also [Web] GuestTune=true)\n"
+        "  --allow-requests        The sign-in page offers \"Request access\": the admin\n"
+        "                          approves each request in FUNC > USERS (also [Web]\n"
+        "                          AllowRequests=true; [Web] StationRules, [Notify]\n"
+        "                          NtfyServer / NtfyTopic, [Lookup] HamQthUser /\n"
+        "                          HamQthPassword / QrzUser / QrzPassword)\n"
+        "  --ntfy-topic <topic>    Push each new access request to ntfy.sh/<topic>\n"
+        "                          (also [Notify] NtfyTopic, NtfyServer)\n"
         "  --remote-log-decodes    Also forward FT8/FT4 decodes to the remote logger\n"
         "  -l --logfile <file>     Log file\n"
         "  -b --background         Run as daemon (not Windows)\n"
@@ -725,6 +732,12 @@ int main(int argc, char *argv[])
         }
         else if (currentArg == "--guest-view") overrides.guestView = true;
         else if (currentArg == "--guest-tune") overrides.guestTune = true;
+        else if (currentArg == "--allow-requests") overrides.allowRequests = true;
+        else if (currentArg == "--ntfy-topic")
+        {
+            if (argc > c + 1) overrides.ntfyTopic = argv[++c];
+            else { std::cout << "Error: --ntfy-topic requires a topic\n"; return -1; }
+        }
         else if (currentArg == "--no-remote-log") overrides.noRemoteLog = true;
         else if (currentArg == "--remote-log-decodes") overrides.remoteLogDecodes = true;
         else if (currentArg == "--lan-control")
