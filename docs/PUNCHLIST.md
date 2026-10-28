@@ -284,6 +284,15 @@ Status: implemented for build 60.
 
 From here on builds go by their GitHub Actions run number.
 
+Next build (2026-10-28): items 42 and 43 are done. 42: the empty PUT
+/tuner wakes the amp when a signed-in admin / operator (or anyone, login
+off) connects, repeats every [Amplifier] KeepAwakeSecs (default 60, 0 =
+wake only) while one is on; the connect-time probe is gone (the wake reply
+sets TUNE support); chip shows AMP WAKING until the reply. 43: the antenna
+list is read whole every 3 s (no /antennas/active parser yet). To check on
+the amp: CPU (top) and rf-kit-gui.log while transmitting, FWD on voice
+peaks against the amp's display.
+
 Build 75 = Actions #82 (2026-10-28): item 41 (request access) is done, opt-in:
 --allow-requests / [Web] AllowRequests=true / the launcher's "Request
 access" box. Roles admin / operator / listener / suspended (users from
@@ -1052,3 +1061,23 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     worth adding). Tests: mock RF-KIT server counts PUT /tuner - one at
     browser connect, repeats while connected, none after it leaves, none
     for a guest.
+43. RF2K-S polling on a receive / transmit schedule (user, 2026-10-28;
+    medium; modelled on the PgTG RF-KIT plugin v1.1.6, whose defaults the
+    user read out of its DLL: RX one GET per 150 ms, ~5/s, power x3 /
+    operate-mode / data x2 / antennas-active / tuner x4 in 14 slots; TX one
+    per 15 ms, power x4 + tuner; no tune probe; 15 s timeout). The user
+    sees FWD read low on voice peaks (item 35): /power was read 4x a second.
+    a. One GET at a time, only when nothing is queued or in flight.
+    b. Receive (~3.7 GETs/s, was 12): /tuner and /operate-mode 1/s, /power
+       and /data every 1.5 s, the antenna list every 3 s,
+       /operational-interface every 10 s.
+    c. Transmit: /power 4 of 5, /tuner 1 of 5, one per 50 ms at most (up to
+       16 power readings/s). Driven by the radio, not the amp (the API has no
+       keyed flag): the rig's TX status, the Flex interlock (another client
+       or a TUNE carrier too), and started by this server's PTT / TUNE
+       request. Stays fast 3 s after unkey for the peak hold.
+    d. Measured on the user's amp before the change: polling cost 1-2 % of
+       one core and is not logged (item 42 notes).
+    Not for rfkit-tune-pr until it is tested in FlexWeb (user, 2026-10-28).
+    Tests: test_rfkit counts GETs on the stub (receive rate, /power during
+    TX, no /data during TX, slow again after the hold).

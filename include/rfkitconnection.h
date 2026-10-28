@@ -1,9 +1,11 @@
 #pragma once
 
-// Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
-// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune-pr,
-// 934dcd6), GPLv3. "Constitution principle" references are AetherSDR's
-// project rules.
+// Ported from VE3NSV's RF-KIT support for AetherSDR (github.com/ve3nsv/
+// AetherSDR, branch rfkit-tune-pr, 934dcd6), GPLv3. "Constitution principle"
+// references are AetherSDR's project rules. Changed in FlexWeb (punch list 42,
+// 43; not yet in rfkit-tune-pr): one request at a time on a receive / transmit
+// schedule instead of three every 250 ms, and the tune-API probe is no longer
+// sent on connect - it wakes the amplifier, so it is sent only as wake().
 
 
 #include <QHash>
@@ -76,12 +78,28 @@ public:
     // carrier is already being transmitted. Nothing here keys the radio.
     void startTune();
 
+    // Punch list 42: the empty PUT /tuner {} wakes a sleeping amplifier
+    // (a modified restServer.py wakes it before checking the body; it answers
+    // 400 and tunes nothing) and resets its sleep timer. The reply also tells
+    // whether the amplifier has the tune command, so it replaces the probe
+    // that used to go out on every connect. Skipped while one is outstanding.
+    void wake();
+    // Punch list 43: whether the radio is transmitting (its own TX state, not
+    // the amp's readings - the API has no keyed flag). While it is, and for
+    // kTxHoldMs after, /power is read as fast as the amplifier answers.
+    void setTransmitting(bool on);
+    // A key-up is on its way: poll fast for kTxHoldMs even before the radio
+    // reports it (TX requested by this server).
+    void kickFast();
+
 signals:
     void connected();
     void disconnected();
     void connectionFailed(const QString& errorString);
     // Full current snapshot, emitted when a reply actually changed something.
     void statusUpdated(const AetherSDR::Rfkit::Status& status);
+    // A wake() was answered (any HTTP status) or failed in transit.
+    void wakeAnswered(bool ok);
 
 private:
     struct Request {
@@ -104,11 +122,9 @@ private:
     void onTransportFailure(const QString& errorString, const Request& request);
     void onTransportDown(const QString& errorString);
     void poll();
+    bool fastMode() const;
+    void updatePollRate();
     void enqueueFullRefresh();
-    // Asks whether PUT /tuner exists. Retried only while the answer stays
-    // Unknown, at most kMaxTuneProbes times per session, and never with one
-    // already outstanding.
-    void maybeProbeTuneApi();
     void armReconnect();
     void resetSession();
 
@@ -153,20 +169,26 @@ private:
     QTimer m_reconnectTimer;
     static constexpr int kReconnectIntervalMs = 5000;
 
-    // /power and /data every tick; one of the slower, configuration-style
-    // endpoints per tick in rotation (see poll()).
+    // One GET per tick, only when nothing is queued or in flight, from a
+    // receive or a transmit schedule (see poll()). A slow amplifier lowers the
+    // rate instead of building a backlog.
     QTimer m_pollTimer;
     QTimer m_deadlineTimer;
-    static constexpr int kPollIntervalMs = 250;
+    static constexpr int kRxPollMs = 250;   // ~3.7 GETs/s (was 12)
+    static constexpr int kTxPollMs = 50;    // up to 16 /power + 4 /tuner a second
+    static constexpr int kTxHoldMs = 3000;  // fast after unkey: feeds the 3 s peak hold
+    static constexpr qint64 kSlowPathMs = 10000;  // /antennas, /operational-interface
     int m_slowPollIndex{0};
+    bool m_transmitting{false};
+    qint64 m_fastUntilMs{0};
+    qint64 m_lastAntennasMs{0};
+    qint64 m_lastInterfaceMs{0};
 
-    bool m_tuneProbePending{false};
+    bool m_tuneProbePending{false};  // a wake() is outstanding
     // A START is outstanding (queued or in flight). The tuner readback that
     // would disable the button can be a second old, so this keeps a double
     // click from sending START twice. It is a send guard, not displayed state.
     bool m_tuneStartPending{false};
-    int m_tuneProbeAttempts{0};
-    static constexpr int kMaxTuneProbes = 3;
 };
 
 }  // namespace AetherSDR

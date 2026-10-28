@@ -1873,6 +1873,7 @@ void webServer::onWsNewConnection()
         if (guestSnapTaken_) restoreGuestSnapshot("a signed-in user connected");
         QTimer::singleShot(0, this, [this]() { broadcastGuestMode(); });
     }
+    if (!isGuest(pSocket)) QTimer::singleShot(0, this, [this]() { updateAmpAwake(); });
     if (isAdmin(pSocket) && webAuth::hasUsers()) {
         QPointer<QWebSocket> s(pSocket);
         QTimer::singleShot(0, this, [this, s]() { if (s) sendAccessRequests(s); });
@@ -1971,6 +1972,7 @@ void webServer::onWsDisconnected()
             if (!guestLeft) restoreGuestSnapshot("the last guest left");
         }
         broadcastGuestMode();
+        updateAmpAwake();
         onDemandBrowserLeft();
     }
 }
@@ -2476,6 +2478,9 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
             return;
         }
         queue->add(priorityImmediate, queueItem(funcTransceiverStatus, QVariant::fromValue<bool>(on), false, uchar(0)));
+        // The amp's fast schedule starts with the request, before the radio
+        // reports TRANSMITTING, so the first readings are not missed.
+        if (on && rfkit_) rfkit_->kickFast();
         pttClient = on ? client : nullptr;
         broadcastTxState();
         updateAutoMon();
@@ -2986,6 +2991,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
                 return;
             }
             pttClient = on ? client : nullptr;
+            if (on && rfkit_) rfkit_->kickFast();
             broadcastTxState();
         }
         emit flexDspSet(key, cmd["index"].toInt(), cmd["value"].toInt());
@@ -4518,7 +4524,10 @@ void webServer::receiveCache(cacheItem item)
     case funcSelectedMode:
         if (item.receiver == 0) nnrModeKind_ = int(item.value.value<modeInfo>().mk);
         break;
-    case funcTransceiverStatus: nnrTx_ = item.value.toBool(); break;
+    case funcTransceiverStatus:
+        nnrTx_ = item.value.toBool();
+        if (ampTxRig_ != nnrTx_) { ampTxRig_ = nnrTx_; updateAmpTx(); }
+        break;
     // The tone scan reads the squelch, not the browser, so it too is serviced
     // before that shortcut — otherwise a sweep whose last client walked away
     // would run to exhaustion without noticing it had found the tone. Only the
@@ -7628,6 +7637,14 @@ void webServer::configureRfkit(const QString &target)
     rfkit_->setAutoReconnect(true);
     connect(rfkit_, &RfkitConnection::connected, this, [this]() {
         qCInfo(logWebServer) << "RF-KIT amplifier connected:" << rfkit_->description();
+        updateAmpTx();
+        updateAmpAwake(true);
+    });
+    connect(rfkit_, &RfkitConnection::wakeAnswered, this, [this](bool ok) {
+        if (!ampWaking_) return;
+        ampWaking_ = false;
+        if (!ok) qCInfo(logWebServer) << "RF-KIT amplifier: wake request got no answer";
+        publishAmp();
     });
     connect(rfkit_, &RfkitConnection::disconnected, this, [this]() {
         ampJson_ = QJsonObject();
@@ -7762,7 +7779,57 @@ void webServer::publishAmp()
         o["connected"] = false;
         o["target"] = rfkitTarget_;
     }
+    if (o.value("connected").toBool()) o["waking"] = ampWaking_;
     sendJsonToAll(o);
+}
+
+void webServer::setAmpKeepAwake(int secs)
+{
+    ampKeepAwakeSecs_ = qBound(0, secs, 3600);
+    if (ampKeepAwake_) ampKeepAwake_->setInterval(qMax(1, ampKeepAwakeSecs_) * 1000);
+}
+
+// Punch list 42. The RF2K-S's API cannot say whether it sleeps, and nothing
+// it is polled with wakes it; the empty PUT /tuner does (RfkitConnection::
+// wake). Wanted while a browser that may transmit is connected (a signed-in
+// admin / operator, or anyone with login off): a guest or listener cannot
+// key, so it neither wakes the amp nor keeps it awake. When the last such
+// browser leaves, the repeats stop and the amp's own sleep timer runs.
+void webServer::updateAmpAwake(bool ampJustConnected)
+{
+    bool want = false;
+    if (rfkit_ && rfkit_->isConnected())
+        for (QWebSocket *c : wsClients)
+            if (!isGuest(c)) { want = true; break; }
+    if (!ampKeepAwake_) {
+        ampKeepAwake_ = new QTimer(this);
+        ampKeepAwake_->setInterval(qMax(1, ampKeepAwakeSecs_) * 1000);
+        connect(ampKeepAwake_, &QTimer::timeout, this, [this]() {
+            if (rfkit_ && ampAwakeWanted_) rfkit_->wake();
+        });
+    }
+    if (want && (!ampAwakeWanted_ || ampJustConnected)) {
+        qCInfo(logWebServer) << "RF-KIT amplifier: waking it"
+                             << (ampKeepAwakeSecs_ ? QString("(kept awake every %1 s while a user is on)").arg(ampKeepAwakeSecs_)
+                                                   : QString("(no keep-awake)"));
+        rfkit_->wake();
+        ampWaking_ = true;
+        publishAmp();
+        if (ampKeepAwakeSecs_) ampKeepAwake_->start();
+    } else if (!want && ampAwakeWanted_) {
+        qCInfo(logWebServer) << "RF-KIT amplifier: no user on, keep-awake stopped (the amp's sleep timer runs)";
+        ampKeepAwake_->stop();
+        if (ampWaking_) { ampWaking_ = false; publishAmp(); }
+    }
+    ampAwakeWanted_ = want;
+}
+
+// Punch list 43: the amp has no keyed flag, so its poll schedule follows the
+// radio - the rig's TX status, and on a Flex its interlock (onAir), which also
+// covers another client keying and a TUNE carrier.
+void webServer::updateAmpTx()
+{
+    if (rfkit_) rfkit_->setTransmitting(ampTxRig_ || ampTxAir_);
 }
 
 void webServer::setInstanceName(const QString &name)
@@ -10007,6 +10074,7 @@ void webServer::applyRoleChange(const QString &user)
     }
     if (guestSnapTaken_ && operatorPresent()) restoreGuestSnapshot("a user became an operator");
     broadcastGuestMode();
+    updateAmpAwake();
     scheduleClientsBroadcast();
 }
 
@@ -10062,6 +10130,8 @@ void webServer::onFlexNnrGain(float gain, bool active)
 
 void webServer::onFlexOnAir(bool onAir)
 {
+    ampTxAir_ = onAir;
+    updateAmpTx();
     QJsonObject o;
     o["type"] = "onAir";
     o["value"] = onAir;

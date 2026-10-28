@@ -147,6 +147,10 @@ public slots:
     // --rfkit host[:port]: an RF-KIT (RF2K-S) amplifier on the LAN, shown in
     // the AMP panel. Runs on the web thread; empty = no amplifier.
     void configureRfkit(const QString &target);
+    // Punch list 42: the RF2K-S is woken when someone who may transmit
+    // connects and kept awake every `secs` while they are on (0 = wake only,
+    // no repeats). [Amplifier] KeepAwakeSecs, default 60.
+    void setAmpKeepAwake(int secs);
     // FlexRadio EQ / TX audio processing snapshot (flexCommander::flexDspState),
     // pushed to the page as {type:'flexDsp'} for FUNC > EQ and FUNC > PROC.
     void onFlexDspState(QJsonObject state);
@@ -773,6 +777,15 @@ private:
     QString rfkitTarget_;
     QJsonObject ampJson_;
     bool ampControlAllowed(QWebSocket *client);
+    // Punch list 42 / 43: wake + keep-awake, and the radio's TX state for
+    // the amp's poll schedule.
+    QTimer *ampKeepAwake_ = nullptr;
+    int ampKeepAwakeSecs_ = 60;
+    bool ampAwakeWanted_ = false;
+    bool ampWaking_ = false;
+    bool ampTxRig_ = false, ampTxAir_ = false;
+    void updateAmpAwake(bool ampJustConnected = false);
+    void updateAmpTx();
     bool ampFault_ = false;          // the amp reports a fault: RESET acts
     QJsonObject flexDspJson_;
     QJsonArray flexMemoriesJson_;

@@ -7938,6 +7938,8 @@ function renderAmpIndicator() {
     el.style.display = '';
     el.classList.remove('operate', 'fault');
     if (!ampState || !ampState.connected) { el.textContent = 'AMP OFFLINE'; el.classList.add('fault'); return; }
+    // Punch list 42: the server has just sent the wake request.
+    if (ampState.waking) { el.textContent = 'AMP WAKING'; return; }
     var fwd = ampState.fwd !== undefined ? ' ' + ampState.fwd + ' W' : '';
     el.textContent = 'AMP ' + (ampState.operate ? 'OPR' : 'STBY') + fwd;
     if (ampState.ampError) el.classList.add('fault');

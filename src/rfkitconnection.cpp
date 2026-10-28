@@ -1,7 +1,9 @@
-// Ported unchanged (apart from includes and logging) from VE3NSV's RF-KIT
-// support for AetherSDR (github.com/ve3nsv/AetherSDR, branch rfkit-tune-pr,
-// 934dcd6), GPLv3. "Constitution principle" references are AetherSDR's
-// project rules.
+// Ported from VE3NSV's RF-KIT support for AetherSDR (github.com/ve3nsv/
+// AetherSDR, branch rfkit-tune-pr, 934dcd6), GPLv3. "Constitution principle"
+// references are AetherSDR's project rules. Changed in FlexWeb (punch list 42,
+// 43; not yet in rfkit-tune-pr): one request at a time on a receive / transmit
+// schedule instead of three every 250 ms, and the tune-API probe is no longer
+// sent on connect - it wakes the amplifier, so it is sent only as wake().
 
 #include "rfkitconnection.h"
 #include "logcategories.h"
@@ -9,7 +11,10 @@
 #include <QNetworkProxy>
 #include <QNetworkReply>
 #include <QNetworkRequest>
+#include <QDateTime>
 #include <QStringList>
+
+#include <iterator>
 
 namespace AetherSDR {
 
@@ -20,20 +25,28 @@ QString path(const char* literal)
     return QString::fromLatin1(literal);
 }
 
-// One of these per tick, round-robin, alongside /power and /data. They are
-// configuration-style readbacks that change only when the operator (or the
-// radio's band data) changes them, so a ~1s full cycle is plenty and it keeps
-// the request rate on a small embedded controller low.
-const QStringList& slowPollPaths()
+qint64 nowMs()
 {
-    static const QStringList kSlow{
-        path(Rfkit::kPathOperateMode),
-        path(Rfkit::kPathAntennas),
-        path(Rfkit::kPathTuner),
-        path(Rfkit::kPathInterface),
-    };
-    return kSlow;
+    return QDateTime::currentMSecsSinceEpoch();
 }
+
+// Receive schedule, one GET per 250 ms tick (3 s cycle): /tuner and
+// /operate-mode each 1/s (a band change, OPERATE pressed on the amp's own
+// screen), /power and /data every 1.5 s (in receive /power only carries
+// temperature, volts and amps), the antenna list every 3 s. An empty slot
+// reads /operational-interface when it is 10 s old, else sends nothing.
+// About 3.7 GETs/s against 12 before (PgTG's RF-KIT plugin: ~5).
+const char* const kRxSchedule[] = {
+    Rfkit::kPathPower, Rfkit::kPathTuner, Rfkit::kPathOperateMode, Rfkit::kPathData,
+    Rfkit::kPathTuner, Rfkit::kPathOperateMode, Rfkit::kPathPower, Rfkit::kPathTuner,
+    Rfkit::kPathOperateMode, Rfkit::kPathData, Rfkit::kPathAntennas, nullptr,
+};
+// Transmit schedule, one GET per 50 ms tick at most: /power four times in
+// five (FWD on voice peaks), /tuner once (a tune in progress). Everything else
+// waits until the radio is back in receive.
+const char* const kTxSchedule[] = {
+    Rfkit::kPathPower, Rfkit::kPathPower, Rfkit::kPathPower, Rfkit::kPathPower, Rfkit::kPathTuner,
+};
 
 }  // namespace
 
@@ -61,7 +74,7 @@ RfkitConnection::RfkitConnection(QObject* parent)
         connectNetwork(m_lastHost, m_lastPort);
     });
 
-    m_pollTimer.setInterval(kPollIntervalMs);
+    m_pollTimer.setInterval(kRxPollMs);
     connect(&m_pollTimer, &QTimer::timeout, this, &RfkitConnection::poll);
 
     m_deadlineTimer.setSingleShot(true);
@@ -162,9 +175,10 @@ void RfkitConnection::resetSession()
     m_warnedPaths.clear();
     m_consecutiveFailures = 0;
     m_slowPollIndex = 0;
+    m_lastAntennasMs = 0;
+    m_lastInterfaceMs = 0;
     m_tuneProbePending = false;
     m_tuneStartPending = false;
-    m_tuneProbeAttempts = 0;
 }
 
 void RfkitConnection::enqueue(const Request& request, bool front)
@@ -276,6 +290,7 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
     if (request.tuneProbe) {
         // Not an error path: a stock server's 405 is the expected answer.
         m_tuneProbePending = false;
+        emit wakeAnswered(true);
         const Rfkit::TuneApi api = Rfkit::classifyTuneProbe(http);
         if (api != m_status.tuneApi) {
             m_status.tuneApi = api;
@@ -370,6 +385,8 @@ bool RfkitConnection::applyReply(const Request& request, const QByteArray& body)
         return false;
     }
 
+    if (p == QLatin1String(Rfkit::kPathAntennas)) m_lastAntennasMs = nowMs();
+    if (p == QLatin1String(Rfkit::kPathInterface)) m_lastInterfaceMs = nowMs();
     if (p == QLatin1String(Rfkit::kPathPower)) {
         const auto v = Rfkit::parsePower(body);
         if (!v) { return malformed(); }
@@ -410,6 +427,7 @@ void RfkitConnection::onProbeSucceeded()
     m_slowPollIndex = 0;
     qCInfo(logRig) << "RfkitConnection: connected to" << description()
                     << (m_status.info ? m_status.info->device : QString());
+    updatePollRate();
     m_pollTimer.start();
     emit connected();
     // Read everything once so the applet fills in immediately instead of
@@ -427,30 +445,62 @@ void RfkitConnection::enqueueFullRefresh()
     for (const char* literal : kPaths) {
         enqueue(Request{Request::Method::Get, path(literal), {}, false, false, false});
     }
-    maybeProbeTuneApi();
+    // No tune-API probe here any more: it wakes the amplifier (punch list 42).
+    // The host calls wake() when someone who may transmit is on.
 }
 
-void RfkitConnection::maybeProbeTuneApi()
+void RfkitConnection::wake()
 {
-    if (!m_connected || m_tuneProbePending || m_status.tuneApi != Rfkit::TuneApi::Unknown
-        || m_tuneProbeAttempts >= kMaxTuneProbes) {
+    if (!m_connected || m_tuneProbePending) {
         return;
     }
-    ++m_tuneProbeAttempts;
     m_tuneProbePending = true;
     Request request;
     request.method = Request::Method::Put;
     request.path = path(Rfkit::kPathTuner);
     request.body = Rfkit::buildTunerProbeBody();
     request.tuneProbe = true;
-    enqueue(request);
+    enqueue(request, true);
+}
+
+void RfkitConnection::setTransmitting(bool on)
+{
+    if (on == m_transmitting) {
+        return;
+    }
+    m_transmitting = on;
+    if (!on) {
+        m_fastUntilMs = nowMs() + kTxHoldMs;  // keep the peak hold fed after unkey
+    }
+    updatePollRate();
+}
+
+void RfkitConnection::kickFast()
+{
+    m_fastUntilMs = qMax(m_fastUntilMs, nowMs() + kTxHoldMs);
+    updatePollRate();
+}
+
+bool RfkitConnection::fastMode() const
+{
+    return m_transmitting || nowMs() < m_fastUntilMs;
+}
+
+void RfkitConnection::updatePollRate()
+{
+    const int want = fastMode() ? kTxPollMs : kRxPollMs;
+    if (m_pollTimer.interval() != want) {
+        m_pollTimer.setInterval(want);
+        m_slowPollIndex = 0;
+    }
 }
 
 void RfkitConnection::onTransportFailure(const QString& errorString, const Request& request)
 {
     qCWarning(logRig) << "RfkitConnection: transport error on" << request.path << errorString;
     if (request.tuneProbe) {
-        m_tuneProbePending = false;  // a later poll tick asks again, up to the cap
+        m_tuneProbePending = false;
+        emit wakeAnswered(false);
     }
     if (isTuneStart(request)) {
         m_tuneStartPending = false;
@@ -494,15 +544,26 @@ void RfkitConnection::poll()
 {
     // Never stack a poll round behind unfinished work: a slow device lowers
     // the poll rate instead of growing a backlog.
+    updatePollRate();  // the hold after unkey ends here
     if (!m_connected || m_inFlight || !m_queue.isEmpty()) {
         return;
     }
-    enqueue(Request{Request::Method::Get, path(Rfkit::kPathPower), {}, false, false, false});
-    enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false, false});
-    const QStringList& slow = slowPollPaths();
-    enqueue(Request{Request::Method::Get, slow.at(m_slowPollIndex % slow.size()), {}, false, false, false});
-    m_slowPollIndex = (m_slowPollIndex + 1) % slow.size();
-    maybeProbeTuneApi();
+    const bool fast = fastMode();
+    const int n = fast ? int(std::size(kTxSchedule)) : int(std::size(kRxSchedule));
+    const char* literal = (fast ? kTxSchedule : kRxSchedule)[m_slowPollIndex % n];
+    m_slowPollIndex = (m_slowPollIndex + 1) % n;
+    if (!literal) {
+        // The spare receive slot: the configuration readbacks when they are due.
+        if (nowMs() - m_lastInterfaceMs >= kSlowPathMs) {
+            literal = Rfkit::kPathInterface;
+        } else {
+            return;
+        }
+    }
+    if (literal == Rfkit::kPathAntennas && nowMs() - m_lastAntennasMs < kSlowPathMs / 4) {
+        return;  // just read (after a switch, or at connect)
+    }
+    enqueue(Request{Request::Method::Get, path(literal), {}, false, false, false});
 }
 
 void RfkitConnection::setOperate(bool operate)

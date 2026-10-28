@@ -46,6 +46,7 @@ ROUTES = {
 class StubAmp:
     def __init__(self):
         self.puts = []        # (path, body) of every PUT
+        self.gets = []        # (time, path) of every GET
         stub = self
 
         class H(BaseHTTPRequestHandler):
@@ -61,6 +62,7 @@ class StubAmp:
                 self.wfile.write(body)
 
             def do_GET(self):
+                stub.gets.append((time.monotonic(), self.path))
                 self._reply(*ROUTES.get("GET " + self.path, (404, {"status": "error"})))
 
             def do_PUT(self):
@@ -80,16 +82,23 @@ class StubAmp:
         self.port = self.httpd.server_address[1]
         threading.Thread(target=self.httpd.serve_forever, daemon=True).start()
 
+    def wakes(self):
+        """The empty PUT /tuner {}: wfweb's wake / tune-API request."""
+        return [p for p in self.puts if p[0] == "/tuner" and p[1].strip() == "{}"]
+
+    def gets_since(self, t0, path=None):
+        return [g for g in self.gets if g[0] >= t0 and (path is None or g[1] == path)]
+
     def commands(self):
         """PUTs other than the tune-API probe."""
         return [p for p in self.puts if not (p[0] == "/tuner" and p[1].strip() == "{}")]
 
 
-def _start(env, radio, amp):
+def _start(env, radio, amp, extra=()):
     port = _free_port()
     proc = subprocess.Popen([str(WFWEB_BIN), "-p", str(port), "--manufacturer", "3", "--lan", "127.0.0.1",
                              "--lan-control", str(radio.control_port), "--lan-audio", str(radio.vita_port),
-                             "--rfkit", f"127.0.0.1:{amp.port}"],
+                             "--rfkit", f"127.0.0.1:{amp.port}", *extra],
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
     if not _wait(lambda: requests.get(f"http://127.0.0.1:{port + 1}/api/v1/radio/info", timeout=2).ok):
         proc.terminate()
@@ -191,3 +200,71 @@ def test_amp_controls_need_user_and_tx_lock(bench):
     finally:
         a.close()
         b.close()
+
+
+def test_amp_wake_keep_awake_and_poll_schedule(bench, tmp_path):
+    """Punch list 42: no tune-API probe on connect (it wakes a sleeping
+    RF2K-S); the empty PUT /tuner goes out when someone who may transmit
+    connects (not a guest), repeats every KeepAwakeSecs while they are on and
+    stops when they leave. Punch list 43: one GET at a time, ~3.7/s in
+    receive (was 12), /power fast while the radio transmits."""
+    env, radio, amp, procs = bench
+    add = subprocess.run([str(WFWEB_BIN), "--add-user", "tom"], input=b"tom-password-1\n",
+                         capture_output=True, env=env, timeout=20)
+    assert add.returncode == 0
+    ini = tmp_path / "flexweb.ini"
+    ini.write_text("[Amplifier]\nKeepAwakeSecs=2\n")
+    proc, port = _start(env, radio, amp, ("--guest-view", "-s", str(ini)))
+    procs.append(proc)
+    base = f"https://127.0.0.1:{port}"
+    # amp connected, nobody on: polled, never woken
+    assert _wait(lambda: amp.gets_since(0, "/power"), timeout=15)
+    time.sleep(3.0)
+    assert amp.wakes() == [], amp.puts
+
+    # receive schedule: about 3.7 GETs a second, not 12
+    t0 = time.monotonic()
+    time.sleep(4.0)
+    rate = len(amp.gets_since(t0)) / 4.0
+    assert 2.0 <= rate <= 6.0, rate
+
+    # a guest cannot transmit: no wake
+    g = requests.post(base + "/login", data={"guest": "1"}, verify=False, allow_redirects=False, timeout=10)
+    st, gs, gbuf = _ws(port, g.cookies["wfweb_session"])
+    assert " 101" in st
+    time.sleep(2.5)
+    assert amp.wakes() == [], amp.puts
+
+    tom = _login(base, "tom", "tom-password-1").cookies["wfweb_session"]
+    st, a, abuf = _ws(port, tom)
+    assert " 101" in st
+    ra = _Reader(a, abuf)
+    try:
+        assert _wait(lambda: len(amp.wakes()) >= 1, timeout=5), "no wake when tom connected"
+        assert _amp_ready(ra), "the wake reply did not report tune support"
+        # kept awake every 2 s while tom is on
+        assert _wait(lambda: len(amp.wakes()) >= 3, timeout=8), amp.wakes()
+
+        # transmit: /power as fast as the amp answers
+        _ws_send(a, {"cmd": "setPTT", "value": True})
+        time.sleep(0.5)
+        t1 = time.monotonic()
+        time.sleep(2.0)
+        fast = len(amp.gets_since(t1, "/power"))
+        assert fast >= 12, fast            # 16/s nominal; was 4/s
+        assert not amp.gets_since(t1, "/data"), "receive-only reads continued during TX"
+        _ws_send(a, {"cmd": "setPTT", "value": False})
+        # back in receive after the 3 s hold
+        time.sleep(4.0)
+        t2 = time.monotonic()
+        time.sleep(3.0)
+        slow = len(amp.gets_since(t2, "/power"))
+        assert slow <= 4, slow
+    finally:
+        a.close()
+        gs.close()
+    # tom gone (the guest stays): the repeats stop
+    time.sleep(1.0)
+    n = len(amp.wakes())
+    time.sleep(4.5)
+    assert len(amp.wakes()) == n, amp.wakes()

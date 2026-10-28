@@ -107,6 +107,9 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
             QString rfkit = cliOverrides.rfkit;
             if (rfkit.isEmpty() && settings)
                 rfkit = settings->value("Amplifier/Rfkit", QString()).toString();
+            // Punch list 42: keep the RF2K-S awake while a user is on.
+            QMetaObject::invokeMethod(web, "setAmpKeepAwake", Qt::QueuedConnection,
+                                      Q_ARG(int, settings ? settings->value("Amplifier/KeepAwakeSecs", 60).toInt() : 60));
             if (!rfkit.isEmpty())
                 QMetaObject::invokeMethod(web, "configureRfkit", Qt::QueuedConnection,
                                           Q_ARG(QString, rfkit));

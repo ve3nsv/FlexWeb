@@ -9,6 +9,18 @@ upstream wfview history.
 Unreleased
 ----------
 
+RF2K-S amplifier:
+- The amp is woken when a signed-in operator (or admin) opens the page and
+  kept awake while one is on ([Amplifier] KeepAwakeSecs, default 60 s;
+  0 = wake only). When the last one leaves, its own sleep timer runs again.
+  Guests and listeners do not wake it. FlexWeb no longer sends the TUNE
+  check on every connect, which used to wake the amp; the chip shows
+  AMP WAKING briefly.
+- Polling follows the radio: in receive one request at a time, about 3.7 a
+  second (was 12); while transmitting /power up to 16 times a second (was
+  4), so FWD and the peak hold follow voice peaks. Fast for 3 s after
+  unkey.
+
 Access requests (--allow-requests, or the launcher's "Request access" box):
 - The sign-in page offers "Request access": callsign (the user name), name,
   email, password, a note and the station rules to agree to. Three per
