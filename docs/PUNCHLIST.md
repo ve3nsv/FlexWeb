@@ -897,3 +897,14 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     (or under #aeZoom), on a solid tile like the other scope badges, above
     the VFO flag; the flag keeps its place. Narrow windows: let the
     indicator wrap to two lines instead of overlapping.
+38. New Flex memory loses its name (user, 2026-10-27; easy). MEMORIES "+"
+    (flexMemNew) asks for a name, then a group, and always sends both; with
+    the group left blank flexCommander::flexMemoryCommand follows "memory
+    create" with "memory set N name=<name> group=" - an empty value, which
+    the radio refuses, and with it the whole line, name included (the mock
+    accepts it, so test_radio_memories did not see it). Fix: send each field
+    as its own "memory set" and skip empty ones on create (a blank group
+    is the default); renaming to blank on an existing memory clears it with
+    a single 0x7F. Log a refused "memory set" with the radio's code. Mock:
+    refuse "key=" with no value as the radio does; test a create with a
+    blank group.
