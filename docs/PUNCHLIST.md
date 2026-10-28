@@ -872,3 +872,15 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     ~500 ms, fall ~1000 W/s - so it reads like the amp; REF the same.
     Keep the white "pk" tick (1.5 s hold) on top. FUNC > AMP gets a FWD
     PEAK / RAW choice (per browser, default PEAK).
+36. RF2K-S "pk" holds 3 s (user chose option 3, 2026-10-27; easy). The
+    user's second recording (20:27, build 71) shows the amp's own screen is
+    momentary bar + number with a separate peak (yellow marker and
+    "/ 6xx W") held for several seconds; FlexWeb's PEAK (item 35) sits near
+    the voice peaks and "pk" matches the amp's peak but lets go after
+    1.5 s. Keep PEAK as it is; make the white tick and "pk" the highest
+    reading of the last 3 s (AMP_PEAK_HOLD_MS 1500 -> 3000), then glide
+    down as now - the same window as the amp and as AetherSDR's
+    setWindowPeakEnabled (SmartMtrExtremes::kWindowMediumSec = 3.0 s). REF
+    the same. Then carry PEAK to the user's AetherSDR rfkit-tune-pr: only
+    RfkitApplet::updateValueLabels' PWR / REF numbers (the gauge's peak
+    marker already uses the 3 s window).
