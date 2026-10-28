@@ -296,7 +296,8 @@ That build is Actions #83. Checked by the user (2026-10-28): wake at sign-in
 and TUNE support from the wake reply (server log), no amp errors through
 TUNE and voice TX; amp main.py CPU ~14.1 % in receive (same as with
 FlexWeb stopped) and ~14.8 % while transmitting; "meter is much more
-responsive". Sleep after the last user leaves not yet checked.
+responsive". The amp went to sleep on its own timer after the last user
+left. Items 42 and 43 are confirmed on the user's amp.
 
 Build 75 = Actions #82 (2026-10-28): item 41 (request access) is done, opt-in:
 --allow-requests / [Web] AllowRequests=true / the launcher's "Request
