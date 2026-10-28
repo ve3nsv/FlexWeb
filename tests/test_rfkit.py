@@ -247,13 +247,16 @@ def test_amp_wake_keep_awake_and_poll_schedule(bench, tmp_path):
 
         # transmit: /power as fast as the amp answers
         _ws_send(a, {"cmd": "setPTT", "value": True})
+        # punch list 44: the page's over starts with the radio keyed
+        assert _drain_until(ra, lambda m: m.get("type") == "amp" and m.get("keyed") is True, timeout=5)
         time.sleep(0.5)
         t1 = time.monotonic()
         time.sleep(2.0)
         fast = len(amp.gets_since(t1, "/power"))
-        assert fast >= 12, fast            # 16/s nominal; was 4/s
+        assert fast >= 12, fast            # ~26/s nominal at 25 ms; was 4/s
         assert not amp.gets_since(t1, "/data"), "receive-only reads continued during TX"
         _ws_send(a, {"cmd": "setPTT", "value": False})
+        assert _drain_until(ra, lambda m: m.get("type") == "amp" and m.get("keyed") is False, timeout=5)
         # back in receive after the 3 s hold
         time.sleep(4.0)
         t2 = time.monotonic()

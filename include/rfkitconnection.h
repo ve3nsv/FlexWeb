@@ -91,6 +91,8 @@ public:
     // A key-up is on its way: poll fast for kTxHoldMs even before the radio
     // reports it (TX requested by this server).
     void kickFast();
+    // Punch list 45: [Amplifier] RxPollMs (100-5000) / TxPollMs (10-1000).
+    void setPollIntervals(int rxMs, int txMs);
 
 signals:
     void connected();
@@ -174,12 +176,16 @@ private:
     // rate instead of building a backlog.
     QTimer m_pollTimer;
     QTimer m_deadlineTimer;
-    static constexpr int kRxPollMs = 250;   // ~3.7 GETs/s (was 12)
-    static constexpr int kTxPollMs = 50;    // up to 16 /power + 4 /tuner a second
+    int m_rxPollMs{250};  // ~3.7 GETs/s (was 12)
+    int m_txPollMs{25};   // up to ~32 GETs/s, /power 4 of 5 (punch list 45; was 50)
     static constexpr int kTxHoldMs = 3000;  // fast after unkey: feeds the 3 s peak hold
     static constexpr qint64 kSlowPathMs = 10000;  // /antennas, /operational-interface
     int m_slowPollIndex{0};
     bool m_transmitting{false};
+    // Per over: /power readings while keyed, logged at unkey with the rate
+    // the amplifier actually sustained (punch list 45).
+    qint64 m_overStartMs{0};
+    int m_overPowerReads{0};
     qint64 m_fastUntilMs{0};
     qint64 m_lastAntennasMs{0};
     qint64 m_lastInterfaceMs{0};

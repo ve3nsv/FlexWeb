@@ -151,6 +151,8 @@ public slots:
     // connects and kept awake every `secs` while they are on (0 = wake only,
     // no repeats). [Amplifier] KeepAwakeSecs, default 60.
     void setAmpKeepAwake(int secs);
+    // Punch list 45: [Amplifier] RxPollMs / TxPollMs.
+    void setAmpPollIntervals(int rxMs, int txMs);
     // FlexRadio EQ / TX audio processing snapshot (flexCommander::flexDspState),
     // pushed to the page as {type:'flexDsp'} for FUNC > EQ and FUNC > PROC.
     void onFlexDspState(QJsonObject state);
@@ -781,9 +783,11 @@ private:
     // the amp's poll schedule.
     QTimer *ampKeepAwake_ = nullptr;
     int ampKeepAwakeSecs_ = 60;
+    int ampRxPollMs_ = 250, ampTxPollMs_ = 25;
     bool ampAwakeWanted_ = false;
     bool ampWaking_ = false;
     bool ampTxRig_ = false, ampTxAir_ = false;
+    bool ampKeyedPublished_ = false;   // the `keyed` last sent to the pages
     void updateAmpAwake(bool ampJustConnected = false);
     void updateAmpTx();
     bool ampFault_ = false;          // the amp reports a fault: RESET acts

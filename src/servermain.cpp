@@ -110,6 +110,10 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
             // Punch list 42: keep the RF2K-S awake while a user is on.
             QMetaObject::invokeMethod(web, "setAmpKeepAwake", Qt::QueuedConnection,
                                       Q_ARG(int, settings ? settings->value("Amplifier/KeepAwakeSecs", 60).toInt() : 60));
+            // Punch list 45: the amp's poll intervals, to try values without a build.
+            QMetaObject::invokeMethod(web, "setAmpPollIntervals", Qt::QueuedConnection,
+                                      Q_ARG(int, settings ? settings->value("Amplifier/RxPollMs", 250).toInt() : 250),
+                                      Q_ARG(int, settings ? settings->value("Amplifier/TxPollMs", 25).toInt() : 25));
             if (!rfkit.isEmpty())
                 QMetaObject::invokeMethod(web, "configureRfkit", Qt::QueuedConnection,
                                           Q_ARG(QString, rfkit));

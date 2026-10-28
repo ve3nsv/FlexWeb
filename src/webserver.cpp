@@ -7635,6 +7635,7 @@ void webServer::configureRfkit(const QString &target)
 
     rfkit_ = new RfkitConnection(this);
     rfkit_->setAutoReconnect(true);
+    rfkit_->setPollIntervals(ampRxPollMs_, ampTxPollMs_);
     connect(rfkit_, &RfkitConnection::connected, this, [this]() {
         qCInfo(logWebServer) << "RF-KIT amplifier connected:" << rfkit_->description();
         updateAmpTx();
@@ -7779,7 +7780,11 @@ void webServer::publishAmp()
         o["connected"] = false;
         o["target"] = rfkitTarget_;
     }
-    if (o.value("connected").toBool()) o["waking"] = ampWaking_;
+    if (o.value("connected").toBool()) {
+        o["waking"] = ampWaking_;
+        // Punch list 44: the page's peak follows the over (the radio keyed).
+        o["keyed"] = ampTxRig_ || ampTxAir_;
+    }
     sendJsonToAll(o);
 }
 
@@ -7829,7 +7834,19 @@ void webServer::updateAmpAwake(bool ampJustConnected)
 // covers another client keying and a TUNE carrier.
 void webServer::updateAmpTx()
 {
-    if (rfkit_) rfkit_->setTransmitting(ampTxRig_ || ampTxAir_);
+    const bool keyed = ampTxRig_ || ampTxAir_;
+    if (rfkit_) rfkit_->setTransmitting(keyed);
+    if (keyed != ampKeyedPublished_) {
+        ampKeyedPublished_ = keyed;
+        if (rfkit_ && rfkit_->isConnected()) publishAmp();   // the page's over starts / ends now
+    }
+}
+
+void webServer::setAmpPollIntervals(int rxMs, int txMs)
+{
+    ampRxPollMs_ = rxMs;
+    ampTxPollMs_ = txMs;
+    if (rfkit_) rfkit_->setPollIntervals(rxMs, txMs);
 }
 
 void webServer::setInstanceName(const QString &name)

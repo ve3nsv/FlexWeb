@@ -74,7 +74,7 @@ RfkitConnection::RfkitConnection(QObject* parent)
         connectNetwork(m_lastHost, m_lastPort);
     });
 
-    m_pollTimer.setInterval(kRxPollMs);
+    m_pollTimer.setInterval(m_rxPollMs);
     connect(&m_pollTimer, &QTimer::timeout, this, &RfkitConnection::poll);
 
     m_deadlineTimer.setSingleShot(true);
@@ -390,6 +390,7 @@ bool RfkitConnection::applyReply(const Request& request, const QByteArray& body)
     if (p == QLatin1String(Rfkit::kPathPower)) {
         const auto v = Rfkit::parsePower(body);
         if (!v) { return malformed(); }
+        if (m_transmitting) ++m_overPowerReads;
         m_status.power = *v;
     } else if (p == QLatin1String(Rfkit::kPathData)) {
         const auto v = Rfkit::parseData(body);
@@ -469,9 +470,24 @@ void RfkitConnection::setTransmitting(bool on)
         return;
     }
     m_transmitting = on;
-    if (!on) {
+    if (on) {
+        m_overStartMs = nowMs();
+        m_overPowerReads = 0;
+    } else {
         m_fastUntilMs = nowMs() + kTxHoldMs;  // keep the peak hold fed after unkey
+        const double secs = (nowMs() - m_overStartMs) / 1000.0;
+        if (m_connected && m_overStartMs > 0 && secs >= 0.5) {
+            qCInfo(logRig).noquote() << QString("RF-KIT: over %1 s, %2 /power reads = %3/s (asked every %4 ms)")
+                .arg(secs, 0, 'f', 1).arg(m_overPowerReads).arg(m_overPowerReads / secs, 0, 'f', 1).arg(m_txPollMs);
+        }
     }
+    updatePollRate();
+}
+
+void RfkitConnection::setPollIntervals(int rxMs, int txMs)
+{
+    m_rxPollMs = qBound(100, rxMs, 5000);
+    m_txPollMs = qBound(10, txMs, 1000);
     updatePollRate();
 }
 
@@ -488,7 +504,7 @@ bool RfkitConnection::fastMode() const
 
 void RfkitConnection::updatePollRate()
 {
-    const int want = fastMode() ? kTxPollMs : kRxPollMs;
+    const int want = fastMode() ? m_txPollMs : m_rxPollMs;
     if (m_pollTimer.interval() != want) {
         m_pollTimer.setInterval(want);
         m_slowPollIndex = 0;

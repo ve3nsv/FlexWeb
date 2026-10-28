@@ -284,6 +284,13 @@ Status: implemented for build 60.
 
 From here on builds go by their GitHub Actions run number.
 
+Next build (2026-10-28): items 44 and 45 done. 44: amp messages carry
+`keyed` (the radio's TX state), the page's pk is the over's maximum, kept
+after unkey, reset at the next key-up; FWD / REF ballistics unchanged.
+45: TxPollMs default 25 ms, [Amplifier] RxPollMs / TxPollMs, per-over log
+line "RF-KIT: over N s, M /power reads = R/s (asked every T ms)", painter
+on requestAnimationFrame while the bars move.
+
 Next build (2026-10-28): items 42 and 43 are done. 42: the empty PUT
 /tuner wakes the amp when a signed-in admin / operator (or anyone, login
 off) connects, repeats every [Amplifier] KeepAwakeSecs (default 60, 0 =

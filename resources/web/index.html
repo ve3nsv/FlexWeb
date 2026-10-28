@@ -7957,21 +7957,16 @@ function ampBar(label, value, max, text, level, peakKey) {
         (peakKey ? ampPeakTextHtml(peakKey) : '') + '</span></div>';
 }
 
-// RF2K-S peak hold (punch list 32): a tick at the highest FWD / REF seen,
-// held 1.5 s, then falling 400 W/s (REF 50 W/s) toward the reading;
-// cleared at unkey (FWD under 1 W). Kept from each {type:'amp'} (4 per
-// second); the tick and the "pk" text are moved by a timer between updates,
-// without rebuilding the applet or the panel.
-// 3 s: the amp's own peak reading and AetherSDR's window peak (punch list 36)
-var AMP_PEAK_HOLD_MS = 3000, AMP_PEAK_FALL = { fwd: 400, ref: 50 };
-var ampPeak = { fwd: null, ref: null };   // { v, at, cur, max }
-var ampPeakTimer = null;
+// RF2K-S peak (punch list 32, 44): like the amp's own "/ NNN W" figure, the
+// highest FWD / REF of the whole over. It only rises while the radio is keyed
+// (the server's `keyed`: the rig's TX status / the Flex interlock), stays on
+// screen after unkey ("0 W pk 712") and restarts at the next key-up. The
+// tick and the "pk" text are repainted without rebuilding the applet.
+var ampPeak = { fwd: null, ref: null };   // { v }
+var ampOverKeyed = false;                 // the radio was keyed at the last amp message
 function ampPeakValue(k) {
     var p = ampPeak[k];
-    if (!p) return 0;
-    var age = performance.now() - p.at - AMP_PEAK_HOLD_MS;
-    var v = age > 0 ? p.v - AMP_PEAK_FALL[k] * age / 1000 : p.v;
-    return Math.max(v, p.cur || 0);
+    return p ? p.v : 0;
 }
 // FWD / REF ballistics (punch list 35): the amp's REST reading is one
 // momentary sample every 250 ms, so on speech it lands between syllables;
@@ -7996,21 +7991,45 @@ function toggleAmpMeterMode() {
     if (typeof aeTick === 'function') { aeLastSig = ''; aeTick(); }
 }
 function ampPeakFeed(a) {
-    var keyed = a && a.connected && a.fwd !== undefined && a.fwd >= 1;
-    if (!keyed) { ampPeak.fwd = ampPeak.ref = null; ampBal.fwd = ampBal.ref = null; ampPeakPaint(); return; }
+    if (!a || !a.connected) {
+        ampPeak.fwd = ampPeak.ref = null; ampBal.fwd = ampBal.ref = null; ampOverKeyed = false;
+        ampPeakPaint();
+        return;
+    }
+    // A new over: the peak restarts (punch list 44). An older server without
+    // `keyed`: an over is any reading of 1 W or more.
+    var keyed = a.keyed !== undefined ? !!a.keyed : (a.fwd >= 1);
+    if (keyed && !ampOverKeyed) ampPeak.fwd = ampPeak.ref = null;
+    ampOverKeyed = keyed;
+    var fwdOn = a.fwd !== undefined && a.fwd >= 1;
+    if (keyed || fwdOn) {
+        ['fwd', 'ref'].forEach(function (k) {
+            var v = Number(a[k]) || 0, p = ampPeak[k];
+            if (!fwdOn && !p) return;                 // keyed, nothing out yet
+            if (!p || v > p.v) ampPeak[k] = { v: v };
+        });
+    }
+    // FWD / REF bar ballistics (punch list 35) as before: active while there
+    // is output, cleared under 1 W.
+    if (!fwdOn) { ampBal.fwd = ampBal.ref = null; ampPeakPaint(); return; }
     var now = performance.now();
     ['fwd', 'ref'].forEach(function (k) {
         var v = Number(a[k]) || 0, m = ampBal[k];
         if (!m || v >= ampShown(k, 0)) ampBal[k] = { v: v, at: now, raw: v };
         else m.raw = v;
     });
-    ['fwd', 'ref'].forEach(function (k) {
-        var v = Number(a[k]) || 0;
-        var p = ampPeak[k];
-        if (!p || v >= ampPeakValue(k)) ampPeak[k] = { v: v, at: now, cur: v };
-        else p.cur = v;
+    ampPaintKick();
+}
+// Repaint on the screen's refresh while the bar ballistics are moving
+// (punch list 45: faster readings show as smoother motion; was a 50 ms timer).
+var ampPaintRaf = 0;
+function ampPaintKick() {
+    if (ampPaintRaf) return;
+    ampPaintRaf = requestAnimationFrame(function step() {
+        ampPaintRaf = 0;
+        ampPeakPaint();
+        if (ampBal.fwd || ampBal.ref) ampPaintRaf = requestAnimationFrame(step);
     });
-    if (!ampPeakTimer) ampPeakTimer = setInterval(ampPeakPaint, 50);
 }
 function ampPeakTickHtml(k, max) {
     var st = ampPeak[k] ? ' style="display:block;left:' + Math.max(0, Math.min(100, ampPeakValue(k) / max * 100)) + '%"' : '';
@@ -8043,7 +8062,6 @@ function ampPeakPaint() {
         var p = ampPeak[el.dataset.k];
         el.textContent = p ? ' pk ' + Math.round(ampPeakValue(el.dataset.k)) : '';
     });
-    if (!ampPeak.fwd && !ampPeak.ref && ampPeakTimer) { clearInterval(ampPeakTimer); ampPeakTimer = null; }
     return any;
 }
 

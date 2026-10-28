@@ -10,6 +10,13 @@ Unreleased
 ----------
 
 RF2K-S amplifier:
+- The FWD / REF "pk" works like the amp's own peak: the highest reading of
+  the whole over, still shown after unkey until the next key-up (was a 3 s
+  hold that dropped mid-over).
+- Transmit polling asks every 25 ms (was 50); [Amplifier] TxPollMs and
+  RxPollMs set the intervals. At each unkey the log says how many power
+  readings the over got and the rate the amp sustained. The meter animation
+  follows the screen's refresh instead of a 20 frames/s timer.
 - The amp is woken when a signed-in operator (or admin) opens the page and
   kept awake while one is on ([Amplifier] KeepAwakeSecs, default 60 s;
   0 = wake only). When the last one leaves, its own sleep timer runs again.
