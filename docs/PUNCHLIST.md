@@ -884,3 +884,13 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     the same. Then carry PEAK to the user's AetherSDR rfkit-tune-pr: only
     RfkitApplet::updateValueLabels' PWR / REF numbers (the gauge's peak
     marker already uses the 3 s window).
+37. FreeDV indicator overlaps the scope's top-right controls (user's
+    screenshot 20:37, desktop layout, 7.181.5 RADE; easy). #freedvIndicator
+    is pinned at right:8px top:8px of #scopeArea with no background; with
+    the callsign + age ("K8CHY 2m") it is wider and runs under the VFO
+    flag ("A 7.181.500 LSB ANT1") and the -/+ zoom buttons (#aeZoom, also
+    top-right): "FO 2.5" sits on "RPT", the flag on the callsign. Fix: on
+    the desktop layout put it at the top left of the scope, after MIC ON
+    (or under #aeZoom), on a solid tile like the other scope badges, above
+    the VFO flag; the flag keeps its place. Narrow windows: let the
+    indicator wrap to two lines instead of overlapping.
