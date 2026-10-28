@@ -282,6 +282,10 @@ Status: implemented for build 60.
 
 # Next batch (after build 62)
 
+Build 73 (2026-10-28): items 38 (memory names) and 39 (Reporter callsign
+while synced) are done. 39 is not covered by a test against the live
+Reporter server (field names follow AetherSDR's FreeDvClient).
+
 Build 72 (2026-10-27): items 36 (3 s pk) and 37 (FreeDV line placement)
 are done; 36's rfkit-tune-pr part is not.
 

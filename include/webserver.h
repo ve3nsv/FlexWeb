@@ -588,6 +588,8 @@ private:
     // on each decode and as {type:'freedvHeard'} to a browser that connects.
     QJsonArray fdvHeard_;
     void noteFreeDVCallsign(const QString &callsign);
+    QString fdvGuess_;
+    void updateFdvGuess();
     bool radeEooDraining = false;    // true while draining EOO frame to ALSA
     QTimer *radeCallsignClearTimer = nullptr;  // delayed UI clear after decode
 

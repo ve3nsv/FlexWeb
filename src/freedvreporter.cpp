@@ -1,4 +1,6 @@
 #include "freedvreporter.h"
+#include <QDateTime>
+#include <QJsonArray>
 #include "logcategories.h"
 #include "wfweb_version.h"
 
@@ -152,6 +154,7 @@ void FreeDVReporter::onWsDisconnected()
 {
     pingTimer_->stop();
     fullyConnected_ = false;
+    stations_.clear();   // the next connect brings a fresh bulk_update
 
     if (!intentionalDisconnect_) {
         qWarning() << "FreeDVReporter: disconnected unexpectedly";
@@ -242,7 +245,14 @@ void FreeDVReporter::onWsTextMessage(const QString &message)
                     setState(Connected);
                     resendState();
                 }
-                // Other events (new_connection, freq_change, etc.) ignored for now
+                else if (event == "bulk_update") {
+                    // [[event, data], ...]: the state of every station on connect
+                    for (const QJsonValue &v : arr.at(1).toArray()) {
+                        const QJsonArray pair = v.toArray();
+                        if (pair.size() >= 2) onReporterEvent(pair.at(0).toString(), pair.at(1).toObject());
+                    }
+                }
+                else onReporterEvent(event, arr.at(1).toObject());
             }
         }
         break;
@@ -358,4 +368,36 @@ void FreeDVReporter::scheduleReconnect()
     reconnectTimer_->start(reconnectDelay_);
     // Exponential backoff capped at 60s
     reconnectDelay_ = qMin(reconnectDelay_ * 2, 60000);
+}
+
+void FreeDVReporter::onReporterEvent(const QString &event, const QJsonObject &data)
+{
+    const QString sid = data.value("sid").toString();
+    if (sid.isEmpty()) return;
+    if (event == "remove_connection") { stations_.remove(sid); return; }
+    if (event != "new_connection" && event != "freq_change" && event != "tx_report") return;
+    Station &st = stations_[sid];
+    const QString call = data.value("callsign").toString();
+    if (!call.isEmpty()) st.callsign = call.toUpper();
+    if (event == "freq_change") st.freq = quint64(data.value("freq").toDouble());
+    if (event == "tx_report") {
+        st.tx = data.value("transmitting").toBool();
+        if (st.tx) st.lastTxMs = QDateTime::currentMSecsSinceEpoch();
+    }
+}
+
+QString FreeDVReporter::transmittingNear(int tolHz) const
+{
+    const quint64 ours = pendingFreq_ ? pendingFreq_ : lastFreq_;
+    if (!ours) return QString();
+    QString best;
+    qint64 bestTx = -1;
+    for (const Station &st : stations_) {
+        if (!st.tx || st.callsign.isEmpty() || st.freq == 0) continue;
+        if (st.callsign.compare(callsign_, Qt::CaseInsensitive) == 0) continue;
+        const qint64 d = qint64(st.freq) - qint64(ours);
+        if (d > tolHz || d < -tolHz) continue;
+        if (st.lastTxMs > bestTx) { bestTx = st.lastTxMs; best = st.callsign; }
+    }
+    return best;
 }

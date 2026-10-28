@@ -2164,6 +2164,7 @@ void webServer::disableFreeDV()
     freedvEnabled = false;
     emit freedvRxActive(false);
     freedvSync = false;
+    updateFdvGuess();
     freedvSNR = 0.0f;
     freedvTxBuffer.clear();
     freedvTxActive = false;
@@ -6373,6 +6374,7 @@ void webServer::onFreeDVStats(float snr, bool sync)
             }
         }
     }
+    updateFdvGuess();
 }
 // A callsign decoded in either FreeDV family: kept in the heard list and
 // shown on every page (classic modes during the over, RADE after its EOO).
@@ -6581,6 +6583,23 @@ void webServer::onRadeStats(float snr, bool sync, float freqOffset)
         }
         // Callsign clearing is handled by a timer started in onRadeRxCallsign.
     }
+    updateFdvGuess();
+}
+
+// Punch list 39: while FreeDV / RADE is synced, the station FreeDV Reporter
+// says is transmitting on our frequency, shown on the page as "CALL?" until
+// the callsign itself decodes. Never reported back as heard.
+void webServer::updateFdvGuess()
+{
+    QString guess;
+    if (freedvEnabled && freedvSync && freedvReporter && freedvReporter->state() == SpotReporter::Connected)
+        guess = freedvReporter->transmittingNear(1000);
+    if (guess == fdvGuess_) return;
+    fdvGuess_ = guess;
+    QJsonObject o;
+    o["type"] = "freedvGuess";
+    o["callsign"] = guess;
+    sendJsonToAll(o);
 }
 
 void webServer::onRadeRxCallsign(const QString &callsign)

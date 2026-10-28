@@ -9,7 +9,17 @@ upstream wfview history.
 Unreleased
 ----------
 
+FlexRadio:
+- A new memory keeps its name when the group is left blank: name and group
+  go to the radio as separate commands and a blank one is not sent (the
+  radio refused "group=" and the name with it). Refusals are logged.
+
 FreeDV:
+- While a FreeDV / RADE signal is synced, the station FreeDV Reporter says
+  is transmitting on this frequency is shown as "K8CHY?" (italic, a
+  question mark) until its callsign decodes off the air - RADE sends the
+  callsign only at the end of each over. Reporter's guesses are never
+  reported back as heard.
 - RADE callsigns decode on Windows (and macOS): the RADE library's
   end-of-over demodulator returned a third of the callsign bits from
   uninitialised memory and used a data symbol as a pilot (patched in

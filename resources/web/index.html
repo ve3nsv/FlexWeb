@@ -4433,6 +4433,10 @@ function handleMessage(msg) {
             fdvHeard = fdvHeard.slice(0, 10);
             fdvHeardTick();
             break;
+        case 'freedvGuess':
+            fdvGuess = msg.callsign || '';
+            if (freedvEnabled) updateFreeDVStatus({});
+            break;
         case 'freedvHeard': {
             // server times are its own clock: keep their ages, not their stamps
             var srvNow = Math.max.apply(null, (msg.list || []).map(function (h) { return h.at; }).concat([0]));
@@ -9974,6 +9978,7 @@ function cycleFreeDVMode() {
 
 // FreeDV / RADE stations heard (punch list 34): {callsign, mode, snr, at}.
 var fdvHeard = [];
+var fdvGuess = '';     // FreeDV Reporter: who says they are transmitting here (punch list 39)
 var FDV_HEARD_SHOW_MS = 10 * 60 * 1000;
 var fdvHeardTimer = null;
 function fdvAge(ms) {
@@ -10057,7 +10062,14 @@ function updateFreeDVStatus(msg) {
         var csHtml = '';
         var last = fdvHeard[0];
         var lastAge = last ? Date.now() - last.at : Infinity;
-        if (last && lastAge < FDV_HEARD_SHOW_MS) {
+        // While synced, FreeDV Reporter's word for who is transmitting here
+        // ("K8CHY?"), until the callsign itself decodes (a fresh decode of
+        // the same call shows it confirmed).
+        if (fdvGuess && freedvSync && !(last && last.callsign === fdvGuess && lastAge < 10000)) {
+            csHtml = '<span id="freedvCallsign" title="From FreeDV Reporter: this station reports it is transmitting on this frequency. Confirmed when its callsign decodes. Tap for stations heard."' +
+                ' style="cursor:pointer; color:#7fb8c0; font-style:italic; min-width:60px; display:inline-block; text-align:center;">' +
+                ampEsc(fdvGuess) + '?</span>';
+        } else if (last && lastAge < FDV_HEARD_SHOW_MS) {
             var fresh = lastAge < 10000;
             csHtml = '<span id="freedvCallsign" title="Stations heard (tap)" style="cursor:pointer; color:' + (fresh ? '#0ff' : '#5a8a92') +
                 '; min-width:60px; display:inline-block; text-align:center;">' + ampEsc(last.callsign) +

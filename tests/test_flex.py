@@ -484,12 +484,23 @@ def test_radio_memories(flex):
         assert _wait(lambda: requests.get(f"{rest}/frequency", timeout=2).json().get("hz") == 3_873_000, timeout=5)
 
         _ws_send(sock, {"cmd": "flexMemory", "action": "create", "id": 0, "name": "My spot", "group": "DX"})
-        assert _wait(lambda: any(c.startswith("memory set 2 ") and "name=My\x7fspot" in c and "group=DX" in c
-                                 for c in radio.commands), timeout=5)
+        assert _wait(lambda: "memory set 2 name=My\x7fspot" in radio.commands
+                     and "memory set 2 group=DX" in radio.commands, timeout=5)
         mems = latest_list()
         while mems is not None and not any(m["name"] == "My spot" for m in mems):
             mems = latest_list()
         assert mems and any(m["name"] == "My spot" and m["group"] == "DX" for m in mems)
+
+        # Punch list 38: a blank group must not take the name with it.
+        _ws_send(sock, {"cmd": "flexMemory", "action": "create", "id": 0, "name": "No group", "group": ""})
+        mems = latest_list()
+        while mems is not None and not any(m["name"] == "No group" for m in mems):
+            mems = latest_list()
+        assert mems and any(m["name"] == "No group" for m in mems), \
+            "a memory created with a blank group lost its name"
+        assert not any(c.startswith("memory set") and c.endswith("group=") for c in radio.commands)
+        _ws_send(sock, {"cmd": "flexMemory", "action": "remove", "id": 3})
+        assert _wait(lambda: "memory remove 3" in radio.commands, timeout=5)
 
         _ws_send(sock, {"cmd": "flexMemory", "action": "remove", "id": 2})
         assert _wait(lambda: "memory remove 2" in radio.commands, timeout=5)

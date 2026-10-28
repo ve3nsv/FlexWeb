@@ -5,6 +5,7 @@
 #include <QWebSocket>
 #include <QTimer>
 #include <QJsonObject>
+#include <QHash>
 
 class FreeDVReporter : public SpotReporter
 {
@@ -23,6 +24,13 @@ public:
 
     State state() const override { return state_; }
 
+    // Punch list 39: the station that FreeDV Reporter says is transmitting
+    // within tolHz of our own reported frequency (not us), the most recent
+    // to key up if several; empty when none. From the events the server
+    // pushes to every client (bulk_update, new_connection, freq_change,
+    // tx_report, remove_connection).
+    QString transmittingNear(int tolHz = 1000) const;
+
 private slots:
     void onWsConnected();
     void onWsDisconnected();
@@ -39,6 +47,10 @@ private:
     void resendState();
     void scheduleReconnect();
     static QString reporterModeName(const QString &mode);
+    void onReporterEvent(const QString &event, const QJsonObject &data);
+
+    struct Station { QString callsign; quint64 freq = 0; bool tx = false; qint64 lastTxMs = 0; };
+    QHash<QString, Station> stations_;   // by the server's sid
 
     static constexpr int PROTOCOL_VERSION = 2;
     static constexpr const char *DEFAULT_HOST = "qso.freedv.org";

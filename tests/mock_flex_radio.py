@@ -287,6 +287,9 @@ class MockFlexRadio:
             if i not in self.memories:
                 return 0x50000016, "no such memory"
             kv = dict(w.split("=", 1) for w in words[3:] if "=" in w)
+            if any(v == "" for v in kv.values()):
+                # the radio refuses a field with no value - the whole line
+                return 0x50000016, "malformed command"
             self.memories[i].update(kv)
             self._memory_status(i)
             return 0, ""

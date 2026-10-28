@@ -2995,12 +2995,25 @@ void flexCommander::flexMemoryCommand(QString action, int id, QJsonObject fields
         v.remove('=').remove('|').remove('"');
         return v.replace(' ', QChar(0x7F));
     };
-    auto setFields = [this, text, fields](int mem) {
-        QStringList kv;
-        if (fields.contains("name")) kv << "name=" + text(fields.value("name").toString());
-        if (fields.contains("group")) kv << "group=" + text(fields.value("group").toString());
-        if (!kv.isEmpty())
-            sendCmd(QString("memory set %1 %2").arg(mem).arg(kv.join(' ')));
+    // One "memory set" per field: the radio refuses a line with an empty
+    // value ("group="), and the name on it with it (punch list 38). On create
+    // a blank field is the radio's default already and is not sent; on an
+    // edit, blank clears it with a single space (0x7F).
+    auto setFields = [this, text, fields](int mem, bool creating) {
+        for (const QString key : {QStringLiteral("name"), QStringLiteral("group")}) {
+            if (!fields.contains(key)) continue;
+            QString v = text(fields.value(key).toString());
+            if (v.isEmpty()) {
+                if (creating) continue;
+                v = QString(QChar(0x7F));
+            }
+            sendCmd(QString("memory set %1 %2=%3").arg(mem).arg(key, v),
+                    [mem, key](quint32 code, const QString& body) {
+                if (code != 0)
+                    qWarning(logRig()).noquote() << QString("Flex: memory %1 %2 refused (0x%3) %4")
+                        .arg(mem).arg(key).arg(code, 8, 16, QChar('0')).arg(body);
+            });
+        }
     };
     if (action == "apply" && memories.contains(id)) {
         // The radio applies a memory to this client's active slice.
@@ -3037,10 +3050,12 @@ void flexCommander::flexMemoryCommand(QString action, int id, QJsonObject fields
         sendCmd("memory create", [setFields](quint32 code, const QString& body) {
             bool ok = false;
             const int mem = body.trimmed().toInt(&ok);
-            if (code == 0 && ok) setFields(mem);
+            if (code == 0 && ok) setFields(mem, true);
+            else qWarning(logRig()).noquote() << QString("Flex: memory create refused (0x%1) %2")
+                     .arg(code, 8, 16, QChar('0')).arg(body);
         });
     } else if (action == "set" && memories.contains(id)) {
-        setFields(id);
+        setFields(id, false);
     } else if (action == "remove" && memories.contains(id)) {
         sendCmd(QString("memory remove %1").arg(id));
     }
