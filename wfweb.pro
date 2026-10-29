@@ -367,6 +367,7 @@ SOURCES += \
     src/radio/kenwoodserver.cpp \
     src/radio/yaesucommander.cpp \
     src/radio/flexcommander.cpp \
+    src/radio/flexrxdsp.cpp \
     src/nnrfilter.cpp \
     src/nnrstage.cpp \
     src/radio/smartlinkclient.cpp \
@@ -455,6 +456,7 @@ HEADERS  += \
     include/kenwoodserver.h \
     include/yaesucommander.h \
     include/flexcommander.h \
+    include/flexrxdsp.h \
     include/nnrfilter.h \
     include/nnrstage.h \
     include/smartlinkclient.h \

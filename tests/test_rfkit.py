@@ -49,6 +49,7 @@ class StubAmp:
         self.gets = []        # (time, path) of every GET
         self.wake_delay = 0.0  # a sleeping RF2K-S answers the wake after ~5 s
         self.broken_pipes = 0
+        self.refuse_operate = False   # answer PUT /operate-mode with 409, like a disabled amp
         stub = self
 
         class H(BaseHTTPRequestHandler):
@@ -82,6 +83,9 @@ class StubAmp:
                             self._reply(400, {"status": "400 Bad Request", "reason": "START required"})
                         except (BrokenPipeError, ConnectionResetError):
                             stub.broken_pipes += 1   # wfweb gave up before the answer
+                    return
+                if self.path == "/operate-mode" and stub.refuse_operate:
+                    self._reply(409, {"status": "409 Conflict", "reason": "currently disabled"})
                     return
                 self._reply(*ROUTES.get("PUT " + self.path, (404, {"status": "error"})))
 
@@ -214,19 +218,27 @@ def test_amp_wake_keep_awake_and_poll_schedule(bench, tmp_path):
     RF2K-S); the empty PUT /tuner goes out when someone who may transmit
     connects (not a guest), repeats every KeepAwakeSecs while they are on and
     stops when they leave. Punch list 43: one GET at a time, ~3.7/s in
-    receive (was 12), /power fast while the radio transmits."""
+    receive (was 12), /power fast while the radio transmits. Punch list 48:
+    nothing at all is sent to the amp while no browser is connected."""
     env, radio, amp, procs = bench
     add = subprocess.run([str(WFWEB_BIN), "--add-user", "tom"], input=b"tom-password-1\n",
                          capture_output=True, env=env, timeout=20)
     assert add.returncode == 0
     ini = tmp_path / "flexweb.ini"
-    ini.write_text("[Amplifier]\nKeepAwakeSecs=2\n")
+    ini.write_text("[Amplifier]\nKeepAwakeSecs=2\nIdleGraceSecs=2\n")
     proc, port = _start(env, radio, amp, ("--guest-view", "-s", str(ini)))
     procs.append(proc)
     base = f"https://127.0.0.1:{port}"
-    # amp connected, nobody on: polled, never woken
-    assert _wait(lambda: amp.gets_since(0, "/power"), timeout=15)
+    # no browser: no request at all, not even /info
     time.sleep(3.0)
+    assert amp.gets == [] and amp.puts == [], (amp.gets, amp.puts)
+
+    # a guest connects: polled (it sees the amp panel), never woken - it cannot transmit
+    g = requests.post(base + "/login", data={"guest": "1"}, verify=False, allow_redirects=False, timeout=10)
+    st, gs, gbuf = _ws(port, g.cookies["wfweb_session"])
+    assert " 101" in st
+    assert _wait(lambda: amp.gets_since(0, "/power"), timeout=15)
+    time.sleep(2.0)
     assert amp.wakes() == [], amp.puts
 
     # receive schedule: about 3.7 GETs a second, not 12
@@ -234,13 +246,6 @@ def test_amp_wake_keep_awake_and_poll_schedule(bench, tmp_path):
     time.sleep(4.0)
     rate = len(amp.gets_since(t0)) / 4.0
     assert 2.0 <= rate <= 6.0, rate
-
-    # a guest cannot transmit: no wake
-    g = requests.post(base + "/login", data={"guest": "1"}, verify=False, allow_redirects=False, timeout=10)
-    st, gs, gbuf = _ws(port, g.cookies["wfweb_session"])
-    assert " 101" in st
-    time.sleep(2.5)
-    assert amp.wakes() == [], amp.puts
 
     tom = _login(base, "tom", "tom-password-1").cookies["wfweb_session"]
     st, a, abuf = _ws(port, tom)
@@ -272,12 +277,19 @@ def test_amp_wake_keep_awake_and_poll_schedule(bench, tmp_path):
         assert slow <= 4, slow
     finally:
         a.close()
-        gs.close()
-    # tom gone (the guest stays): the repeats stop
+    # tom gone (the guest stays): the repeats stop, polling goes on
     time.sleep(1.0)
     n = len(amp.wakes())
     time.sleep(4.5)
     assert len(amp.wakes()) == n, amp.wakes()
+    assert amp.gets_since(time.monotonic() - 2.0), "polling stopped while the guest is still on"
+
+    # the last browser gone: after the 2 s grace, nothing more reaches the amp
+    gs.close()
+    time.sleep(4.0)
+    t3 = time.monotonic()
+    time.sleep(3.0)
+    assert not amp.gets_since(t3) and len(amp.wakes()) == n, amp.gets_since(t3)
 
 
 def test_amp_slow_wake_is_waited_for(bench):
@@ -300,5 +312,51 @@ def test_amp_slow_wake_is_waited_for(bench):
         time.sleep(3.0)
         assert amp.gets_since(t0), "polling stopped after the slow wake"
         assert not _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") is False, timeout=1.0)
+    finally:
+        sock.close()
+
+
+def test_amp_refusal_reaches_the_page(bench):
+    """Punch list 50: a command the amp turns down (409, "currently
+    disabled") is told to the browser that sent it, with the amp's reason."""
+    env, radio, amp, procs = bench
+    amp.refuse_operate = True
+    add = subprocess.run([str(WFWEB_BIN), "--add-user", "tom"], input=b"tom-password-1\n",
+                         capture_output=True, env=env, timeout=20)
+    assert add.returncode == 0
+    proc, port = _start(env, radio, amp)
+    procs.append(proc)
+    tom = _login(f"https://127.0.0.1:{port}", "tom", "tom-password-1").cookies["wfweb_session"]
+    st, a, abuf = _ws(port, tom)
+    assert " 101" in st
+    ra = _Reader(a, abuf)
+    try:
+        assert _amp_ready(ra)
+        _ws_send(a, {"cmd": "ampOperate", "value": True})
+        ref = _drain_until(ra, lambda m: m.get("type") == "ampRefused" and m.get("reason") == "amp", timeout=5)
+        assert ref and ref.get("what") == "OPERATE" and ref.get("text") == "currently disabled", ref
+    finally:
+        a.close()
+
+
+def test_amp_offline_reason(bench):
+    """Punch list 49: nothing listening at the amp's address - the page is
+    told the amp's program is not running, not just "offline"."""
+    env, radio, amp, procs = bench
+    closed = _free_port()          # nothing listens here
+    port = _free_port()
+    proc = subprocess.Popen([str(WFWEB_BIN), "-p", str(port), "--manufacturer", "3", "--lan", "127.0.0.1",
+                             "--lan-control", str(radio.control_port), "--lan-audio", str(radio.vita_port),
+                             "--rfkit", f"127.0.0.1:{closed}"],
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    procs.append(proc)
+    assert _wait(lambda: requests.get(f"http://127.0.0.1:{port + 1}/api/v1/radio/info", timeout=2).ok)
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st
+    r = _Reader(sock, buf)
+    try:
+        m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") is False
+                         and m.get("offlineReason"), timeout=15)
+        assert m and m["offlineReason"] == "refused", m
     finally:
         sock.close()

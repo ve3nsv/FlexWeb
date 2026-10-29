@@ -284,6 +284,31 @@ Status: implemented for build 60.
 
 From here on builds go by their GitHub Actions run number.
 
+Next build (2026-10-29): items 48-55 done, with these differences from the
+plan. 51 / 52a: flexCommander's thread stays the radio's command link
+(moving the TCP / SmartLink TLS socket to another thread was the larger
+risk); what made it wait moved off it instead - NNR and the RX audio
+conversion run on a "FlexRxDsp" thread (52b, c), the UDP loop takes at
+most 64 packets per turn (52d), FFT / meter decoding stays (light). 54b's
+stall line ("the radio thread could not run for N ms") shows whether that
+thread still ever waits. 53a: PTT and TUNE go straight to flexCommander
+(webServer::flexTx -> txRequest); every other Flex command leaves the
+cachingQueue as soon as it is added (setDrainImmediate) instead of one per
+70 ms tick. 53b-d: one lane each for PTT and TUNE, latest wins, one
+command in flight (1 s cap), a key-up older than 300 ms dropped, unkey
+always sent. 54a: logged for PTT / TUNE ("sent to the radio N ms after the
+server got it", a warning over 50 ms); 54c: "Web: PTT / TUNE on|off from
+<who>". 55: the page's TUNE is cleared when the radio link drops; the
+QIODevice warning: own idle timer instead of setTransferTimeout (believed
+to be the source - check the next timed-out amp request). 48: grace
+[Amplifier] IdleGraceSecs, else the --on-demand time, else 30 s; the amp
+is not contacted at all until the first browser. 49: offlineReason
+refused / noanswer / noroute / notrfkit, logged once per change. 50: the
+amp's 4xx reason and the class's own refusals (no tune API, tuner busy,
+antenna out of range) to the sending browser as a notice.
+Not covered by a CI test: the NNR overload pass-through, the stall line,
+the stale-press drop (the mock answers at once).
+
 Next build (2026-10-29): items 46 and 47 done. 46 as extended (e-h);
 not covered by a CI test: the backoff and the slow-answer pause (the stub
 answers at once except the delayed wake). 47: Flex / SmartLink messages,

@@ -119,6 +119,10 @@ private:
     // Various other values
     bool aborted=false;
     qint64 queueInterval=-1; // Don't start the timer!
+    // Punch list 53: a network rig (the Flex) takes every priorityImmediate
+    // command as soon as it is added, not one per interval.
+    bool drainImmediate=false;
+    void drainImmediateLocked();
     
     rigCapabilities* rigCaps = Q_NULLPTR; // Must be NULL until a radio is connected
     
@@ -149,6 +153,7 @@ public:
     queuePriority del(funcs func, uchar receiver=0);
     void clear();
     bool waitForImmediate(int timeoutMs);
+    void setDrainImmediate(bool on);
     void interval(qint64 val);
     qint64 interval() {return queueInterval;}
     void updateCache(bool reply, queueItem item);

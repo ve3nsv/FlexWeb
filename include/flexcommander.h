@@ -37,6 +37,8 @@
 #include "nnrfilter.h"
 
 struct SpeexResamplerState_;
+class flexRxDsp;
+class QThread;
 
 class flexCommander : public rigCommander
 {
@@ -77,6 +79,14 @@ public slots:
     // The radio's memories (MEMORIES applet): action "apply" / "create" /
     // "set" / "remove"; fields name, group for create and set.
     void flexMemoryCommand(QString action, int id, QJsonObject fields);
+    // Punch list 53: PTT (kind 0, xmit) and the TUNE carrier (kind 1) from the
+    // web server, straight here - not through the cachingQueue's 70 ms tick.
+    // stampMs: when the server got the press (epoch ms; 0 = no age check).
+    // A key-up older than kTxStaleMs is dropped, never sent late; an unkey is
+    // always sent. One command per kind in flight: presses meanwhile collapse
+    // to the latest state, sent when the radio answers (like AetherSDR's
+    // TxCoordinator / FlexPttWireSession).
+    void txRequest(int kind, bool on, qint64 stampMs, QString who);
 
 signals:
     // The radio's EQ and TX audio processing, as the page shows it.
@@ -145,6 +155,19 @@ private:
     void applyFilterWidth(int widthHz);
     void sliceSet(const QString& kv);
     void setTransmit(bool on);
+    struct TxLane {
+        bool want = false;       // the latest state asked for
+        bool sent = false;       // the last state sent to the radio
+        bool known = false;      // something was sent this session
+        quint32 inflight = 0;    // its sequence number, until the radio answers
+        qint64 inflightAt = 0;
+        qint64 wantStamp = 0;
+        QString wantWho;
+        bool retryArmed = false;
+    } txLane[2];
+    static constexpr qint64 kTxStaleMs = 300;
+    static constexpr qint64 kTxInflightMs = 1000;   // no answer by then: send the latest anyway
+    void txDispatch(int kind);
 
     // Transport
     // A QSslSocket: plain TCP on the LAN, TLS to the radio over SmartLink.
@@ -307,10 +330,15 @@ private:
     // knee x10, tau x100, max gain x10, attack / release in ms.
     struct nnrSettings { int on = 0, strength = 38, model = 0, alpha = 100, knee = 100, tau = 200,
                          maxGain = 120, attack = 0, release = 0; } nnrCfg;
-    std::unique_ptr<nnrFilter> nnrF;
+    // The filter runs on rxDsp's own thread (punch list 52, flexrxdsp.h);
+    // these mirror what it reports (nnrState).
     int nnrModelInUse = 0;
-    qint64 nnrGainAt = 0;
+    int nnrDelayMs = 0;
     bool nnrWasActive = false;
+    QThread* rxDspThread = nullptr;
+    flexRxDsp* rxDsp = nullptr;
+    void ensureRxDsp();
+    void stopRxDsp();
     bool nnrModeOk() const;
     void nnrApply();
     void nnrLoad();
@@ -351,6 +379,16 @@ private:
     double panMinDbm = kPanMinDbm;
     double panMaxDbm = kPanMaxDbm;
     float noiseFloorDbm = -999.0f;
+
+    // Punch list 52d / 54b: the UDP loop handles a bounded batch per call and
+    // yields, so commands and the radio's replies always get a turn; a timer
+    // notices when this thread could not run for a while and says so.
+    static constexpr int kUdpBatch = 64;
+    bool udpDrainScheduled = false;
+    QTimer* stallTimer = nullptr;
+    QElapsedTimer stallClock;
+    qint64 stallLoggedAtMs = 0;
+    void checkStall();
 
     // Diagnostics (logged every 10 s)
     QSet<quint64> udpSeen;

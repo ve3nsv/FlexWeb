@@ -94,6 +94,18 @@ public:
     // Punch list 45: [Amplifier] RxPollMs (100-5000) / TxPollMs (10-1000).
     void setPollIntervals(int rxMs, int txMs);
 
+    // Punch list 49: why the last connect / request failed, so the page can
+    // say more than "offline".
+    enum class Failure {
+        None,
+        Refused,    // "Connection refused": the amp's program is not running
+        NoAnswer,   // no answer in time: busy, held by another client, or off
+        NoRoute,    // the network reports the address unreachable
+        NotRfkit,   // something answered that is not an RF-KIT
+    };
+    Failure lastFailure() const { return m_lastFailure; }
+    static const char* failureKey(Failure f);
+
 signals:
     void connected();
     void disconnected();
@@ -102,6 +114,9 @@ signals:
     void statusUpdated(const AetherSDR::Rfkit::Status& status);
     // A wake() was answered (any HTTP status) or failed in transit.
     void wakeAnswered(bool ok);
+    // Punch list 50: an operator command the amplifier (or this class, before
+    // sending) turned down. what: OPERATE / STANDBY / TUNE / ANTENNA / RESET.
+    void commandRefused(const QString& what, const QString& reason);
 
 private:
     struct Request {
@@ -187,6 +202,12 @@ private:
     // rate instead of building a backlog.
     QTimer m_pollTimer;
     QTimer m_deadlineTimer;
+    // No bytes for kRequestTimeoutMs: our own timer, restarted on progress,
+    // instead of QNetworkRequest::setTransferTimeout, whose abort logged
+    // "QIODevice::read (QNetworkReplyHttpImpl): device not open" (punch list 55).
+    QTimer m_idleTimer;
+    Failure m_lastFailure{Failure::None};
+    static QString commandLabel(const Request& request);
     int m_rxPollMs{250};  // ~3.7 GETs/s (was 12)
     int m_txPollMs{25};   // up to ~32 GETs/s, /power 4 of 5 (punch list 45; was 50)
     static constexpr int kTxHoldMs = 3000;  // fast after unkey: feeds the 3 s peak hold

@@ -84,6 +84,38 @@ RfkitConnection::RfkitConnection(QObject* parent)
             m_reply->abort();  // finished() follows and counts it as a transport failure
         }
     });
+    m_idleTimer.setSingleShot(true);
+    m_idleTimer.setInterval(kRequestTimeoutMs);
+    connect(&m_idleTimer, &QTimer::timeout, this, [this]() {
+        if (m_reply) {
+            m_reply->setProperty("rfkitIdle", true);
+            m_reply->abort();
+        }
+    });
+}
+
+const char* RfkitConnection::failureKey(Failure f)
+{
+    switch (f) {
+    case Failure::Refused:  return "refused";
+    case Failure::NoAnswer: return "noanswer";
+    case Failure::NoRoute:  return "noroute";
+    case Failure::NotRfkit: return "notrfkit";
+    case Failure::None:     break;
+    }
+    return "";
+}
+
+// What an operator command was, for a refusal the page shows (punch list 50).
+QString RfkitConnection::commandLabel(const Request& request)
+{
+    const QString& p = request.path;
+    if (p.endsWith(QLatin1String(Rfkit::kPathOperateMode)))
+        return request.body.contains("OPERATE") ? QStringLiteral("OPERATE") : QStringLiteral("STANDBY");
+    if (p.endsWith(QLatin1String(Rfkit::kPathAntennaActive))) return QStringLiteral("ANTENNA");
+    if (p.endsWith(QLatin1String(Rfkit::kPathErrorReset))) return QStringLiteral("RESET");
+    if (p.endsWith(QLatin1String(Rfkit::kPathTuner))) return QStringLiteral("TUNE");
+    return p;
 }
 
 RfkitConnection::~RfkitConnection()
@@ -162,6 +194,7 @@ void RfkitConnection::resetSession()
     ++m_epoch;
     m_pollTimer.stop();
     m_deadlineTimer.stop();
+    m_idleTimer.stop();
     m_queue.clear();
     m_inFlight = false;
     if (m_reply) {
@@ -209,7 +242,6 @@ void RfkitConnection::pump()
     QUrl url = m_baseUrl;
     url.setPath(request.path);
     QNetworkRequest netRequest(url);
-    netRequest.setTransferTimeout(kRequestTimeoutMs);
     netRequest.setRawHeader("Accept", "application/json");
     // No redirects: a device that redirects is not speaking this API.
     netRequest.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
@@ -236,16 +268,21 @@ void RfkitConnection::pump()
     m_sentAtMs = nowMs();
     m_reply = reply;
     m_deadlineTimer.start();
+    m_idleTimer.start();
     const int epoch = m_epoch;
 
     // Principle VII: bound what a LAN peer can make us buffer. The transfer
     // timeout only aborts a transfer that goes silent for its interval; this
     // bounds the size.
-    connect(reply, &QNetworkReply::downloadProgress, reply, [reply](qint64 received, qint64) {
+    connect(reply, &QNetworkReply::downloadProgress, reply, [this, reply, epoch](qint64 received, qint64) {
+        if (epoch == m_epoch && reply == m_reply) m_idleTimer.start();  // bytes moved: not idle
         if (received > Rfkit::kMaxBodyBytes) {
             reply->setProperty("rfkitOversize", true);
             reply->abort();
         }
+    });
+    connect(reply, &QNetworkReply::uploadProgress, reply, [this, reply, epoch](qint64, qint64) {
+        if (epoch == m_epoch && reply == m_reply) m_idleTimer.start();
     });
     connect(reply, &QNetworkReply::finished, this, [this, reply, request, epoch]() {
         onReplyFinished(reply, request, epoch);
@@ -264,6 +301,7 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
         m_tuneStartPending = false;
     }
     m_deadlineTimer.stop();
+    m_idleTimer.stop();
 
     const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const bool oversize = reply->property("rfkitOversize").toBool();
@@ -275,13 +313,30 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
     // set a content/protocol error (201 and up) and are the device answering,
     // not link loss.
     const bool deadline = reply->property("rfkitDeadline").toBool();
+    const bool idle = reply->property("rfkitIdle").toBool();
     const QNetworkReply::NetworkError netError = reply->error();
     const bool brokeInTransit = netError != QNetworkReply::NoError
         && netError < QNetworkReply::ContentAccessDenied;
-    if (oversize || deadline || http == 0 || brokeInTransit) {
+    if (oversize || deadline || idle || http == 0 || brokeInTransit) {
+        // Punch list 49: the cause, for the page.
+        switch (netError) {
+        case QNetworkReply::ConnectionRefusedError:
+            m_lastFailure = Failure::Refused;
+            break;
+        case QNetworkReply::HostNotFoundError:
+        case QNetworkReply::UnknownNetworkError:
+        case QNetworkReply::NetworkSessionFailedError:
+        case QNetworkReply::TemporaryNetworkFailureError:
+            m_lastFailure = Failure::NoRoute;
+            break;
+        default:
+            m_lastFailure = oversize ? Failure::NotRfkit : Failure::NoAnswer;
+            break;
+        }
         onTransportFailure(oversize ? tr("Response too large")
                            : deadline ? tr("Response took too long")
-                                      : reply->errorString(), request);
+                           : idle ? tr("No answer for %1 s").arg(kRequestTimeoutMs / 1000)
+                                  : reply->errorString(), request);
         return;
     }
 
@@ -326,7 +381,11 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
         }
         qCWarning(logRig).noquote() << "RfkitConnection:" << method
                                      << request.path << "refused:" << http << reason;
+        if (request.command && !request.tuneProbe) {
+            emit commandRefused(commandLabel(request), reason);
+        }
         if (request.probe) {
+            m_lastFailure = Failure::NotRfkit;
             // Answering the handshake with an error status means this is not
             // an RF-KIT (or not one reachable on this port).
             resetSession();
@@ -341,6 +400,7 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
     if (request.probe) {
         const auto info = Rfkit::parseInfo(body);
         if (!info) {
+            m_lastFailure = Failure::NotRfkit;
             resetSession();
             emit connectionFailed(tr("Not an RF-KIT amplifier (unexpected /info reply)"));
             if (!m_deliberateDisconnect && m_autoReconnect) { armReconnect(); }
@@ -436,6 +496,7 @@ void RfkitConnection::onProbeSucceeded()
     m_connected = true;
     m_consecutiveFailures = 0;
     m_slowPollIndex = 0;
+    m_lastFailure = Failure::None;
     qCInfo(logRig) << "RfkitConnection: connected to" << description()
                     << (m_status.info ? m_status.info->device : QString());
     updatePollRate();
@@ -634,6 +695,8 @@ void RfkitConnection::selectAntenna(const Rfkit::Antenna& antenna)
     if (body.isEmpty()) {
         qCWarning(logRig) << "RfkitConnection: antenna" << Rfkit::antennaLabel(antenna)
                            << "out of range — ignoring";
+        emit commandRefused(QStringLiteral("ANTENNA"),
+                            tr("%1 is not an antenna of this amplifier").arg(Rfkit::antennaLabel(antenna)));
         return;
     }
     Request request;
@@ -664,11 +727,13 @@ void RfkitConnection::startTune()
     if (m_status.tuneApi != Rfkit::TuneApi::Supported) {
         qCWarning(logRig) << "RfkitConnection: tune refused, this amplifier's REST server "
                               "has no tune command";
+        emit commandRefused(QStringLiteral("TUNE"), tr("this amplifier's server has no tune command"));
         return;
     }
     if (!m_status.tuner || !Rfkit::tuneAllowed(*m_status.tuner)) {
         qCWarning(logRig) << "RfkitConnection: tune refused, the tuner is not idle in "
                               "automatic or manual mode";
+        emit commandRefused(QStringLiteral("TUNE"), tr("the tuner is not idle in automatic or manual mode"));
         return;
     }
     if (m_tuneStartPending) {

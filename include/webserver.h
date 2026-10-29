@@ -111,6 +111,10 @@ signals:
     void requestLanReconnect();
     // Page -> flexCommander::setFlexDsp (see there for the keys).
     void flexDspSet(QString key, int index, int value);
+    // Punch list 53: PTT (kind 0) / TUNE (kind 1) straight to flexCommander::
+    // txRequest, stamped with when the press arrived (epoch ms). Connected
+    // only while a Flex is the rig; otherwise PTT takes the cachingQueue.
+    void flexTx(int kind, bool on, qint64 stampMs, QString who);
     void flexMemorySet(QString action, int id, QJsonObject fields);
     void setupConverter(QAudioFormat inFormat, codecType inCodec,
                         QAudioFormat outFormat, codecType outCodec,
@@ -153,6 +157,10 @@ public slots:
     void setAmpKeepAwake(int secs);
     // Punch list 45: [Amplifier] RxPollMs / TxPollMs.
     void setAmpPollIntervals(int rxMs, int txMs);
+    // Punch list 48: no amp traffic while no browser is connected; polling
+    // stops `secs` after the last one leaves ([Amplifier] IdleGraceSecs;
+    // -1 = the --on-demand grace, else 30 s).
+    void setAmpIdleGrace(int secs);
     // FlexRadio EQ / TX audio processing snapshot (flexCommander::flexDspState),
     // pushed to the page as {type:'flexDsp'} for FUNC > EQ and FUNC > PROC.
     void onFlexDspState(QJsonObject state);
@@ -791,6 +799,17 @@ private:
     void updateAmpAwake(bool ampJustConnected = false);
     void updateAmpTx();
     bool ampFault_ = false;          // the amp reports a fault: RESET acts
+    // Punch list 48: polled only while a browser is connected.
+    QString rfkitHost_;
+    quint16 rfkitPort_ = 8080;
+    bool ampIdle_ = false;           // no browser: no requests to the amp
+    QTimer *ampIdleTimer_ = nullptr;
+    int ampIdleGraceSecs_ = -1;
+    void updateAmpPolling();
+    // Punch list 49 / 50: the reason last logged, and who sent the last amp
+    // command (an amp refusal goes back to that browser).
+    QString ampFailLogged_;
+    QPointer<QWebSocket> ampCmdClient_;
     QJsonObject flexDspJson_;
     QJsonArray flexMemoriesJson_;
     bool haveFlexMemories_ = false;   // last flexDsp snapshot, replayed to new browsers

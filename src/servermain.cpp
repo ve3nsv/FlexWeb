@@ -114,6 +114,9 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
             QMetaObject::invokeMethod(web, "setAmpPollIntervals", Qt::QueuedConnection,
                                       Q_ARG(int, settings ? settings->value("Amplifier/RxPollMs", 250).toInt() : 250),
                                       Q_ARG(int, settings ? settings->value("Amplifier/TxPollMs", 25).toInt() : 25));
+            // Punch list 48: polling stops this long after the last browser leaves.
+            QMetaObject::invokeMethod(web, "setAmpIdleGrace", Qt::QueuedConnection,
+                                      Q_ARG(int, settings ? settings->value("Amplifier/IdleGraceSecs", -1).toInt() : -1));
             if (!rfkit.isEmpty())
                 QMetaObject::invokeMethod(web, "configureRfkit", Qt::QueuedConnection,
                                           Q_ARG(QString, rfkit));
@@ -393,6 +396,11 @@ void servermain::makeRig()
                     connect(flex, &flexCommander::evicted, this, [this](QString) { disconnectLan(); }, Qt::QueuedConnection);
                     connect(flex, &flexCommander::flexDspState, web, &webServer::onFlexDspState, Qt::QueuedConnection);
                     connect(web, &webServer::flexDspSet, flex, &flexCommander::setFlexDsp, Qt::QueuedConnection);
+                    // Punch list 53: PTT / TUNE straight to the radio link.
+                    connect(web, &webServer::flexTx, flex, &flexCommander::txRequest, Qt::QueuedConnection);
+                    // ... and every other command leaves the queue at once, not
+                    // one per tick: a Flex is a TCP server, nothing to pace.
+                    if (queue) queue->setDrainImmediate(true);
                     connect(flex, &flexCommander::flexMemories, web, &webServer::onFlexMemories, Qt::QueuedConnection);
                     connect(flex, &flexCommander::flexNnrGain, web, &webServer::onFlexNnrGain, Qt::QueuedConnection);
                     connect(flex, &flexCommander::onAirChanged, web, &webServer::onFlexOnAir, Qt::QueuedConnection);

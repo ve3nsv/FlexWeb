@@ -9,7 +9,32 @@ upstream wfview history.
 Unreleased
 ----------
 
+FlexRadio transmit:
+- PTT and TUNE are never held up inside FlexWeb any more. Noise reduction
+  (NNR) used to run in the same loop that talks to the radio; with the
+  Premium model on a busy PC that loop stalled for seconds, presses piled
+  up and went out together (TUNE on / off / on in a millisecond), and the
+  radio dropped the connection. NNR now runs on its own thread, the radio
+  loop always gives commands a turn, and an overloaded NNR passes the
+  audio through for a moment instead of falling behind (logged).
+- PTT and TUNE go straight to the radio (not through the command queue's
+  70 ms tick); one command at a time, each after the radio answered the
+  last, the newest press winning; a key-up that waited over 300 ms is
+  dropped instead of keying late; unkey is always sent. Every other Flex
+  command leaves the queue as soon as it is added.
+- The log says who pressed PTT / TUNE and how long it took to reach the
+  radio (a warning over 50 ms), and when the radio thread could not run.
+- After the radio link drops, the page no longer shows TUNE as on.
+
 RF2K-S amplifier:
+- Nothing is sent to the amp while no browser is connected: polling stops
+  30 s after the last one leaves ([Amplifier] IdleGraceSecs, else the
+  --on-demand time) and starts when one connects.
+- "Offline" now says why: the amp's program is not running, the amp does
+  not answer (busy, another program using it, or off), the network cannot
+  reach it, or something else answers there.
+- A command the amp turns down (e.g. OPERATE "currently disabled") shows
+  the amp's reason on the page instead of doing nothing.
 - FlexWeb no longer gives up on the amp after 4 s: every request may take
   15 s, a slow answer pauses polling, and reconnects back off (5, 15, 30,
   60 s). Giving up early made the amp's web server fail on the closed

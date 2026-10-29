@@ -135,6 +135,8 @@ void cachingQueue::run()
         }
         else if (!aborted) {
             // Mutex is locked
+            if (drainImmediate)
+                drainImmediateLocked();
             while (!items.isEmpty()) {
                 emit sendValue(items.dequeue());
             }
@@ -224,6 +226,8 @@ void cachingQueue::add(queuePriority prio ,queueItem item, bool unique)
             {
                 updateCache(false,item.command,item.param,item.receiver);
             }
+            if (drainImmediate && queue.contains(priorityImmediate))
+                waiting.wakeAll();   // run() sends it now, not at the next tick
         }
     }
 }
@@ -294,6 +298,32 @@ queuePriority cachingQueue::del(funcs func, uchar receiver)
     return prio;
 }
 
+
+void cachingQueue::setDrainImmediate(bool on)
+{
+    QMutexLocker locker(&mutex);
+    if (drainImmediate == on) return;
+    drainImmediate = on;
+    qInfo() << "cachingQueue: immediate commands" << (on ? "sent as they arrive (network rig)" : "sent one per interval");
+    if (on) waiting.wakeAll();
+}
+
+// Mutex held. Every priorityImmediate item, oldest first - the same pick
+// run() makes one per tick (the last of the key's range is the oldest).
+// Immediate items are one-shot and their cache was updated when added.
+void cachingQueue::drainImmediateLocked()
+{
+    int guard = 0;
+    while (queue.contains(priorityImmediate) && ++guard <= 256) {
+        auto it = queue.find(priorityImmediate);
+        while (it != queue.end() && it.key() == priorityImmediate)
+            ++it;
+        --it;
+        const queueItem item = it.value();
+        queue.erase(it);
+        emit haveCommand(item.command, item.param, item.receiver);
+    }
+}
 
 // Block until the worker has handed every priorityImmediate command to the
 // rig thread (one per tick), or timeoutMs elapses.  Used on shutdown so a

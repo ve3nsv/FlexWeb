@@ -412,6 +412,48 @@ def test_ptt(flex):
     assert _wait(lambda: requests.get(f"{rest}/ptt", timeout=2).json().get("transmitting") is False, timeout=5)
 
 
+def test_tx_lanes(flex):
+    """Punch list 53: PTT and TUNE from a browser go straight to the radio
+    link; a burst of presses never reaches the radio as a burst of
+    contradictions - one command at a time, each after the radio answered the
+    last, ending in the state of the last press."""
+    radio, rest = flex
+    from test_web_login import _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    try:
+        n = len(radio.commands)
+        _ws_send(sock, {"cmd": "flexDsp", "key": "tune", "index": 0, "value": 1})
+        assert _wait(lambda: "transmit tune 1" in radio.commands[n:], timeout=5)
+        _ws_send(sock, {"cmd": "flexDsp", "key": "tune", "index": 0, "value": 0})
+        assert _wait(lambda: "transmit tune 0" in radio.commands[n:], timeout=5)
+
+        # Five presses at once: the radio gets them one at a time and ends
+        # where the last press left it.
+        time.sleep(0.5)
+        n = len(radio.commands)
+        for v in (1, 0, 1, 0, 1):
+            _ws_send(sock, {"cmd": "flexDsp", "key": "tune", "index": 0, "value": v})
+        time.sleep(3.0)
+        tunes = [c for c in radio.commands[n:] if c.startswith("transmit tune ")]
+        assert tunes and tunes[-1] == "transmit tune 1", tunes
+        assert len(tunes) <= 5, tunes
+        _ws_send(sock, {"cmd": "flexDsp", "key": "tune", "index": 0, "value": 0})
+        assert _wait(lambda: [c for c in radio.commands[n:] if c.startswith("transmit tune ")][-1:]
+                     == ["transmit tune 0"], timeout=5)
+
+        # PTT from the page: the TX slice, then xmit.
+        n = len(radio.commands)
+        _ws_send(sock, {"cmd": "setPTT", "value": True})
+        assert _wait(lambda: "xmit 1" in radio.commands[n:], timeout=5)
+        assert "slice set 0 tx=1" in radio.commands[n:radio.commands.index("xmit 1", n)]
+        _ws_send(sock, {"cmd": "setPTT", "value": False})
+        assert _wait(lambda: "xmit 0" in radio.commands[n:], timeout=5)
+    finally:
+        sock.close()
+
+
 def test_cw(flex):
     radio, rest = flex
     r = requests.post(f"{rest}/cw", json={"text": "CQ DE VE3NSV", "wpm": 25}, timeout=5)

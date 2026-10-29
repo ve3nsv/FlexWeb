@@ -1,4 +1,6 @@
 #include "flexcommander.h"
+#include "flexrxdsp.h"
+#include <QThread>
 #include <QRegularExpression>
 #include <QSysInfo>
 #include <QJsonArray>
@@ -90,6 +92,7 @@ flexCommander::~flexCommander()
     closeComm();
     emit requestRadioSelection(QList<radio_cap_packet>());
     queue->setRigCaps(Q_NULLPTR);
+    stopRxDsp();
     if (rxResampler) speex_resampler_destroy(rxResampler);
     if (txResampler) speex_resampler_destroy(txResampler);
 }
@@ -184,6 +187,14 @@ void flexCommander::commSetup(rigTypedef rigList, quint16 rigCivAddr, udpPrefere
     pingTimer = new QTimer(this);
     pingTimer->setInterval(1000);
     connect(pingTimer, &QTimer::timeout, this, &flexCommander::pingTick);
+
+    // Punch list 54b: notice when this thread - the radio's command link -
+    // could not run for a while; everything sent to the radio waited that long.
+    stallTimer = new QTimer(this);
+    stallTimer->setInterval(100);
+    connect(stallTimer, &QTimer::timeout, this, &flexCommander::checkStall);
+    stallClock.invalidate();
+    stallTimer->start();
 
     reconnectTimer = new QTimer(this);
     reconnectTimer->setSingleShot(true);
@@ -305,6 +316,7 @@ void flexCommander::closeComm()
     if (wanRegisterTimer) { wanRegisterTimer->stop(); wanRegisterTimer->deleteLater(); wanRegisterTimer = nullptr; }
     if (wanWatchdog) { wanWatchdog->stop(); wanWatchdog->deleteLater(); wanWatchdog = nullptr; }
     if (pingTimer) { pingTimer->deleteLater(); pingTimer = nullptr; }
+    if (stallTimer) { stallTimer->stop(); stallTimer->deleteLater(); stallTimer = nullptr; }
     if (reconnectTimer) { reconnectTimer->deleteLater(); reconnectTimer = nullptr; }
     // Drop the queue's pointer to our caps, so the setRigCaps() of the next
     // session re-announces the rig (the queue only signals a pointer change).
@@ -324,6 +336,9 @@ void flexCommander::resetSession()
     txRequested = false;
     onAir = false;
     txPending.clear();
+    txLane[0] = TxLane();
+    txLane[1] = TxLane();
+    tuning = false;
     handshakeDone = false;
     rigIdentified = false;
     infoDone = false;
@@ -384,6 +399,9 @@ void flexCommander::tcpDisconnected()
         report(funcTransceiverStatus, QVariant::fromValue<bool>(false));
     }
     resetSession();
+    // Punch list 55: the radio dropped whatever TUNE it had; the page must
+    // not keep showing it (its next press would then send "off").
+    if (extra.value("tune", 0) != 0) { extra["tune"] = 0; publishDsp(); }
     if (!closing) {
         setStatus("Flex: connection to the radio lost, retrying", false);
         if (reconnectTimer) reconnectTimer->start(wan ? 15000 : 3000);
@@ -562,6 +580,18 @@ void flexCommander::reconnectTick()
         return;
     if (tcp->state() == QAbstractSocket::UnconnectedState)
         startConnect();
+}
+
+void flexCommander::checkStall()
+{
+    if (!stallClock.isValid()) { stallClock.start(); return; }
+    const qint64 gap = stallClock.restart();
+    if (gap <= 300) return;     // a 100 ms tick more than 200 ms late
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (now - stallLoggedAtMs < 2000) return;
+    stallLoggedAtMs = now;
+    qWarning(logRig()).noquote() << QString("Flex: the radio thread could not run for %1 ms - "
+                                            "commands to the radio waited that long").arg(gap - 100);
 }
 
 void flexCommander::pingTick()
@@ -1035,7 +1065,7 @@ void flexCommander::handleStatus(const message& msg)
                 // than on the next RX audio packet, which may be a while.
                 if (tx && nnrWasActive) {
                     nnrWasActive = false;
-                    if (nnrF) nnrF->reset();
+                    if (rxDsp) QMetaObject::invokeMethod(rxDsp, [w = rxDsp]() { w->reset(); }, Qt::QueuedConnection);
                     emit flexNnrGain(1.0f, false);
                     publishDsp();
                 }
@@ -1123,14 +1153,59 @@ bool flexCommander::nnrModeOk() const
 
 void flexCommander::nnrApply()
 {
-    if (!nnrF) return;
-    nnrF->setStrength(nnrCfg.strength);
-    nnrF->setAlpha(nnrCfg.alpha / 100.0);
-    nnrF->setKnee(nnrCfg.knee / 10.0);
-    nnrF->setTau(nnrCfg.tau / 100.0);
-    nnrF->setMaxGain(nnrCfg.maxGain / 10.0);
-    nnrF->setSmooth(nnrCfg.attack, nnrCfg.release);
-    nnrModelInUse = nnrF->setModel(nnrCfg.model);
+    // The filter lives on the RX DSP thread (punch list 52): post the settings.
+    if (!rxDsp) return;
+    flexRxDsp::Settings st;
+    st.strength = nnrCfg.strength;
+    st.model = nnrCfg.model;
+    st.alpha = nnrCfg.alpha;
+    st.knee = nnrCfg.knee;
+    st.tau = nnrCfg.tau;
+    st.maxGain = nnrCfg.maxGain;
+    st.attack = nnrCfg.attack;
+    st.release = nnrCfg.release;
+    QMetaObject::invokeMethod(rxDsp, [w = rxDsp, st]() { w->applySettings(st); }, Qt::QueuedConnection);
+}
+
+// Punch list 52: the receive audio's NNR and PCM conversion on a thread of
+// their own, so a heavy NNR can never hold up the radio's command link.
+void flexCommander::ensureRxDsp()
+{
+    if (rxDsp) return;
+    rxDspThread = new QThread();
+    rxDspThread->setObjectName(QStringLiteral("FlexRxDsp"));
+    rxDsp = new flexRxDsp(QByteArray(reinterpret_cast<const char*>(guid), GUIDLEN));
+    rxDsp->moveToThread(rxDspThread);
+    // Emitted on the worker's thread; the receivers (web server) get them queued.
+    connect(rxDsp, &flexRxDsp::audio, this, &flexCommander::haveAudioData, Qt::DirectConnection);
+    connect(rxDsp, &flexRxDsp::nnrGain, this, &flexCommander::flexNnrGain, Qt::DirectConnection);
+    connect(rxDsp, &flexRxDsp::nnrState, this, [this](bool active, int model, int delayMs) {
+        nnrModelInUse = model;
+        nnrDelayMs = delayMs;
+        if (nnrWasActive != active) {
+            nnrWasActive = active;
+            if (!active) emit flexNnrGain(1.0f, false);
+        }
+        publishDsp();
+    }, Qt::QueuedConnection);
+    connect(rxDsp, &flexRxDsp::nnrFailed, this, [this](int) {
+        nnrCfg.on = 0;
+        publishDsp();
+    }, Qt::QueuedConnection);
+    rxDspThread->start();
+    nnrApply();
+}
+
+void flexCommander::stopRxDsp()
+{
+    if (!rxDspThread) return;
+    rxDspThread->quit();
+    if (!rxDspThread->wait(3000))
+        qWarning(logRig()) << "Flex: the RX DSP thread did not stop in time";
+    delete rxDsp;
+    rxDsp = nullptr;
+    delete rxDspThread;
+    rxDspThread = nullptr;
 }
 
 static QSettings* nnrStore()
@@ -1213,8 +1288,8 @@ bool flexCommander::setExtra(const QString& key, int index, int value)
         sendCmd(QString("cw %1 %2").arg(cwKeys.value(key)).arg(v));
         extra[key] = v;
     } else if (key == "tune") {
-        sendCmd(QString("transmit tune %1").arg(value ? 1 : 0));
-        extra["tune"] = value ? 1 : 0;
+        // Punch list 53: the same fenced lane as the web server's TUNE.
+        txRequest(1, value != 0, 0, QStringLiteral("server"));
     } else if (key == "wnb" || key == "wnbLevel") {
         if (panId.isEmpty()) return true;
         const int v = key == "wnb" ? (value ? 1 : 0) : qBound(0, value, 100);
@@ -1472,7 +1547,20 @@ void flexCommander::handleMeterStatus(const QString& body)
 
 void flexCommander::udpReadyRead()
 {
+    // Punch list 52d: a bounded batch, then the rest after whatever else is
+    // waiting on this thread (commands, the radio's replies, the keep-alive).
+    // With an unbounded loop a flood of packets kept it from ever getting a
+    // turn (2026-10-29: 11 s with no reply processed and no command sent).
+    udpDrainScheduled = false;
+    int handled = 0;
     while (udp && udp->hasPendingDatagrams()) {
+        if (++handled > kUdpBatch) {
+            if (!udpDrainScheduled) {
+                udpDrainScheduled = true;
+                QTimer::singleShot(0, this, &flexCommander::udpReadyRead);
+            }
+            return;
+        }
         QByteArray d;
         d.resize(int(udp->pendingDatagramSize()));
         udp->readDatagram(d.data(), d.size());
@@ -1700,61 +1788,19 @@ void flexCommander::handleRxAudio(const QByteArray& d, const vitaPacket& p)
     // NNR on voice modes only (a speech model removes a steady carrier),
     // and not while transmitting: the stream then carries the radio's monitor
     // of our own TX audio, which TX LISTEN ON-AIR relays to other browsers
-    // and which must reach them as sent.
-    const bool nnrActive = nnrCfg.on && nnrModeOk() && !transmitting && !nnrHold
+    // and which must reach them as sent. NNR and the conversion for the
+    // browsers run on the RX DSP thread (punch list 52); this thread only
+    // hands the block over, in order, stamped so an overloaded NNR passes
+    // audio through instead of falling behind.
+    const bool nnrWanted = nnrCfg.on && nnrModeOk() && !transmitting && !nnrHold
                            && nnrFilter::rateSupported(int(outRate));
-    if (nnrActive) {
-        if (!nnrF || nnrF->rate() != int(outRate)) {
-            nnrF.reset(new nnrFilter(int(outRate)));
-            if (!nnrF->isValid()) {
-                qWarning(logRig()) << "Flex: NNR could not start at" << outRate << "Hz";
-                nnrCfg.on = 0;
-                nnrF.reset();
-            } else {
-                nnrApply();
-                qInfo(logRig()) << "Flex: NNR on, model" << (nnrModelInUse ? "Premium" : "Standard")
-                                << "delay" << nnrF->delayMs() << "ms";
-            }
-        }
-        if (nnrF) {
-            QVector<float> v(static_cast<int>(outLen));
-            std::copy(out.constBegin(), out.constBegin() + int(outLen), v.begin());
-            nnrF->process(v);
-            std::copy(v.constBegin(), v.constEnd(), out.begin());
-            const qint64 now = QDateTime::currentMSecsSinceEpoch();
-            if (now - nnrGainAt >= 200) {
-                nnrGainAt = now;
-                emit flexNnrGain(nnrF->gain(), true);
-            }
-        }
-    } else if (nnrF) {
-        nnrF->reset();
-    }
-    if (nnrWasActive != (nnrActive && nnrF)) {
-        nnrWasActive = nnrActive && nnrF;
-        if (!nnrWasActive) emit flexNnrGain(1.0f, false);
-        publishDsp();
-    }
-
-    audioPacket pkt;
-    pkt.seq = rxSeq++;
-    pkt.time = QTime::currentTime();
-    pkt.sent = 0;
-    memcpy(pkt.guid, guid, GUIDLEN);
-    pkt.data.resize(int(outLen) * 2);
-    auto* dst = reinterpret_cast<qint16*>(pkt.data.data());
-    float peak = 0.0f;
-    double sumSq = 0.0;
-    for (spx_uint32_t i = 0; i < outLen; ++i) {
-        const float s = qBound(-1.0f, out[int(i)], 1.0f);
-        dst[i] = qToLittleEndian<qint16>(qint16(std::lround(s * 32767.0f)));
-        peak = qMax(peak, std::fabs(s));
-        sumSq += double(s) * s;
-    }
-    pkt.amplitudePeak = peak;
-    pkt.amplitudeRMS = outLen ? float(std::sqrt(sumSq / outLen)) : 0.0f;
-    pkt.volume = 1.0;
-    emit haveAudioData(pkt);
+    ensureRxDsp();
+    out.resize(int(outLen));
+    const qint64 queuedAt = QDateTime::currentMSecsSinceEpoch();
+    const quint32 seq = rxSeq++;
+    QMetaObject::invokeMethod(rxDsp, [w = rxDsp, out, rate = int(outRate), nnrWanted, queuedAt, seq]() {
+        w->process(out, rate, nnrWanted, queuedAt, seq);
+    }, Qt::QueuedConnection);
 }
 
 void flexCommander::webTxAudio(const audioPacket& data)
@@ -2083,23 +2129,108 @@ void flexCommander::applyFilter()
 
 void flexCommander::setTransmit(bool on)
 {
-    txRequested = on;
-    if (on) {
-        txKeyTimer.start();
-    } else {
-        txPending.clear();
+    // The cachingQueue's funcTransceiverStatus (rigctld, RADE's delayed unkey,
+    // anything not routed through txRequest): same lane, no age check.
+    txRequest(0, on, 0, QStringLiteral("server"));
+}
+
+void flexCommander::txRequest(int kind, bool on, qint64 stampMs, QString who)
+{
+    if (kind < 0 || kind > 1) return;
+    TxLane& L = txLane[kind];
+    const QString name = kind ? QStringLiteral("TUNE") : QStringLiteral("PTT");
+    const QString state = on ? QStringLiteral("on") : QStringLiteral("off");
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const qint64 age = stampMs > 0 ? now - stampMs : 0;
+    if (tcp == nullptr || tcp->state() != QAbstractSocket::ConnectedState || !handshakeDone) {
+        qInfo(logRig()).noquote() << QString("Flex: %1 %2 from %3 not sent - not connected to the radio")
+                                         .arg(name, state, who);
+        if (kind == 0 && !on) { txRequested = false; txPending.clear(); txAccumulator.clear(); }
+        return;
     }
-    if (on && sliceId >= 0)
-        sendCmd(QString("slice set %1 tx=1").arg(sliceId));
-    sendCmd(QString("xmit %1").arg(on ? 1 : 0), [this, on](quint32 code, const QString& body) {
-        if (code != 0) {
-            qWarning(logRig()).noquote() << QString("Flex: xmit %1 refused (0x%2) %3").arg(on ? 1 : 0)
-                                            .arg(code, 8, 16, QChar('0')).arg(body);
-            report(funcTransceiverStatus, QVariant::fromValue<bool>(transmitting));
+    if (on && age > kTxStaleMs) {
+        // Never key late: by now the operator has let go or pressed again.
+        qWarning(logRig()).noquote() << QString("Flex: %1 on from %2 dropped - it waited %3 ms before it could be sent")
+                                            .arg(name, who).arg(age);
+        return;
+    }
+    L.want = on;
+    L.wantStamp = stampMs;
+    L.wantWho = who;
+    if (L.inflight && now - L.inflightAt < kTxInflightMs) {
+        // The previous one is still unanswered: this becomes the latest state,
+        // sent when the radio answers - never a burst of contradictions.
+        qDebug(logRig()).noquote() << QString("Flex: %1 %2 from %3 waits for the radio's answer to the last one")
+                                          .arg(name, state, who);
+        if (!L.retryArmed) {
+            L.retryArmed = true;
+            const qint64 left = kTxInflightMs - (now - L.inflightAt) + 10;
+            QTimer::singleShot(int(qMax<qint64>(10, left)), this, [this, kind]() {
+                TxLane& l = txLane[kind];
+                l.retryArmed = false;
+                if (l.inflight && QDateTime::currentMSecsSinceEpoch() - l.inflightAt >= kTxInflightMs) {
+                    qWarning(logRig()) << "Flex:" << (kind ? "TUNE" : "PTT") << "command unanswered for"
+                                       << kTxInflightMs << "ms - sending the latest state";
+                    l.inflight = 0;
+                }
+                if (!l.inflight && (!l.known || l.want != l.sent)) txDispatch(kind);
+            });
         }
-    });
-    if (!on)
-        txAccumulator.clear();
+        return;
+    }
+    L.inflight = 0;
+    txDispatch(kind);
+}
+
+void flexCommander::txDispatch(int kind)
+{
+    TxLane& L = txLane[kind];
+    if (tcp == nullptr || !handshakeDone) return;
+    const bool on = L.want;
+    // Nothing to do when the radio is already where we want it.
+    const bool actual = kind ? tuning : transmitting;
+    if (L.known && L.sent == on && actual == on) return;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    quint32 seq = 0;
+    auto answered = [this, kind, on](quint32 code, const QString& body) {
+        TxLane& l = txLane[kind];
+        l.inflight = 0;
+        if (code != 0) {
+            qWarning(logRig()).noquote() << QString("Flex: %1 %2 refused by the radio (0x%3) %4")
+                                                .arg(kind ? QStringLiteral("TUNE") : QStringLiteral("PTT"),
+                                                     on ? QStringLiteral("on") : QStringLiteral("off"))
+                                                .arg(code, 8, 16, QChar('0')).arg(body);
+            if (kind == 0) report(funcTransceiverStatus, QVariant::fromValue<bool>(transmitting));
+        }
+        // Latest wins: what was asked meanwhile goes out now.
+        if (l.want != l.sent) txDispatch(kind);
+    };
+    if (kind == 0) {
+        txRequested = on;
+        if (on) txKeyTimer.start();
+        else txPending.clear();
+        if (on && sliceId >= 0)
+            sendCmd(QString("slice set %1 tx=1").arg(sliceId));
+        seq = sendCmd(QString("xmit %1").arg(on ? 1 : 0), answered);
+        if (!on) txAccumulator.clear();
+    } else {
+        seq = sendCmd(QString("transmit tune %1").arg(on ? 1 : 0), answered);
+        extra["tune"] = on ? 1 : 0;
+        publishDsp();
+    }
+    L.sent = on;
+    L.known = true;
+    L.inflight = seq;
+    L.inflightAt = now;
+    // Punch list 54a: how long the press waited inside FlexWeb.
+    const QString kindName = kind ? QStringLiteral("TUNE") : QStringLiteral("PTT");
+    const QString stateName = on ? QStringLiteral("on") : QStringLiteral("off");
+    const QString msg = L.wantStamp > 0
+        ? QString("Flex: %1 %2 (from %3) sent to the radio %4 ms after the server got it")
+              .arg(kindName, stateName, L.wantWho).arg(now - L.wantStamp)
+        : QString("Flex: %1 %2 (from %3) sent to the radio").arg(kindName, stateName, L.wantWho);
+    if (L.wantStamp > 0 && now - L.wantStamp > 50) qWarning(logRig()).noquote() << msg;
+    else qInfo(logRig()).noquote() << msg;
 }
 
 void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
@@ -2760,7 +2891,7 @@ void flexCommander::publishDsp()
             st["nnr"] = nnrCfg.on;
             st["nnrStrength"] = nnrCfg.strength;
             st["nnrModel"] = nnrCfg.model;
-            st["nnrModelInUse"] = nnrF ? nnrModelInUse : nnrCfg.model;
+            st["nnrModelInUse"] = nnrDelayMs > 0 ? nnrModelInUse : nnrCfg.model;
             st["nnrAlpha"] = nnrCfg.alpha;
             st["nnrKnee"] = nnrCfg.knee;
             st["nnrTau"] = nnrCfg.tau;
@@ -2768,7 +2899,7 @@ void flexCommander::publishDsp()
             st["nnrAttack"] = nnrCfg.attack;
             st["nnrRelease"] = nnrCfg.release;
             st["nnrActive"] = nnrWasActive;
-            st["nnrDelayMs"] = nnrF ? nnrF->delayMs() : 0;
+            st["nnrDelayMs"] = nnrDelayMs;
             QJsonArray tl;
             for (const QJsonObject& t : tnfs) tl.append(t);
             st["tnfs"] = tl;

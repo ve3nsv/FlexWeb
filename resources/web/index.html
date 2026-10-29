@@ -4117,6 +4117,12 @@ function handleMessage(msg) {
         case 'ampRefused':
             ampRefusedReason = msg.reason || '';
             ampTunePending = false;
+            // Punch list 50: say why the button did nothing.
+            guestNotice(msg.reason === 'amp' ? 'Amp refused ' + (msg.what || 'the command') + ': ' + (msg.text || 'no reason given')
+                : msg.reason === 'nousers' ? 'Amp controls need web login (no users are set up)'
+                : msg.reason === 'signin' ? 'Sign in to use the amp controls'
+                : String(msg.reason || '').indexOf('tx:') === 0 ? 'Amp controls are locked while ' + msg.reason.slice(3) + ' transmits'
+                : 'Amp command refused', 4000);
             renderAmpIndicator();
             if (document.getElementById('ampOverlay').classList.contains('visible')) renderAmpOverlay();
             break;
@@ -7411,7 +7417,7 @@ function renderApplets() {
         var st = document.createElement('span');
         st.className = 'ae-tuner-chip ' + (up ? 'on' : 'off');
         st.textContent = up ? 'CONNECTED' : 'OFFLINE';
-        st.title = up ? 'Connected to ' + (a.target || 'the amplifier') : (a.error || 'Amplifier not reachable');
+        st.title = up ? 'Connected to ' + (a.target || 'the amplifier') : ampOfflineText(a);
         right.appendChild(st);
         ah.appendChild(right);
         amp.appendChild(ah);
@@ -7931,13 +7937,35 @@ function ampEsc(t) {
     });
 }
 
+// Punch list 49: why the amp is unreachable (the server's offlineReason).
+function ampOfflineText(a) {
+    switch (a && a.offlineReason) {
+    case 'refused': return 'Amp program not running (connection refused)';
+    case 'noanswer': return 'Amp not answering - busy, another program may be using it, or it is off';
+    case 'noroute': return 'Amp unreachable - the network cannot reach it';
+    case 'notrfkit': return 'Something other than an RF-KIT answers at ' + (a.target || 'that address');
+    }
+    return (a && a.error) || 'Amplifier not reachable';
+}
+function ampOfflineShort(a) {
+    switch (a && a.offlineReason) {
+    case 'refused': return 'AMP NOT RUNNING';
+    case 'noanswer': return 'AMP NOT ANSWERING';
+    case 'noroute': return 'AMP UNREACHABLE';
+    }
+    return 'AMP OFFLINE';
+}
+
 function renderAmpIndicator() {
     var el = document.getElementById('ampIndicator');
     if (!el) return;
     if (!ampConfigured) { el.style.display = 'none'; return; }
     el.style.display = '';
     el.classList.remove('operate', 'fault');
-    if (!ampState || !ampState.connected) { el.textContent = 'AMP OFFLINE'; el.classList.add('fault'); return; }
+    if (!ampState || !ampState.connected) {
+        el.textContent = ampOfflineShort(ampState); el.title = ampOfflineText(ampState); el.classList.add('fault'); return;
+    }
+    el.title = 'RF-KIT amplifier';
     // Punch list 42: the server has just sent the wake request.
     if (ampState.waking) { el.textContent = 'AMP WAKING'; return; }
     var fwd = ampState.fwd !== undefined ? ' ' + ampState.fwd + ' W' : '';
@@ -8234,7 +8262,7 @@ function renderAmpOverlay() {
     var html = '<div class="amp-head"><b>' + ampEsc(a.device || 'RF-KIT') + '</b><span>' +
         (up ? 'connected ' : 'offline ') + ampEsc(a.target || '') + '</span></div>';
     if (up && a.ampError) html += '<div class="amp-error-banner" title="' + ampEsc(AMP_ERROR_HELP) + '">Error: ' + ampEsc(a.ampError) + '</div>';
-    if (!up && a.error) html += '<div class="amp-head"><span style="color:#e33">' + ampEsc(a.error) + '</span></div>';
+    if (!up && (a.error || a.offlineReason)) html += '<div class="amp-head"><span style="color:#e33">' + ampEsc(ampOfflineText(a)) + '</span></div>';
 
     // Fixed scales matching the amplifier's own display (see AetherSDR's
     // rfkit-amplifier-design.md). Reflected power and SWR stay at baseline

@@ -24,6 +24,7 @@
 #include <QTimer>
 #include <QThread>
 #include <QDateTime>
+#include <QMetaMethod>
 #include <QHostInfo>
 #include <QPointer>
 #include <QThreadPool>
@@ -1867,6 +1868,7 @@ void webServer::onWsNewConnection()
     qInfo().noquote() << "Web client connected:" << pSocket->peerAddress().toString()
                       << (user.isEmpty() ? QString() : QString("(%1)").arg(user));
     onDemandBrowserArrived();
+    updateAmpPolling();
     // A signed-in operator takes the radio back from tuning guests and
     // listeners (punch list 40, 41).
     if (!user.isEmpty() && !isGuest(pSocket)) {
@@ -1973,6 +1975,7 @@ void webServer::onWsDisconnected()
         }
         broadcastGuestMode();
         updateAmpAwake();
+        updateAmpPolling();
         onDemandBrowserLeft();
     }
 }
@@ -2477,7 +2480,15 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
             });
             return;
         }
-        queue->add(priorityImmediate, queueItem(funcTransceiverStatus, QVariant::fromValue<bool>(on), false, uchar(0)));
+        // Punch list 53 / 54c: on a Flex, straight to the radio link (fenced,
+        // latest wins), never behind the cachingQueue's tick; logged with who.
+        static const QMetaMethod flexTxSignal = QMetaMethod::fromSignal(&webServer::flexTx);
+        const QString who = client ? clientLabel(client) : QStringLiteral("rigctld");
+        qInfo().noquote() << "Web: PTT" << (on ? "on" : "off") << "from" << who;
+        if (isSignalConnected(flexTxSignal))
+            emit flexTx(0, on, QDateTime::currentMSecsSinceEpoch(), who);
+        else
+            queue->add(priorityImmediate, queueItem(funcTransceiverStatus, QVariant::fromValue<bool>(on), false, uchar(0)));
         // The amp's fast schedule starts with the request, before the radio
         // reports TRANSMITTING, so the first readings are not missed.
         if (on && rfkit_) rfkit_->kickFast();
@@ -2926,16 +2937,19 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     else if (type == "ampOperate") {
         // RF-KIT: OPERATE / STANDBY. The panel repaints from the amplifier's
         // reply, never from this request.
+        ampCmdClient_ = client;   // punch list 50: a refusal goes back here
         if (rfkit_) rfkit_->setOperate(cmd["value"].toBool());
     }
     else if (type == "ampTune") {
         // Asks the amplifier's own autotune to start (modified servers only;
         // the connection refuses otherwise). It tunes only while a tune
         // carrier is on the air; nothing here keys the radio.
+        ampCmdClient_ = client;
         if (rfkit_) rfkit_->startTune();
     }
     else if (type == "ampAntenna") {
         // Internal antennas 1-4 only; the connection refuses anything else.
+        ampCmdClient_ = client;
         if (rfkit_) {
             AetherSDR::Rfkit::Antenna a;
             a.type = AetherSDR::Rfkit::AntennaType::Internal;
@@ -2945,6 +2959,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     }
     else if (type == "ampErrorReset") {
         // Only while the amp reports a fault (RESET is red then).
+        ampCmdClient_ = client;
         if (rfkit_ && ampFault_) rfkit_->resetError();
     }
     else if (type == "stopCW") {
@@ -2993,8 +3008,13 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
             pttClient = on ? client : nullptr;
             if (on && rfkit_) rfkit_->kickFast();
             broadcastTxState();
+            // Punch list 53 / 54c: the TUNE carrier takes the same fenced lane as PTT.
+            const QString who = clientLabel(client);
+            qInfo().noquote() << "Web: TUNE" << (on ? "on" : "off") << "from" << who;
+            emit flexTx(1, on, QDateTime::currentMSecsSinceEpoch(), who);
+        } else {
+            emit flexDspSet(key, cmd["index"].toInt(), cmd["value"].toInt());
         }
-        emit flexDspSet(key, cmd["index"].toInt(), cmd["value"].toInt());
     }
     else if (type == "disconnectLan") {
         emit requestLanDisconnect();
@@ -7633,11 +7653,15 @@ void webServer::configureRfkit(const QString &target)
         if (ok && p > 0 && p < 65536) { port = quint16(p); host = host.left(colon); }
     }
 
+    rfkitHost_ = host;
+    rfkitPort_ = port;
+    ampFailLogged_.clear();
     rfkit_ = new RfkitConnection(this);
     rfkit_->setAutoReconnect(true);
     rfkit_->setPollIntervals(ampRxPollMs_, ampTxPollMs_);
     connect(rfkit_, &RfkitConnection::connected, this, [this]() {
         qCInfo(logWebServer) << "RF-KIT amplifier connected:" << rfkit_->description();
+        ampFailLogged_.clear();
         updateAmpTx();
         // Punch list 46: let a just-restarted amp answer a few ordinary
         // polls before the slow wake request takes its one-at-a-time server.
@@ -7656,14 +7680,37 @@ void webServer::configureRfkit(const QString &target)
         publishAmp();
     });
     connect(rfkit_, &RfkitConnection::connectionFailed, this, [this](const QString &why) {
-        qCInfo(logWebServer) << "RF-KIT amplifier not reachable at" << rfkitTarget_ << "-" << why;
+        // Punch list 49: say why, once per change of reason, not every retry.
+        const QString key = QString::fromLatin1(RfkitConnection::failureKey(rfkit_->lastFailure()));
+        if (key != ampFailLogged_) {
+            ampFailLogged_ = key;
+            const QString what = key == "refused" ? "the amp's program is not running (connection refused)"
+                               : key == "noanswer" ? "the amp is not answering - busy, another program may be using it, or it is off"
+                               : key == "noroute" ? "the network cannot reach it"
+                               : key == "notrfkit" ? "something else answers at that address"
+                                                   : why;
+            qCInfo(logWebServer).noquote() << "RF-KIT amplifier not reachable at" << rfkitTarget_ << "-" << what
+                                           << "(" + why + ")";
+        }
         ampJson_ = QJsonObject();
         ampJson_["type"] = "amp";
         ampJson_["connected"] = false;
         ampJson_["target"] = rfkitTarget_;
         ampJson_["error"] = why;
+        ampJson_["offlineReason"] = key;
         ampFault_ = false;
         sendJsonToAll(ampJson_);
+    });
+    connect(rfkit_, &RfkitConnection::commandRefused, this, [this](const QString &what, const QString &reason) {
+        // Punch list 50: the amp turned a command down - tell whoever sent it.
+        QJsonObject o;
+        o["type"] = "ampRefused";
+        o["reason"] = "amp";
+        o["what"] = what;
+        o["text"] = reason;
+        qCInfo(logWebServer).noquote() << "RF-KIT amplifier refused" << what + ":" << reason;
+        if (ampCmdClient_ && wsClients.contains(ampCmdClient_.data())) sendJsonTo(ampCmdClient_.data(), o);
+        else for (QWebSocket *c : wsClients) if (!isGuest(c)) sendJsonTo(c, o);
     });
     connect(rfkit_, &RfkitConnection::statusUpdated, this, [this](const Rfkit::Status &st) {
         QJsonObject o;
@@ -7747,8 +7794,54 @@ void webServer::configureRfkit(const QString &target)
         ampJson_ = o;
         publishAmp();
     });
+    // Punch list 48: nothing is sent to the amp until a browser is on.
+    if (wsClients.isEmpty()) {
+        ampIdle_ = true;
+        qCInfo(logWebServer) << "RF-KIT amplifier:" << host << port << "- polled while a browser is connected";
+        return;
+    }
+    ampIdle_ = false;
     qCInfo(logWebServer) << "RF-KIT amplifier: connecting to" << host << port;
     rfkit_->connectNetwork(host, port);
+}
+
+void webServer::setAmpIdleGrace(int secs)
+{
+    ampIdleGraceSecs_ = qBound(-1, secs, 3600);
+}
+
+// Punch list 48. The RF2K-S's one-at-a-time server is left alone while nobody
+// looks: after the last browser leaves (and a grace, so a page reload does not
+// reconnect) FlexWeb sends it nothing - no polls, no reconnect attempts. The
+// first browser connects it again; after 3+ minutes alone the amp sleeps
+// anyway, and that browser waits for the ~5 s wake either way.
+void webServer::updateAmpPolling()
+{
+    if (!rfkit_) return;
+    if (!ampIdleTimer_) {
+        ampIdleTimer_ = new QTimer(this);
+        ampIdleTimer_->setSingleShot(true);
+        connect(ampIdleTimer_, &QTimer::timeout, this, [this]() {
+            if (!rfkit_ || !wsClients.isEmpty() || ampIdle_) return;
+            ampIdle_ = true;
+            rfkit_->disconnect();
+            ampJson_ = QJsonObject();
+            ampFailLogged_.clear();
+            qCInfo(logWebServer) << "RF-KIT amplifier: no browser, polling stopped (nothing is sent to the amp until one connects)";
+        });
+    }
+    if (!wsClients.isEmpty()) {
+        ampIdleTimer_->stop();
+        if (ampIdle_) {
+            ampIdle_ = false;
+            qCInfo(logWebServer) << "RF-KIT amplifier: a browser connected, polling resumed -" << rfkitHost_ << rfkitPort_;
+            rfkit_->connectNetwork(rfkitHost_, rfkitPort_);
+        }
+        return;
+    }
+    if (ampIdle_ || ampIdleTimer_->isActive()) return;
+    const int grace = ampIdleGraceSecs_ >= 0 ? ampIdleGraceSecs_ : (onDemandIdleSec_ > 0 ? onDemandIdleSec_ : 30);
+    ampIdleTimer_->start(qMax(0, grace) * 1000);
 }
 
 // Who may change the amplifier (OPERATE / STANDBY, tune, antenna, error
