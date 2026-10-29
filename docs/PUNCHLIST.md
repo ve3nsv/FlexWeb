@@ -1365,3 +1365,40 @@ UDP flood) must not delay a TUNE / PTT command beyond 50 ms; bursts of
 presses reach the radio as the latest state only; a stale TX command is
 dropped; unkey always sent; command-latency log lines present. The page's
 TUNE state after a mock radio reconnect matches the radio.
+56. Page: live readings never rebuild controls (user, 2026-10-29; small).
+    While transmitting, aeTick (every 300 ms) rebuilds the slice pills, both
+    applets and (before Actions #87) the bottom bar because ampState - the
+    amp's watts - is in its signature; the AMP and FUNC panels, when open,
+    are rebuilt on every amp reading (25-40 ms). A click whose press and
+    release land on different elements is lost (TUNE would not turn off on
+    #86), and the browser spends CPU on it.
+    a. aeTick's signature leaves out the live readings (FWD / REF / SWR /
+       temperature / volts / amps, meter values); they are written into the
+       existing elements in place, like the bottom bar's AMP key on #87.
+    b. The AMP and FUNC panels: rebuilt only when their structure changes;
+       bars and numbers updated in place.
+    c. Every transmit control (TUNE, MOX / PTT, amp OPERATE, amp TUNE) acts
+       on the press.
+    Check: no rebuild of a panel while transmitting with nothing changed
+    but readings (count in a debug counter); clicks on applet buttons during
+    a long TUNE always register.
+57. NNR never cuts out (user, 2026-10-29; small-medium). On Actions #86
+    NNR Premium fell 200 ms behind a few times a minute on the user's
+    server PC and the item 52c fallback passed the audio through
+    unprocessed for 0.2-0.3 s - audible as the noise coming back. The user
+    does not want NNR to drop out.
+    a. The RX DSP thread runs at high priority (AetherSDR: its stream and
+       audio threads at high QoS), so other programs on the PC do not
+       pre-empt it.
+    b. Premium falling behind steps down to Standard at once (NNR stays on;
+       Standard drains the backlog). Logged ("NNR: Premium too slow on this
+       PC, using Standard"); the page shows Standard as the model in use.
+    c. Back to Premium after a stable minute (load under ~50 % of real
+       time); a quick relapse doubles the wait before the next try.
+    d. Pass-through only if Standard cannot keep up either, with a short
+       crossfade in and out.
+    e. Every 10 s the log gives NNR's load (CPU seconds per second of audio,
+       model in use), so the headroom on a PC is visible.
+    Tests: a slowed NNR stub steps down to Standard instead of passing
+    through; steps back up after the stable period.
+
