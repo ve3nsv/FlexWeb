@@ -1257,3 +1257,76 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
        OPERATE: currently disabled", to the browser that sent the command.
     Tests: test_rfkit - stub answers 409 to PUT /operate-mode; the sending
     client gets the refusal message.
+
+Items 51-55: commands to the radio are never delayed inside FlexWeb (user,
+2026-10-29: "I want to ensure all commands are never delayed"; large, one
+design). Found with the user's --debug logs on Actions #85, 2026-10-29:
+TUNE / PTT unreliable all afternoon while AetherSDR keyed every time (from
+work, over the public address or Tailscale). The cause: flexCommander does
+everything on one thread - the radio's TCP command link, the UDP streams
+(FFT, waterfall, meters, audio) and the RX audio processing, NNR included.
+udpReadyRead() loops while datagrams wait and runs NNR (handleRxAudio) on
+each audio packet inside the loop; with NNR Premium on a busy PC the loop
+barely ends, and the TCP replies and the commands queued for the thread
+wait. Measured: 15:57:33.6-15:57:44.5 no radio reply was processed and no
+command sent for 11 s while audio kept arriving; the TUNE press went out at
+44.533 with 15 queued meter replies. Released backlogs reach the radio as
+bursts of contradictory commands ("transmit tune 1/0/1/0/1/0/1" in 1 ms at
+15:33:57.979; "tune 1, tune 0, slice set 0 tx=1, xmit 1" in 15 ms at
+15:50:37.92) and the radio then drops the client ("client ... disconnected
+forced=0", 0.4-0.8 s later) - every "connection to the radio lost" of the
+day. With NNR off (15:56:54-15:57:24) every press went out within ms and
+keyed cleanly; NNR back on, the 11 s stall. On 2026-10-28 (FT8 fine) NNR was
+on Standard; on 2026-10-29 Premium, on a busier server PC. A power cycle of
+the radio changed nothing.
+AetherSDR (rfkit fork, 34f01c9) for reference: FlexBackend runs the TCP link
+on its own "RadioConnection" thread, the UDP streams on "PanadapterStream"
+(high QoS) and audio DSP, NNR included, on "AudioEngine" (MainWindow); a
+command is posted to RadioConnection (invokeMethod, queued) and written at
+once. TX goes through TxCoordinator: each key / unkey carries an operation
+fence and a stale one is refused, not sent late (FlexBackend::sendTx,
+fence.permitsDispatch); FlexPttWireSession tracks key / unkey against the
+radio's replies.
+51. Radio command link on its own thread. A connection object that only
+    owns the TCP socket to the radio: writes commands, reads replies and
+    status, the keepalive ping. Nothing else runs there, so a command goes
+    out as soon as it is handed over. flexCommander's state stays where it
+    is; the connection hands it parsed lines (queued) and takes commands
+    (queued), like AetherSDR's RadioConnection.
+52. UDP streams and audio processing off that thread.
+    a. A stream thread reads the radio's UDP (FFT, waterfall, meters, RX
+       audio) and hands the results on; it never blocks the command link.
+    b. An audio thread runs NNR and the RX audio conversion, then sends to
+       the browsers.
+    c. If NNR cannot keep up (its backlog passes ~200 ms), the audio passes
+       through unprocessed until it catches up, logged once per episode
+       ("NNR overloaded - audio passed through"), instead of a backlog.
+    d. Guard: udpReadyRead() handles at most a bounded number of datagrams
+       per call and yields, so no stream can starve anything else.
+53. Commands straight to the radio link, transmit fenced.
+    a. PTT no longer goes through the cachingQueue (70 ms tick): setPTT and
+       every Flex control command go directly to the command link.
+    b. TUNE and PTT are sent as on / off, never as a toggle; the page sends
+       the state it wants (no flexDsp.tune flip).
+    c. Latest wins: a TX command older than ~300 ms when it would be sent
+       is dropped and logged, never sent late; key and unkey are not sent
+       while the previous one is unanswered, the newest pending state is
+       sent when the radio answers (as TxCoordinator / FlexPttWireSession).
+    d. Unkey is never dropped.
+54. Measured, so "never delayed" is shown by the log.
+    a. Every TX / control command logs browser receipt -> written to the
+       radio; over 50 ms is a warning with the time.
+    b. The command link logs any gap over 200 ms in which it could not run.
+    c. Each setPTT / TUNE received from a browser is logged (who, value,
+       time) - the logs of 2026-10-29 could not tell a page burst from a
+       server backlog.
+55. After a reconnect to the radio, the page takes TUNE, PTT and the other
+    on / off states from the radio again (a dropped session left the page's
+    TUNE inverted: the next press sent "off"). Also: the "QIODevice::read
+    ... device not open" warning still logged after an amp request times out
+    (Actions #85, 15:09:25) - item 46c missed one path.
+Tests: tests/test_flex.py with mock_flex_radio.py - a slow NNR stub (or a
+UDP flood) must not delay a TUNE / PTT command beyond 50 ms; bursts of
+presses reach the radio as the latest state only; a stale TX command is
+dropped; unkey always sent; command-latency log lines present. The page's
+TUNE state after a mock radio reconnect matches the radio.
