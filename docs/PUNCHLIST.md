@@ -1194,3 +1194,39 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     keys, worklet / class ids, "based on wfweb" credit.
     Tests: grep the built strings in test_cpp_units / test_web_login where
     a test already reads them (logbook ADIF header, REST page).
+48. RF2K-S: no amp traffic while no browser is connected (user, 2026-10-29;
+    small). Today FlexWeb polls the amp ~4 GETs/s around the clock, with or
+    without a browser; only the keep-awake stops. That gains nothing: after
+    3+ minutes alone the amp is asleep anyway, so a browser that connects
+    waits for the ~5 s wake either way. Supersedes item 42's "no slower
+    idle polling is needed".
+    Found on 2026-10-29 (root cause of the amp's web server and screen
+    freezing since 2026-10-28): PgTg, left running on the user's work PC
+    after reading its RF-KIT DLL, polled the amp over Tailscale around the
+    clock (150 ms RX / 15 ms TX). The amp's REST server (wsgiref inside
+    main.py) takes one connection at a time with no idle timeout; requests
+    abandoned over the tunnel left it waiting on dead connections (ss on
+    the amp: ESTAB with nothing queued, CLOSE-WAIT holding FlexWeb's
+    unread GET /info, backlog full, new connects SynSent), so FlexWeb, the
+    screen and CAT all stalled - with everything at home closed, and
+    through amp reboots. Not FlexWeb's TxPollMs 10 (alone it sustained
+    ~74 /power reads/s through 20 min of FT8 overs on 2026-10-28 22:20-
+    22:40), not CAT, not the SD card (23 % full, no I/O wait), not CPU
+    (main.py 13 % of a core idle). With PgTg closed the amp answers in
+    3-17 ms.
+    The amp's sleep timer (sleepTimer.py, user's amp): 3-60 min (default
+    20, off by default), checked every 10 s; reset by a screen touch / key,
+    by PTT seen by the amp, and by the modified PUT /tuner. wake_up() runs
+    time.sleep(5) on the GUI main thread - the ~5 s wake, during which the
+    screen and REST server answer nothing. KeepAwakeSecs 60 is inside the
+    3-minute minimum, so it needs no setting from the amp.
+    a. No browser connected (guests included): no requests to the amp at
+       all - no polls, no reconnect attempts. The amp state is "idle", not
+       offline.
+    b. The first browser: connect (GET /info), read everything once, then
+       the receive schedule; the wake as today (signed-in users only).
+    c. The last browser leaves: stop after the --on-demand grace (30 s
+       default), so a page reload does not reconnect.
+    d. Log "RF-KIT amplifier: no browser, polling stopped" / "...resumed".
+    Tests: test_rfkit - no GETs on the stub while no client is connected,
+    /info + polls once one connects, none again after the grace.
