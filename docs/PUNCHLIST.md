@@ -1145,3 +1145,28 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     and TUNE support stays unknown until the first answered wake.
     Test: the stub amp delays its PUT /tuner {} reply by 5 s; the wake must
     be answered (tuneApi supported, no transport error, still connected).
+47. FlexWeb name where item 15 (2026-10-21) missed it (user, 2026-10-28;
+    easy). Text the user can see that still says wfweb:
+    a. Page errors from the Flex: "The radio refused wfweb as a GUI client",
+       "could not give wfweb a receiver (slice)" / "a panadapter"; SmartLink
+       "wfweb cannot hole-punch yet" (flexcommander.cpp).
+    b. Self-signed certificate CN "wfweb" (new certificates only - an
+       existing wfweb-web.crt is kept, so browsers need not re-trust it).
+    c. REST port page: "wfweb REST API" title / heading, the link to the
+       upstream wfweb REST_API.md (-> this fork's), Basic realm "wfweb";
+       debug.html title / heading "wfweb Web"; the WebSocket server name.
+    d. ADIF export: "ADIF Export from FlexWeb", <PROGRAMID:7>FlexWeb (and
+       PROGRAMVERSION) - shows in QRZ / LoTW imports. Existing logbook
+       records unchanged.
+    e. Remote log (WSJT-X UDP) client id "FlexWeb" / "FlexWeb - <name>".
+    f. rigctld dump_caps model name "FlexWeb".
+    g. --help text: describes the program as FlexWeb (the command stays
+       wfweb, e.g. "wfweb --smartlink-login", since that is the file name).
+    h. Icom LAN client name suffix "-wfweb" -> "-FlexWeb"; servermain's
+       "Beginning search from wfweb" log line.
+    Unchanged on purpose (item 15's keep list): settings locations
+    (HKCU\Software\wfweb, %APPDATA%\wfweb, launcher log name), wfweb.exe /
+    wfweb-launcher.exe and the command names in messages, localStorage
+    keys, worklet / class ids, "based on wfweb" credit.
+    Tests: grep the built strings in test_cpp_units / test_web_login where
+    a test already reads them (logbook ADIF header, REST page).
