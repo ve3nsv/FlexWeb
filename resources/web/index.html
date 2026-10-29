@@ -3937,8 +3937,8 @@ function ensureWsTransport() {
     wsTransport = new WebSocketRigTransport();
     wsTransport.addEventListener('open',    onTransportOpen);
     wsTransport.addEventListener('close',   onTransportClose);
-    wsTransport.addEventListener('message', function (e) { handleMessage(e.detail); });
-    wsTransport.addEventListener('binary',  function (e) { handleBinaryMessage(e.detail); });
+    wsTransport.addEventListener('message', function (e) { if(window.flexMetrics) window.flexMetrics.json(e.detail); handleMessage(e.detail); });
+    wsTransport.addEventListener('binary',  function (e) { if(window.flexMetrics) window.flexMetrics.binary(e.detail); handleBinaryMessage(e.detail); });
 }
 
 function connect() {
@@ -16918,5 +16918,6 @@ window.dispatchEvent(new Event('ft8tsReady'));
 <script src="ctcss.js"></script>
 <script src="dxcc.js"></script>
 <script src="packet.js"></script>
+<script src="performance.js"></script>
 </body>
 </html>

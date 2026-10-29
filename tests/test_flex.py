@@ -1095,3 +1095,26 @@ def test_smartlink():
                 proc.kill()
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=2)
+
+
+def test_tune_owner_disconnect_releases_both_lanes(flex):
+    """A spectator leaving must not unkey; the TUNE owner's departure must."""
+    radio, rest = flex
+    from test_web_login import _ws, _ws_send
+    port = int(rest.split(':')[2].split('/')[0]) - 1
+    _, owner, _ = _ws(port, None)
+    _, spectator, _ = _ws(port, None)
+    try:
+        n = len(radio.commands)
+        _ws_send(owner, {'cmd': 'flexDsp', 'key': 'tune', 'value': 1})
+        assert _wait(lambda: 'transmit tune 1' in radio.commands[n:], timeout=5)
+        n = len(radio.commands)
+        spectator.close()
+        time.sleep(.5)
+        assert 'transmit tune 0' not in radio.commands[n:]
+        owner.close()
+        assert _wait(lambda: 'transmit tune 0' in radio.commands[n:], timeout=5)
+    finally:
+        owner.close()
+        spectator.close()
+        requests.put(f'{rest}/ptt', json={'transmitting': False}, timeout=5)

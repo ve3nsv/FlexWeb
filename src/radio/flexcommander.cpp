@@ -1202,8 +1202,10 @@ void flexCommander::stopRxDsp()
 {
     if (!rxDspThread) return;
     rxDspThread->quit();
-    if (!rxDspThread->wait(3000))
-        qWarning(logRig()) << "Flex: the RX DSP thread did not stop in time";
+    if (!rxDspThread->wait(3000)) {
+        qWarning(logRig()) << "Flex: waiting for RX DSP to finish before destruction";
+        rxDspThread->wait(); // Never destroy a worker or QThread while it is running.
+    }
     delete rxDsp;
     rxDsp = nullptr;
     delete rxDspThread;
@@ -2189,6 +2191,11 @@ void flexCommander::txDispatch(int kind)
     TxLane& L = txLane[kind];
     if (tcp == nullptr || !handshakeDone) return;
     const bool on = L.want;
+    if (on && L.wantStamp > 0 && QDateTime::currentMSecsSinceEpoch() - L.wantStamp > kTxStaleMs) {
+        L.want = false; // A queued key-up has expired; dispatch only a release.
+        txDispatch(kind);
+        return;
+    }
     // Nothing to do when the radio is already where we want it.
     const bool actual = kind ? tuning : transmitting;
     if (L.known && L.sent == on && actual == on) return;

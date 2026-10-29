@@ -511,7 +511,15 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
     // while a browser is connected.
     serverLoadTimer = new QTimer(this);
     connect(serverLoadTimer, &QTimer::timeout, this, [this]() {
-        const QJsonObject o = serverLoad.sample();
+        QJsonObject o = serverLoad.sample();
+        double queued = 0, written = 0;
+        for (QWebSocket *c : wsClients) {
+            queued += double(c->bytesToWrite());
+            written += c->property("metricsWrittenBytes").toDouble();
+        }
+        o["connectedBrowsers"] = wsClients.size();
+        o["webSocketQueuedBytes"] = queued;
+        o["webSocketWrittenBytesActiveConnections"] = written;
         if (!wsClients.isEmpty())
             sendJsonToAll(o);
     });
@@ -1863,6 +1871,10 @@ void webServer::onWsNewConnection()
     connect(pSocket, &QWebSocket::binaryMessageReceived, this, &webServer::onWsBinaryMessage);
     connect(pSocket, &QWebSocket::disconnected, this, &webServer::onWsDisconnected);
 
+    pSocket->setProperty("metricsWrittenBytes", 0.0);
+    connect(pSocket, &QWebSocket::bytesWritten, pSocket, [pSocket](qint64 n) {
+        pSocket->setProperty("metricsWrittenBytes", pSocket->property("metricsWrittenBytes").toDouble() + double(n));
+    });
     wsClients.append(pSocket);
     browserCount_ = wsClients.size();
     qInfo().noquote() << "Web client connected:" << pSocket->peerAddress().toString()
@@ -1914,8 +1926,12 @@ void webServer::onWsDisconnected()
 {
     QWebSocket *pClient = qobject_cast<QWebSocket *>(sender());
     if (pClient) {
+        const bool ownedTx = pClient == pttClient || pClient == micActiveClient;
         qInfo() << "Web client disconnected:" << pClient->peerAddress().toString();
         if (pClient == pttClient) {
+            ++txSessionGeneration;
+            emit flexTx(0, false, 0, QStringLiteral("disconnect"));
+            emit flexTx(1, false, 0, QStringLiteral("disconnect"));
             pttClient = nullptr;
             QTimer::singleShot(0, this, [this]() { broadcastTxState(); updateAutoMon(); });
             if (queue) {
@@ -1937,7 +1953,7 @@ void webServer::onWsDisconnected()
             qInfo() << "Web: Restored DATA MOD OFF setting (client disconnected)";
         }
         // Stop FreeDV/RADE TX drain to prevent ALSA underruns
-        if (freedvTxActive) {
+        if (ownedTx && freedvTxActive) {
             freedvTxBuffer.clear();
             freedvTxActive = false;
             if (freedvTxDrainTimer) freedvTxDrainTimer->stop();
@@ -1947,6 +1963,7 @@ void webServer::onWsDisconnected()
                 usbAudioOutputDevice = nullptr;
             }
         }
+        if (ownedTx) {
         // Cancel any pending PKT idle-driven unkey.  Clear the flag
         // before any forced ALSA stop so a stray IdleState transition
         // can't re-enter onUsbAudioOutputStateChanged.
@@ -1955,6 +1972,7 @@ void webServer::onWsDisconnected()
         if (packetUsbTxDrainTimer) packetUsbTxDrainTimer->stop();
         packetUsbTxBuffer.clear();
         packetUsbTxActive = false;
+        }
         audioClients.remove(pClient);
         wsUser.remove(pClient);
         wsRole.remove(pClient);
@@ -2465,15 +2483,18 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         // radio stops transmitting. RadeProcessor::sendEoo() emits txReady;
         // onRadeTxReady routes it through the same USB-or-LAN path as voice
         // frames, so this works for both USB-attached and LAN-attached rigs.
+        const quint64 generation = ++txSessionGeneration;
         bool radeUnkey = !on && freedvEnabled && freedvModeName == "RADE" && radeProcessor;
         bool hasTxOut  = (usbAudioOutput && txAudioConfigured) || txConverter;
         if (radeUnkey && hasTxOut) {
-            pttClient = nullptr;
-            broadcastTxState();
-            updateAutoMon();
-            QMetaObject::invokeMethod(radeProcessor, "sendEoo", Qt::BlockingQueuedConnection);
+            // Retain ownership until the EOO drain finishes.
+            QMetaObject::invokeMethod(radeProcessor, "sendEoo", Qt::QueuedConnection);
             qInfo() << "Web: queued RADE EOO frame, delaying unkey 300ms";
-            QTimer::singleShot(300, this, [this]() {
+            QTimer::singleShot(300, this, [this, generation]() {
+                if (generation != txSessionGeneration) return;
+                pttClient = nullptr;
+                broadcastTxState();
+                updateAutoMon();
                 queue->add(priorityImmediate, queueItem(funcTransceiverStatus, QVariant::fromValue<bool>(false), false, uchar(0)));
                 queue->del(funcALCMeter, 0);
                 qInfo() << "Web: RADE delayed unkey sent";
@@ -3005,6 +3026,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
                 }
                 return;
             }
+            ++txSessionGeneration;
             pttClient = on ? client : nullptr;
             if (on && rfkit_) rfkit_->kickFast();
             broadcastTxState();

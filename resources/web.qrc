@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/web">
+        <file alias="performance.js">web/performance.js</file>
         <file alias="index.html">web/index.html</file>
         <file alias="debug.html">web/debug.html</file>
         <file alias="packet.js">web-shared/packet.js</file>
