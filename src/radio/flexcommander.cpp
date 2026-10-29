@@ -912,7 +912,9 @@ void flexCommander::recenterPan()
     recenterPending = true;
     QTimer::singleShot(50, this, [this]() {
         recenterPending = false;
-        if (panId.isEmpty() || !freqHz || std::fabs(panCenterMHz - freqHz / 1e6) < 1e-6)
+        // Free pan switched on (or the page moved the pan) meanwhile: its own
+        // rules apply, the centre the page asked for stays.
+        if (panFree || panId.isEmpty() || !freqHz || std::fabs(panCenterMHz - freqHz / 1e6) < 1e-6)
             return;
         panCenterMHz = freqHz / 1e6;   // the radio does not always echo it
         sendPanCenter();

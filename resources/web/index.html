@@ -6861,10 +6861,35 @@ function hideAllOverlays() {
     for (var i = 0; i < overlays.length; i++) overlays[i].classList.remove('visible');
 }
 
-function renderBottomBar() {
+// A click is a press and a release on the same element: rebuilding the bar
+// between the two loses it. While transmitting the bar was rebuilt for every
+// amp reading (the AMP key's watts), and TUNE could not be turned off
+// (2026-10-29). So the bar is rebuilt only when its keys change; the
+// readings are written into the keys in place.
+function bottomBarSig(btns) {
+    return JSON.stringify(btns.map(function (b) {
+        return [b.spacer ? 1 : 0, b.grow ? 1 : 0, b.label || '', b.cls || '', !!b.active, !!b.txActive,
+                !!b.disabled, b.sub !== undefined, !!b.action, !!b.press];
+    }));
+}
+function renderBottomBar(force) {
     var bar = document.getElementById('bottomBar');
-    bar.innerHTML = '';
     var btns = getBottomButtons();
+    var sig = bottomBarSig(btns);
+    if (force !== true && bar.aeSig === sig && bar.children.length === btns.length) {
+        for (var k = 0; k < btns.length; k++) {
+            var kb = btns[k], kel = bar.children[k];
+            if (kb.spacer) continue;
+            kel.aeAction = kb.action || null;
+            if (kb.sub !== undefined) {
+                var ks = kel.querySelector('.ae-sub');
+                if (ks && ks.textContent !== String(kb.sub)) ks.textContent = kb.sub;
+            }
+        }
+        return;
+    }
+    bar.aeSig = sig;
+    bar.innerHTML = '';
     for (var i = 0; i < btns.length; i++) {
         var b = btns[i];
         if (b.spacer) {   // AetherSDR layout: a gap between button groups
@@ -6886,7 +6911,20 @@ function renderBottomBar() {
             el.appendChild(sub);
         }
         if (b.disabled) el.disabled = true;
-        if (b.action) el.onclick = b.action;
+        if (b.action) {
+            el.aeAction = b.action;
+            if (b.press) {
+                // Transmit keys act on the press, like PTT (keyboard: click).
+                el.onpointerdown = function (e) {
+                    if (e.button) return;
+                    e.preventDefault();
+                    if (this.aeAction) this.aeAction();
+                };
+                el.onclick = function (e) { if (e.detail === 0 && this.aeAction) this.aeAction(); };
+            } else {
+                el.onclick = function () { if (this.aeAction) this.aeAction(); };
+            }
+        }
         bar.appendChild(el);
     }
     aeFitBottomBar(bar);
@@ -6919,7 +6957,7 @@ function aeFitBottomBar(bar) {
 var aeFitTimer = null;
 window.addEventListener('resize', function () {
     clearTimeout(aeFitTimer);
-    aeFitTimer = setTimeout(function () { if (typeof renderBottomBar === 'function') renderBottomBar(); }, 150);
+    aeFitTimer = setTimeout(function () { if (typeof renderBottomBar === 'function') renderBottomBar(true); }, 150);
 });
 
 function getBottomButtons() {
@@ -7262,6 +7300,17 @@ function aeTick() {
     renderBottomBar();
 }
 
+// The applets are rebuilt several times a second while transmitting (the amp
+// readings): a transmit key must act on the press, or a release that lands
+// on the rebuilt key is not a click (punch list 55, TUNE that would not
+// turn off). Keyboard activation still comes as a click.
+function aePressBtn(b) {
+    var act = b.onclick;
+    b.onclick = function (e) { if (e.detail === 0 && act) act(); };
+    b.onpointerdown = function (e) { if (e.button) return; e.preventDefault(); if (act) act(); };
+    return b;
+}
+
 function aeBtn(label, active, onclick, cls) {
     var b = document.createElement('button');
     b.type = 'button';
@@ -7321,7 +7370,7 @@ function renderApplets() {
     }
     var tuneCarrier = !!(flexDsp && flexDsp.tune !== undefined);
     var tk = document.createElement('div'); tk.className = 'ae-grid ' + (tuneCarrier ? 'ae-grid-4' : 'ae-grid-3');
-    if (tuneCarrier) tk.appendChild(aeBtn('TUNE', !!flexDsp.tune, toggleTuneCarrier, flexDsp.tune ? 'ae-tuning' : ''));
+    if (tuneCarrier) tk.appendChild(aePressBtn(aeBtn('TUNE', !!flexDsp.tune, toggleTuneCarrier, flexDsp.tune ? 'ae-tuning' : '')));
     if (hasTuner) tk.appendChild(aeBtn(tunerState === 2 ? 'TUNING' : 'ATU ' + (tunerState ? 'ON' : 'OFF'), tunerState > 0, handleTunerPress));
     tk.appendChild(aeBtn('AUDIO', currentPanel === 'audiomiс', function() { togglePanel('audiomiс'); }));
     if (flexDsp) tk.appendChild(aeBtn('PROC…', currentPanel === 'proc', function() { togglePanel('proc'); }));
@@ -7527,7 +7576,7 @@ function aeDesktopButtons(isCW) {
         out.push({ label: 'SSTV', cls: 'ae-wide', active: sstvOn, action: function() { window.toggleSstvPanel(); } });
     // A Flex: TUNE is the tune carrier (as in SmartSDR); the ATU is in the TX applet.
     if (flexDsp && flexDsp.tune !== undefined)
-        out.push({ label: 'TUNE', cls: 'ae-wide' + (flexDsp.tune ? ' ae-tuning' : ''), active: !!flexDsp.tune, action: toggleTuneCarrier });
+        out.push({ label: 'TUNE', cls: 'ae-wide' + (flexDsp.tune ? ' ae-tuning' : ''), active: !!flexDsp.tune, action: toggleTuneCarrier, press: true });
     else if (hasTuner) out.push({ label: 'TUNE', cls: 'ae-wide', active: tunerState === 2, action: handleTunerPress });
     out.push({ label: 'FUNC', cls: 'ae-wide', active: currentPanel === 'func', action: function() { setPanel(currentPanel === 'func' ? 'default' : 'func'); } });
     out.push({ label: isCW ? 'KEY' : (pttLatchMode && isTransmitting ? 'MOX \u25cf TX' : 'MOX'), txActive: isTransmitting, cls: (isCW ? 'key-btn' : 'ptt-btn') + ' ae-mox',

@@ -308,6 +308,16 @@ amp's 4xx reason and the class's own refusals (no tune API, tuner busy,
 antenna out of range) to the sending browser as a notice.
 Not covered by a CI test: the NNR overload pass-through, the stall line,
 the stale-press drop (the mock answers at once).
+That build is Actions #86 (tests failed: test_aether_scope - the pan's 50 ms
+re-centre timer did not check free pan, exposed now that commands leave the
+queue at once; fixed in the next). User's test of #86: every TUNE the server
+received keyed and unkeyed within ~130 ms, no drops, NNR overload passed
+through for ~200 ms a few times; but "a couple of times I couldn't unkey
+TUNE": those presses never reached the server (TUNE stayed on 6-7 s). The
+bottom bar and the applets were rebuilt for every amp reading while
+transmitting, so a press and its release landed on different buttons and
+no click happened. Fixed: the bar is rebuilt only when its keys change
+(readings written in place); TUNE acts on the press (pointerdown), like PTT.
 
 Next build (2026-10-29): items 46 and 47 done. 46 as extended (e-h);
 not covered by a CI test: the backoff and the slow-answer pause (the stub
