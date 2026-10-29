@@ -134,8 +134,9 @@ QByteArray QsoRecord::toAdif(bool appFields) const
 
 QByteArray Logbook::adifHeader()
 {
-    return QByteArray("ADIF Export from wfweb\n"
-                      "<ADIF_VER:5>3.1.4 <PROGRAMID:5>wfweb <EOH>\n");
+    // PROGRAMID shows in QRZ / LoTW imports (punch list 47).
+    return QByteArray("ADIF Export from FlexWeb\n"
+                      "<ADIF_VER:5>3.1.4 <PROGRAMID:7>FlexWeb <EOH>\n");
 }
 
 QString Logbook::exportStamp()

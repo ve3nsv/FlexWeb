@@ -10,6 +10,16 @@ Unreleased
 ----------
 
 RF2K-S amplifier:
+- FlexWeb no longer gives up on the amp after 4 s: every request may take
+  15 s, a slow answer pauses polling, and reconnects back off (5, 15, 30,
+  60 s). Giving up early made the amp's web server fail on the closed
+  connections and stop answering for minutes. The wake after a reconnect
+  waits 3 s.
+
+Naming:
+- "FlexWeb" instead of "wfweb" in the radio's error messages, the browser
+  certificate (new ones), the REST page, the debug page, exported ADIF
+  (PROGRAMID FlexWeb), the remote-log station id, rigctld and --help.
 - The FWD / REF "pk" works like the amp's own peak: the highest reading of
   the whole over, still shown after unkey until the next key-up (was a 3 s
   hold that dropped mid-over).

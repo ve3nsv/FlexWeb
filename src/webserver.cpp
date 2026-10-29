@@ -274,7 +274,7 @@ static bool generateSelfSignedCert(const QString &certPath, const QString &keyPa
     {
         X509_NAME *name = X509_get_subject_name(x509);
         X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
-                                   reinterpret_cast<const unsigned char *>("wfweb"), -1, -1, 0);
+                                   reinterpret_cast<const unsigned char *>("FlexWeb"), -1, -1, 0);
         X509_set_issuer_name(x509, name); // self-signed
     }
 
@@ -455,7 +455,7 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
         }
 
         // WebSocket server in NonSecureMode (SSL handled by SslTcpServer or TLS proxy)
-        wsServer = new QWebSocketServer(QStringLiteral("wfweb Web"), QWebSocketServer::NonSecureMode, this);
+        wsServer = new QWebSocketServer(QStringLiteral("FlexWeb"), QWebSocketServer::NonSecureMode, this);
         connect(wsServer, &QWebSocketServer::newConnection, this, &webServer::onWsNewConnection);
 
         // Plain HTTP server on wsPort for microcontrollers/scripts that don't support TLS
@@ -484,7 +484,7 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
             webListen_ = ListenFailed;
         }
 
-        wsServer = new QWebSocketServer(QStringLiteral("wfweb Web"), QWebSocketServer::NonSecureMode, this);
+        wsServer = new QWebSocketServer(QStringLiteral("FlexWeb"), QWebSocketServer::NonSecureMode, this);
         if (wsServer->listen(QHostAddress::Any, wsPort)) {
             qInfo() << "Web WebSocket server listening on port" << wsPort;
             connect(wsServer, &QWebSocketServer::newConnection, this, &webServer::onWsNewConnection);
@@ -853,7 +853,7 @@ void webServer::onHttpReadyRead()
             return;
         }
     } else if (!restAuthorized(socket, headerSection)) {
-        QByteArray r = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"wfweb\"\r\n"
+        QByteArray r = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"FlexWeb\"\r\n"
                        "Content-Type: application/json\r\nContent-Length: 27\r\nConnection: close\r\n\r\n"
                        "{\"error\":\"login required\"}";
         socket->write(r);
@@ -959,7 +959,7 @@ void webServer::serveRestInfoPage(QTcpSocket *socket, const QByteArray &headerSe
         "<!DOCTYPE html>\n"
         "<html lang=\"en\"><head><meta charset=\"utf-8\">\n"
         "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
-        "<title>wfweb REST API</title>\n"
+        "<title>FlexWeb REST API</title>\n"
         "<style>\n"
         "  body { font-family: system-ui, sans-serif; max-width: 40em; margin: 3em auto;\n"
         "         padding: 0 1em; line-height: 1.5; color: #222; background: #fafafa; }\n"
@@ -968,7 +968,7 @@ void webServer::serveRestInfoPage(QTcpSocket *socket, const QByteArray &headerSe
         "          color: #fff; text-decoration: none; border-radius: 5px; }\n"
         "  .note { color: #555; font-size: .9em; }\n"
         "</style></head><body>\n"
-        "<h1>This is the wfweb REST API endpoint</h1>\n"
+        "<h1>This is the FlexWeb REST API endpoint</h1>\n"
         "<p>You've reached the plain-HTTP REST/API port. The web user interface is served over\n"
         "HTTPS on a different port.</p>\n"
         "<p><a class=\"btn\" href=\"%1\">Open the web UI &rarr;</a></p>\n"
@@ -976,7 +976,7 @@ void webServer::serveRestInfoPage(QTcpSocket *socket, const QByteArray &headerSe
         "example if you remapped ports with Docker. The web UI is the HTTPS port you mapped to the\n"
         "container's web port (default <code>8080</code>), not this REST port.</p>\n"
         "<p class=\"note\">Programmatic clients should call <code>/api/v1/&hellip;</code> on this port.\n"
-        "See <a href=\"https://github.com/adecarolis/wfweb/blob/master/REST_API.md\">REST_API.md</a>\n"
+        "See <a href=\"https://github.com/ve3nsv/FlexWeb/blob/master/REST_API.md\">REST_API.md</a>\n"
         "for the full API.</p>\n"
         "</body></html>\n").arg(webUrl);
 
@@ -7639,7 +7639,11 @@ void webServer::configureRfkit(const QString &target)
     connect(rfkit_, &RfkitConnection::connected, this, [this]() {
         qCInfo(logWebServer) << "RF-KIT amplifier connected:" << rfkit_->description();
         updateAmpTx();
-        updateAmpAwake(true);
+        // Punch list 46: let a just-restarted amp answer a few ordinary
+        // polls before the slow wake request takes its one-at-a-time server.
+        QTimer::singleShot(3000, this, [this]() {
+            if (rfkit_ && rfkit_->isConnected()) updateAmpAwake(true);
+        });
     });
     connect(rfkit_, &RfkitConnection::wakeAnswered, this, [this](bool ok) {
         if (!ampWaking_) return;
@@ -7853,7 +7857,7 @@ void webServer::setInstanceName(const QString &name)
 {
     instanceName_ = name;
     // Same convention as WSJT-X's "--rig-name": listeners show the tag.
-    wsjtxId_ = name.isEmpty() ? QStringLiteral("wfweb") : QStringLiteral("wfweb - ") + name;
+    wsjtxId_ = name.isEmpty() ? QStringLiteral("FlexWeb") : QStringLiteral("FlexWeb - ") + name;
 }
 
 static QSettings *packetSettingsFor(const QString &file)

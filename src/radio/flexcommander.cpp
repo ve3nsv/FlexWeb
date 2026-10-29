@@ -439,7 +439,7 @@ void flexCommander::startWan()
     }
     smartLink->close();
     if (!smartLink->loginWithStoredToken()) {
-        const QString msg = "Not signed in to SmartLink. Run  wfweb --smartlink-login  once to sign in.";
+        const QString msg = "Not signed in to SmartLink. Run FlexWeb's  wfweb --smartlink-login  once to sign in.";
         qWarning(logRig()).noquote() << "Flex:" << msg;
         emit havePortError(errorType(true, "SmartLink", msg));
         wanRetry("not signed in to SmartLink (wfweb --smartlink-login)", 60000);
@@ -490,7 +490,7 @@ void flexCommander::wanRadioList(const QList<smartLinkRadio>& radios)
         .arg(r.model, r.nickname, r.serial, r.status, r.publicIp).arg(r.publicTlsPort).arg(r.publicUdpPort)
         .arg(r.upnp ? " (UPnP)" : "");
     if (r.needsHolePunch) {
-        const QString msg = QString("radio \"%1\" has no forwarded or UPnP ports, and wfweb cannot hole-punch yet. "
+        const QString msg = QString("radio \"%1\" has no forwarded or UPnP ports, and FlexWeb cannot hole-punch yet. "
                                     "Turn on UPnP in the router, or forward ports to the radio and enter them "
                                     "in SmartSDR's SmartLink setup.").arg(r.nickname);
         emit havePortError(errorType(true, "SmartLink", msg));
@@ -648,7 +648,7 @@ void flexCommander::processLine(const QString& line)
                     if (c2 != 0) {
                         qWarning(logRig()).noquote() << QString("Flex: client gui refused (0x%1) %2").arg(c2, 8, 16, QChar('0')).arg(b2);
                         emit havePortError(errorType(true, radioAddress.toString(),
-                            "The radio refused wfweb as a GUI client.\nIt may already have the maximum number of clients connected."));
+                            "The radio refused FlexWeb as a GUI client.\nIt may already have the maximum number of clients connected."));
                         return;
                     }
                     handshakeDone = true;
@@ -777,7 +777,7 @@ void flexCommander::adoptOrCreateSlice()
             if (code != 0) {
                 qWarning(logRig()).noquote() << QString("Flex: slice create failed (0x%1) %2").arg(code, 8, 16, QChar('0')).arg(body);
                 emit havePortError(errorType(true, radioAddress.toString(),
-                    "The radio could not give wfweb a receiver (slice).\nClose a slice in another client and reconnect."));
+                    "The radio could not give FlexWeb a receiver (slice).\nClose a slice in another client and reconnect."));
                 return;
             }
             bool ok = false;
@@ -804,7 +804,7 @@ void flexCommander::adoptOrCreateSlice()
             sliceCreatePending = false;
             qWarning(logRig()).noquote() << QString("Flex: panadapter create failed (0x%1) %2").arg(code, 8, 16, QChar('0')).arg(body);
             emit havePortError(errorType(true, radioAddress.toString(),
-                "The radio could not give wfweb a panadapter.\nClose a panadapter in another client and reconnect."));
+                "The radio could not give FlexWeb a panadapter.\nClose a panadapter in another client and reconnect."));
             return;
         }
         const QMap<QString, QString> kvs = parseKVs(body);

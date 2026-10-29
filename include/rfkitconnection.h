@@ -162,14 +162,25 @@ private:
     // Per-request transfer timeout. Also bounds the connect handshake, so an
     // unreachable address reports failure here rather than after the OS TCP
     // connect timeout (~21s on Windows).
-    static constexpr int kRequestTimeoutMs = 4000;
+    // 15 s (punch list 46, was 4 s; PgTG's plugin uses 15 s): a request is
+    // never abandoned while the amp is merely slow - a sleeping RF2K-S takes
+    // ~5 s to answer the wake, and its one-at-a-time server (Python wsgiref)
+    // trips on every connection closed before its answer (BrokenPipeError)
+    // and, flooded with them, stopped answering for minutes.
+    static constexpr int kRequestTimeoutMs = 15000;
     // The transfer timeout above only fires when no bytes move; this bounds the
     // whole request, so a peer that trickles bytes cannot hold the one serialized
     // slot (and every command queued behind it) indefinitely. Principle VII.
-    static constexpr int kRequestDeadlineMs = 10000;
+    static constexpr int kRequestDeadlineMs = 20000;
 
+    // Reconnect backoff (punch list 46): 5, 15, 30, then every 60 s while the
+    // amp keeps failing; back to 5 s once it answers.
     QTimer m_reconnectTimer;
-    static constexpr int kReconnectIntervalMs = 5000;
+    int m_reconnectStep{0};
+    // A slow or failed reply pauses polling (never a backlog of requests the
+    // amp would answer into closed connections).
+    qint64 m_pollPausedUntilMs{0};
+    qint64 m_sentAtMs{0};
 
     // One GET per tick, only when nothing is queued or in flight, from a
     // receive or a transmit schedule (see poll()). A slow amplifier lowers the

@@ -68,7 +68,6 @@ RfkitConnection::RfkitConnection(QObject* parent)
     // same precedent as every other peripheral connection here, for a device
     // that may legitimately be power-cycling.
     m_reconnectTimer.setSingleShot(true);
-    m_reconnectTimer.setInterval(kReconnectIntervalMs);
     connect(&m_reconnectTimer, &QTimer::timeout, this, [this]() {
         if (m_connected || m_lastHost.isEmpty()) { return; }
         connectNetwork(m_lastHost, m_lastPort);
@@ -175,6 +174,7 @@ void RfkitConnection::resetSession()
     m_warnedPaths.clear();
     m_consecutiveFailures = 0;
     m_slowPollIndex = 0;
+    m_pollPausedUntilMs = 0;
     m_lastAntennasMs = 0;
     m_lastInterfaceMs = 0;
     m_tuneProbePending = false;
@@ -233,6 +233,7 @@ void RfkitConnection::pump()
     }
 
     m_inFlight = true;
+    m_sentAtMs = nowMs();
     m_reply = reply;
     m_deadlineTimer.start();
     const int epoch = m_epoch;
@@ -266,7 +267,6 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
 
     const int http = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     const bool oversize = reply->property("rfkitOversize").toBool();
-    const QByteArray body = oversize ? QByteArray() : reply->read(Rfkit::kMaxBodyBytes + 1);
 
     // No HTTP status at all means the exchange never completed: refused,
     // timed out, unresolvable, reset, or aborted for size or time. A transfer
@@ -286,6 +286,16 @@ void RfkitConnection::onReplyFinished(QNetworkReply* reply, const Request& reque
     }
 
     m_consecutiveFailures = 0;
+    m_reconnectStep = 0;
+    // The amp answered, but slowly: give it as long again before the next
+    // poll (punch list 46). A wake is slow by nature (~5 s) - not counted.
+    const qint64 took = nowMs() - m_sentAtMs;
+    if (!request.tuneProbe && took > 1000) {
+        m_pollPausedUntilMs = nowMs() + qMin<qint64>(took, kRequestTimeoutMs);
+        qCInfo(logRig) << "RfkitConnection: slow answer on" << request.path << took << "ms - polling paused as long";
+    }
+    // Read only now: a reply aborted for time or size has no open device.
+    const QByteArray body = oversize ? QByteArray() : reply->read(Rfkit::kMaxBodyBytes + 1);
 
     if (request.tuneProbe) {
         // Not an error path: a stock server's 405 is the expected answer.
@@ -517,6 +527,13 @@ void RfkitConnection::onTransportFailure(const QString& errorString, const Reque
     if (request.tuneProbe) {
         m_tuneProbePending = false;
         emit wakeAnswered(false);
+        if (m_connected) {
+            // A wake that got no answer does not count toward dropping the
+            // link (punch list 46); the polls decide that.
+            m_pollPausedUntilMs = nowMs() + 5000;
+            pump();
+            return;
+        }
     }
     if (isTuneStart(request)) {
         m_tuneStartPending = false;
@@ -531,6 +548,7 @@ void RfkitConnection::onTransportFailure(const QString& errorString, const Reque
         onTransportDown(errorString);
         return;
     }
+    m_pollPausedUntilMs = nowMs() + 5000;  // give a struggling amp room
     pump();  // drop the failed request and carry on with the rest
 }
 
@@ -551,9 +569,16 @@ void RfkitConnection::onTransportDown(const QString& errorString)
 
 void RfkitConnection::armReconnect()
 {
-    if (!m_reconnectTimer.isActive()) {
-        m_reconnectTimer.start();
+    if (m_reconnectTimer.isActive()) {
+        return;
     }
+    static const int kSteps[] = {5000, 15000, 30000, 60000};
+    const int ms = kSteps[qMin(m_reconnectStep, int(std::size(kSteps)) - 1)];
+    if (m_reconnectStep > 0) {
+        qCInfo(logRig) << "RfkitConnection: amp still not answering, next try in" << ms / 1000 << "s";
+    }
+    ++m_reconnectStep;
+    m_reconnectTimer.start(ms);
 }
 
 void RfkitConnection::poll()
@@ -563,6 +588,9 @@ void RfkitConnection::poll()
     updatePollRate();  // the hold after unkey ends here
     if (!m_connected || m_inFlight || !m_queue.isEmpty()) {
         return;
+    }
+    if (nowMs() < m_pollPausedUntilMs) {
+        return;  // the amp was slow or failed: let it catch up
     }
     const bool fast = fastMode();
     const int n = fast ? int(std::size(kTxSchedule)) : int(std::size(kRxSchedule));

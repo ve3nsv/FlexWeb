@@ -511,7 +511,7 @@ void rigCtlClient::socketReadyRead()
                 }
                 else if (commands_list[i].sstr == '3')
                 {
-                    response.append(QString("Model: WFWEB(%0)").arg(rigCaps->modelName));
+                    response.append(QString("Model: FlexWeb(%0)").arg(rigCaps->modelName));
                     ret = RIG_OK;
                     break;
 

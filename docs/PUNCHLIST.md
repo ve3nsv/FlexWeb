@@ -284,6 +284,15 @@ Status: implemented for build 60.
 
 From here on builds go by their GitHub Actions run number.
 
+Next build (2026-10-29): items 46 and 47 done. 46 as extended (e-h);
+not covered by a CI test: the backoff and the slow-answer pause (the stub
+answers at once except the delayed wake). 47: Flex / SmartLink messages,
+certificate CN (new certificates), REST page + realm + doc link (fork's
+master), debug.html, WebSocket server name, ADIF header + PROGRAMID:7
+FlexWeb, WSJT-X id, rigctld model, --help prose (command names stay
+wfweb). Not changed: the Icom LAN client name suffix "-wfweb" (the radio
+takes a short name; "-FlexWeb" would fill it - left as is).
+
 Next build (2026-10-28): items 44 and 45 done. 44: amp messages carry
 `keyed` (the radio's TX state), the page's pk is the over's maximum, kept
 after unkey, reset at the next key-up; FWD / REF ballistics unchanged.
@@ -1145,6 +1154,21 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     and TUNE support stays unknown until the first answered wake.
     Test: the stub amp delays its PUT /tuner {} reply by 5 s; the wake must
     be answered (tuneApi supported, no transport error, still connected).
+    Extended (user's logs, 2026-10-29): the amp's web server went OFFLINE
+    for minutes and once stayed stuck until the amp was restarted. Its log:
+    67 BrokenPipeError since 2026-10-28 15:01 (the first right after a wake
+    FlexWeb gave up on at 4 s) - wsgiref answering connections the client
+    had closed. FlexWeb's log: twice the server stopped answering right
+    after an abandoned wake (11:19:50, 11:34:42), then FlexWeb's /info
+    retries every 9 s, each abandoned at 4 s, kept it busy for ~10 min.
+    So, instead of a longer limit for the wake only:
+    e. Every amp request may take 15 s (transfer timeout; 20 s deadline):
+       no request is abandoned while the amp is merely slow.
+    f. An answer slower than 1 s pauses polling for as long as it took
+       (max 15 s); a failed request pauses it 5 s.
+    g. Reconnect backoff 5, 15, 30, then 60 s while the amp stays
+       unreachable (was every 5 s + a 4 s timeout).
+    h. After the amp reconnects the wake waits 3 s (ordinary polls first).
 47. FlexWeb name where item 15 (2026-10-21) missed it (user, 2026-10-28;
     easy). Text the user can see that still says wfweb:
     a. Page errors from the Flex: "The radio refused wfweb as a GUI client",

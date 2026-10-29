@@ -47,6 +47,8 @@ class StubAmp:
     def __init__(self):
         self.puts = []        # (path, body) of every PUT
         self.gets = []        # (time, path) of every GET
+        self.wake_delay = 0.0  # a sleeping RF2K-S answers the wake after ~5 s
+        self.broken_pipes = 0
         stub = self
 
         class H(BaseHTTPRequestHandler):
@@ -74,7 +76,12 @@ class StubAmp:
                     if json.loads(body or "{}").get("tuner_mode") == "START":
                         self._reply(200, {"mode": "AUTO_TUNING_FROM_AUTO", "setup": "CL"})
                     else:
-                        self._reply(400, {"status": "400 Bad Request", "reason": "START required"})
+                        if stub.wake_delay:
+                            time.sleep(stub.wake_delay)
+                        try:
+                            self._reply(400, {"status": "400 Bad Request", "reason": "START required"})
+                        except (BrokenPipeError, ConnectionResetError):
+                            stub.broken_pipes += 1   # wfweb gave up before the answer
                     return
                 self._reply(*ROUTES.get("PUT " + self.path, (404, {"status": "error"})))
 
@@ -271,3 +278,27 @@ def test_amp_wake_keep_awake_and_poll_schedule(bench, tmp_path):
     n = len(amp.wakes())
     time.sleep(4.5)
     assert len(amp.wakes()) == n, amp.wakes()
+
+
+def test_amp_slow_wake_is_waited_for(bench):
+    """Punch list 46: a sleeping RF2K-S answers the wake after ~5 s. wfweb
+    waits for it (it used to give up at 4 s; the amp's server then wrote into
+    a closed connection, and flooded with those it stopped answering), stays
+    connected, and learns TUNE support from the late answer."""
+    env, radio, amp, procs = bench
+    amp.wake_delay = 5.5
+    proc, port = _start(env, radio, amp)
+    procs.append(proc)
+    st, sock, buf = _ws(port, None)   # login off: this browser may transmit
+    assert " 101" in st
+    r = _Reader(sock, buf)
+    try:
+        assert _amp_ready(r), "the slow wake's answer never reached the page"
+        assert amp.broken_pipes == 0, "wfweb abandoned the wake before the amp answered"
+        # polling carried on after it, and the amp is still connected
+        t0 = time.monotonic()
+        time.sleep(3.0)
+        assert amp.gets_since(t0), "polling stopped after the slow wake"
+        assert not _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") is False, timeout=1.0)
+    finally:
+        sock.close()
