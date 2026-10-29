@@ -1230,3 +1230,30 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
     d. Log "RF-KIT amplifier: no browser, polling stopped" / "...resumed".
     Tests: test_rfkit - no GETs on the stub while no client is connected,
     /info + polls once one connects, none again after the grace.
+49. RF2K-S: say why the amp is unreachable (user, 2026-10-29; small). The
+    page shows one "offline" whatever the cause, so on 2026-10-29 CAT, the
+    SD card and the polling rate were suspected before PgTg was found. The
+    log already tells the cases apart (Actions #85 logs, 2026-10-29):
+    a. "Connection refused" -> "amp program not running" (the amp's main.py
+       is restarting or stopped; 12:31:28).
+    b. Connected but no answer within the 15 s ("Operation canceled") ->
+       "amp not answering - another program may be using it" (PgTg held
+       the amp's one-at-a-time server; 13:13:03).
+    c. No route / host unreachable -> "amp unreachable" (Pi off or off the
+       network).
+    d. The reason goes in the amp message (ampOffline: refused / busy /
+       unreachable) for the panel's chip and tooltip, and in the log line,
+       once per change of reason rather than on every retry.
+    Tests: test_rfkit - stub closed (refused), stub that accepts and never
+    answers (busy), each reported with its reason.
+50. RF2K-S: show the amp's refusals on the page (user, 2026-10-29; easy).
+    When the amp turns a command down, only the log says so; the button
+    just does nothing (2026-10-28 22:26: "PUT /operate-mode refused: 409
+    currently disabled"). Same for the tune refusals (not idle / no tune
+    API) and the antenna range check.
+    a. RfkitConnection reports a refused command (path, HTTP status, the
+       amp's reason text) to the web server.
+    b. The page shows it briefly next to the amp controls, e.g. "Amp refused
+       OPERATE: currently disabled", to the browser that sent the command.
+    Tests: test_rfkit - stub answers 409 to PUT /operate-mode; the sending
+    client gets the refusal message.
