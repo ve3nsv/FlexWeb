@@ -1067,7 +1067,11 @@ void flexCommander::handleStatus(const message& msg)
                 // than on the next RX audio packet, which may be a while.
                 if (tx && nnrWasActive) {
                     nnrWasActive = false;
-                    if (rxDsp) QMetaObject::invokeMethod(rxDsp, [w = rxDsp]() { w->reset(); }, Qt::QueuedConnection);
+                    // The worker must forget it was active too: if no RX block
+                    // reached it during a short key-down it would otherwise
+                    // never report the resume, and the page would miss the
+                    // next stop (Actions #89, test_nnr on arm64).
+                    if (rxDsp) QMetaObject::invokeMethod(rxDsp, [w = rxDsp]() { w->pause(); }, Qt::QueuedConnection);
                     emit flexNnrGain(1.0f, false);
                     publishDsp();
                 }

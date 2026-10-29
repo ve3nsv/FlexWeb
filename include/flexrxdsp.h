@@ -53,6 +53,9 @@ public:
     void process(QVector<float> samples, int rate, bool nnrWanted, qint64 queuedAtMs, quint32 seq);
     void applySettings(const Settings& s);
     void reset();
+    // flexCommander already told the page NNR paused (on TX): start over as
+    // inactive, so resuming and the next stop are both reported.
+    void pause();
 
 signals:
     void audio(const audioPacket& pkt);

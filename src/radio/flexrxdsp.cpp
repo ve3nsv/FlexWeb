@@ -57,6 +57,17 @@ void flexRxDsp::reset()
     rawLine.clear();
 }
 
+void flexRxDsp::pause()
+{
+    if (filter) filter->reset();
+    rawLine.clear();
+    bypass = false;
+    warmupLeft = 0;
+    fadeToNnr = false;
+    rewarm = true;
+    lastActive = false;
+}
+
 // The input delayed by the filter's latency, so raw and processed audio line
 // up: a pass-through then neither jumps in time nor combs in a crossfade.
 QVector<float> flexRxDsp::delayedRaw(const QVector<float>& in)
