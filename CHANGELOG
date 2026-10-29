@@ -15,8 +15,14 @@ FlexRadio transmit:
   Premium model on a busy PC that loop stalled for seconds, presses piled
   up and went out together (TUNE on / off / on in a millisecond), and the
   radio dropped the connection. NNR now runs on its own thread, the radio
-  loop always gives commands a turn, and an overloaded NNR passes the
-  audio through for a moment instead of falling behind (logged).
+  loop always gives commands a turn.
+- NNR does not cut out under load: its thread runs at high priority,
+  Premium that cannot keep up steps down to Standard (shown on the page,
+  back to Premium when there is room), and only far behind is audio passed
+  through, lined up and crossfaded. The log gives NNR's load every 10 s.
+- An unkey is sent at once, without waiting for the radio's answer to the
+  key-up. On touch screens TUNE / MOX / amp OPERATE act when the finger
+  lifts (a scroll that starts on them does not key); mouse acts on press.
 - PTT and TUNE go straight to the radio (not through the command queue's
   70 ms tick); one command at a time, each after the radio answered the
   last, the newest press winning; a key-up that waited over 300 ms is
@@ -25,6 +31,8 @@ FlexRadio transmit:
 - The log says who pressed PTT / TUNE and how long it took to reach the
   radio (a warning over 50 ms), and when the radio thread could not run.
 - After the radio link drops, the page no longer shows TUNE as on.
+- Amp readings while transmitting update in place; the panels and buttons
+  are no longer rebuilt several times a second, so presses are not lost.
 
 RF2K-S amplifier:
 - Nothing is sent to the amp while no browser is connected: polling stops

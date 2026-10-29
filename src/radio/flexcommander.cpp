@@ -1181,9 +1181,10 @@ void flexCommander::ensureRxDsp()
     // Emitted on the worker's thread; the receivers (web server) get them queued.
     connect(rxDsp, &flexRxDsp::audio, this, &flexCommander::haveAudioData, Qt::DirectConnection);
     connect(rxDsp, &flexRxDsp::nnrGain, this, &flexCommander::flexNnrGain, Qt::DirectConnection);
-    connect(rxDsp, &flexRxDsp::nnrState, this, [this](bool active, int model, int delayMs) {
+    connect(rxDsp, &flexRxDsp::nnrState, this, [this](bool active, int model, int delayMs, bool steppedDown) {
         nnrModelInUse = model;
         nnrDelayMs = delayMs;
+        nnrSteppedDown = steppedDown;
         if (nnrWasActive != active) {
             nnrWasActive = active;
             if (!active) emit flexNnrGain(1.0f, false);
@@ -1194,7 +1195,10 @@ void flexCommander::ensureRxDsp()
         nnrCfg.on = 0;
         publishDsp();
     }, Qt::QueuedConnection);
-    rxDspThread->start();
+    // Punch list 57: high priority, as AetherSDR runs its audio threads, so
+    // other programs on the PC do not pre-empt NNR (the brief dropouts on
+    // Actions #86 were the thread not running, not NNR being slow).
+    rxDspThread->start(QThread::HighestPriority);
     nnrApply();
 }
 
@@ -2159,6 +2163,13 @@ void flexCommander::txRequest(int kind, bool on, qint64 stampMs, QString who)
     L.want = on;
     L.wantStamp = stampMs;
     L.wantWho = who;
+    // Punch list 58: an unkey never waits - not even behind a key-up the
+    // radio has not answered yet. Releasing the transmitter goes out now.
+    if (!on) {
+        L.inflight = 0;
+        txDispatch(kind);
+        return;
+    }
     if (L.inflight && now - L.inflightAt < kTxInflightMs) {
         // The previous one is still unanswered: this becomes the latest state,
         // sent when the radio answers - never a burst of contradictions.
@@ -2902,6 +2913,7 @@ void flexCommander::publishDsp()
             st["nnrRelease"] = nnrCfg.release;
             st["nnrActive"] = nnrWasActive;
             st["nnrDelayMs"] = nnrDelayMs;
+            st["nnrStepDown"] = nnrSteppedDown;
             QJsonArray tl;
             for (const QJsonObject& t : tnfs) tl.append(t);
             st["tnfs"] = tl;

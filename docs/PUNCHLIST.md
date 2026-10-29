@@ -1401,4 +1401,26 @@ TUNE state after a mock radio reconnect matches the radio.
        model in use), so the headroom on a PC is visible.
     Tests: a slowed NNR stub steps down to Standard instead of passing
     through; steps back up after the stable period.
+58. Transmit presses: safe on touch, unkey never waits (self-review,
+    2026-10-29; small).
+    a. Acting on the press (#87) let a finger that started a scroll on TUNE
+       key the radio. Mouse and pen still act on the press; touch acts on
+       the lift, if the finger stayed within 12 px and 1.5 s and the browser
+       did not take the touch for a scroll; the keyboard acts on Enter/Space.
+       One helper (txPressBind) for TUNE / MOX in the bottom bar and applets
+       and amp OPERATE / TUNE.
+    b. An unkey no longer waits for the radio to answer the previous TX
+       command (up to 1 s): it is sent at once, still in order on the one
+       TCP link.
+    Built with 56 and 57: 56 a-c as written (aeTick, AMP and FUNC panels
+    update readings in place; structure changes still rebuild). 57 as
+    written, with these differences: Premium steps down on measured load
+    (over 85 % of real time, or over 70 % while 200 ms behind), not on the
+    first hiccup; step-up needs load under 35 % on Standard; pass-through
+    only past 600 ms behind, the raw audio delayed by NNR's own latency so
+    it lines up, crossfaded out and back in after an unheard warm-up; the
+    same warm-up and fade when NNR resumes after TX or a non-voice mode.
+    The page's NNR line says when Premium was stepped down. Not covered by
+    CI (needs a slow NNR): the ladder and pass-through; check in the log
+    ("Flex: NNR ... load N % of real time").
 

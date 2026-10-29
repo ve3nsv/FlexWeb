@@ -4105,8 +4105,15 @@ function handleMessage(msg) {
             ampPeakFeed(msg);
             ampTunePending = false;
             renderAmpIndicator();
-            if (document.getElementById('ampOverlay').classList.contains('visible')) renderAmpOverlay();
-            if (currentPanel === 'func') renderFuncOverlay();
+            // Punch list 56: rebuild a panel only when its structure changed;
+            // the readings go into the existing elements.
+            if (document.getElementById('ampOverlay').classList.contains('visible')
+                && ampOverlaySig() !== ampOverlayLastSig) renderAmpOverlay();
+            if (currentPanel === 'func') {
+                var fst = !msg.connected ? 'OFFLINE' : (msg.operate ? 'OPERATE' : 'STANDBY');
+                if (fst !== ampFuncLastSt) { ampFuncLastSt = fst; renderFuncOverlay(); }
+            }
+            ampLiveUpdate();
             break;
         case 'guestMode':
             setGuestTune(!!msg.tune);
@@ -6247,7 +6254,9 @@ function renderNnrOverlay() {
     st.appendChild(dot);
     var m = document.createElement('span');
     m.innerHTML = '<span class="nnr-k">METHOD</span> <b>' + (d.nnr
-        ? 'NNR \u00b7 ' + (d.nnrModelInUse ? 'Premium' : 'Standard') + ' \u00b7 floor ' + d.nnrStrength
+        ? 'NNR \u00b7 ' + (d.nnrModelInUse ? 'Premium' : 'Standard')
+          + (d.nnrStepDown ? ' (Premium too slow on the server, back when there is room)' : '')
+          + ' \u00b7 floor ' + d.nnrStrength
           + (d.nnrActive ? (d.nnrDelayMs ? ' \u00b7 ' + d.nnrDelayMs + ' ms' : '') : ' \u00b7 waits for a voice mode')
         : 'off') + '</b>';
     st.appendChild(m);
@@ -6914,13 +6923,7 @@ function renderBottomBar(force) {
         if (b.action) {
             el.aeAction = b.action;
             if (b.press) {
-                // Transmit keys act on the press, like PTT (keyboard: click).
-                el.onpointerdown = function (e) {
-                    if (e.button) return;
-                    e.preventDefault();
-                    if (this.aeAction) this.aeAction();
-                };
-                el.onclick = function (e) { if (e.detail === 0 && this.aeAction) this.aeAction(); };
+                txPressBind(el, function () { return this.aeAction; });
             } else {
                 el.onclick = function () { if (this.aeAction) this.aeAction(); };
             }
@@ -7269,7 +7272,7 @@ function aeTick() {
     if (!aeDesktop && !aePhone) return;
     var band = (typeof bandLabelOf === 'function') ? bandLabelOf(currentFreq) : '';
     var sig = JSON.stringify([currentMode, currentFilter, currentFilterWidth, band, nbOn, nrOn, anfOn,
-        isTransmitting, flexDsp, ampConfigured, ampState, tunerState, hasTuner, currentPanel,
+        isTransmitting, flexDsp, ampConfigured, ampStructSig(ampState), tunerState, hasTuner, currentPanel,
         flexMemList === null ? -1 : flexMemList.length,
         digiBarVisible, availableModes.length, rigBands.length, tuneStep, webUser, webLoginOn, txOtherBy, ampTunePending]);
     if (sig === aeLastSig) return;
@@ -7306,9 +7309,43 @@ function aeTick() {
 // turn off). Keyboard activation still comes as a click.
 function aePressBtn(b) {
     var act = b.onclick;
-    b.onclick = function (e) { if (e.detail === 0 && act) act(); };
-    b.onpointerdown = function (e) { if (e.button) return; e.preventDefault(); if (act) act(); };
+    txPressBind(b, function () { return act; });
     return b;
+}
+// Punch list 58: how a transmit key reacts. A mouse or pen acts on the press
+// (a rebuild between press and release cannot swallow it). A finger acts on
+// a tap that did not move: a scroll that starts on the key is never a press
+// (the browser cancels the pointer when it scrolls). The release is watched
+// on the document, so a key rebuilt meanwhile does not lose it either.
+// Keyboard activation still arrives as a click.
+function txPressBind(el, getAct, stopClick) {
+    el.onpointerdown = function (e) {
+        if (e.button) return;
+        var act = getAct.call(el);
+        if (!act) return;
+        if (e.pointerType !== 'touch') { e.preventDefault(); act(); return; }
+        var id = e.pointerId, x0 = e.clientX, y0 = e.clientY, t0 = performance.now();
+        var done = function () {
+            document.removeEventListener('pointerup', up, true);
+            document.removeEventListener('pointercancel', cancel, true);
+        };
+        var up = function (u) {
+            if (u.pointerId !== id) return;
+            done();
+            if (Math.abs(u.clientX - x0) > 12 || Math.abs(u.clientY - y0) > 12) return;
+            if (performance.now() - t0 > 1500) return;
+            act();
+        };
+        var cancel = function (c) { if (c.pointerId === id) done(); };
+        document.addEventListener('pointerup', up, true);
+        document.addEventListener('pointercancel', cancel, true);
+    };
+    el.onclick = function (e) {
+        if (stopClick) e.stopPropagation();
+        if (e.detail !== 0) return;   // pointer clicks were handled on the press
+        var act = getAct.call(el);
+        if (act) act();
+    };
 }
 
 function aeBtn(label, active, onclick, cls) {
@@ -7503,10 +7540,14 @@ function renderApplets() {
         var refRow = meter('REF', keyed ? a.ref : undefined, 200, keyed ? (a.ref || 0) + ' W' : '', 'ref');
         var rl = keyed ? ampRefLevel(a) : '';
         if (rl) refRow.querySelector('.ae-meter-fill').classList.add(rl);
+        refRow.dataset.live = 'ref';
         body.appendChild(refRow);
         var swrRow = meter('SWR', keyed ? ampSwrFrac(a.swr) * 4 : undefined, 4, keyed ? a.swr.toFixed(2) : '');
         var sl = keyed ? ampSwrLevel(a.swr) : '';
         if (sl) swrRow.querySelector('.ae-meter-fill').classList.add(sl);
+        swrRow.dataset.live = 'swr';
+        swrRow.dataset.none = '\u2014';
+        swrRow.querySelector('b').classList.add('amp-live-val');
         body.appendChild(swrRow);
         var tiles = document.createElement('span'); tiles.className = 'ae-amp-tiles';
         [['TEMP', up && a.temp !== undefined ? a.temp.toFixed(0) + ' °C' : '—'],
@@ -7516,6 +7557,7 @@ function renderApplets() {
             var c = document.createElement('span'); c.className = 'ae-amp-tile';
             c.textContent = t[0];
             var b = document.createElement('b'); b.textContent = t[1];
+            if (t[0] === 'TEMP') b.dataset.live = 'temp';
             c.appendChild(b); tiles.appendChild(c);
         });
         body.appendChild(tiles);
@@ -7986,6 +8028,53 @@ function ampEsc(t) {
     });
 }
 
+// Punch list 56: the amp's live readings never decide a rebuild. While the
+// radio transmits they change with every reading (25-40 ms); rebuilding the
+// applets and panels for them swallowed clicks (TUNE that would not turn
+// off) and spent the browser's CPU. They are written in place instead
+// (ampLiveUpdate); FWD / REF bars and numbers by the peak painter.
+var AMP_LIVE_KEYS = { fwd: 1, ref: 1, swr: 1, temp: 1, volts: 1, amps: 1 };
+function ampStructSig(a) {
+    if (!a) return null;
+    var o = {};
+    for (var k in a) if (!AMP_LIVE_KEYS[k]) o[k] = a[k];
+    o.carrier = a.fwd >= 1;   // REF / SWR show values only with a carrier
+    o.hot = a.temp >= 60;     // the TEMP tile's warning colour
+    return o;
+}
+function ampLiveUpdate() {
+    var a = ampState || {}, up = !!a.connected, keyed = up && a.fwd >= 1;
+    var swr = keyed ? a.swr : undefined;
+    document.querySelectorAll('[data-live="swr"]').forEach(function (row) {
+        var f = row.querySelector('.ae-meter-fill, .amp-fill'), v = row.querySelector('.amp-live-val');
+        if (f) {
+            f.style.width = (swr === undefined ? 0 : Math.max(0, Math.min(100, ampSwrFrac(swr) * 100))) + '%';
+            f.classList.remove('warn', 'bad');
+            var l = swr === undefined ? '' : ampSwrLevel(swr);
+            if (l) f.classList.add(l);
+        }
+        if (v) v.textContent = swr === undefined ? (row.dataset.none || '') : swr.toFixed(2) + (row.dataset.unit || '');
+    });
+    document.querySelectorAll('[data-live="ref"]').forEach(function (row) {
+        var f = row.querySelector('.ae-meter-fill, .amp-fill');
+        if (!f) return;
+        f.classList.remove('warn', 'bad');
+        var l = keyed ? ampRefLevel(a) : '';
+        if (l) f.classList.add(l);
+    });
+    var put = function (k, t) {
+        document.querySelectorAll('[data-live="' + k + '"]').forEach(function (el) { if (el.textContent !== t) el.textContent = t; });
+    };
+    put('temp', up && a.temp !== undefined ? a.temp.toFixed(0) + ' \u00b0C' : '\u2014');
+    put('volts', up && a.volts !== undefined ? a.volts.toFixed(1) + ' V' : '\u2014');
+    put('amps', up && a.amps !== undefined ? a.amps.toFixed(1) + ' A' : '\u2014');
+}
+function ampOverlaySig() {
+    return JSON.stringify([ampStructSig(ampState), ampLockReason(), ampTunePending, isTransmitting,
+                           ampResetConfirmUntil > Date.now(), ampMeterRaw]);
+}
+var ampOverlayLastSig = '', ampFuncLastSt = '';
+
 // Punch list 49: why the amp is unreachable (the server's offlineReason).
 function ampOfflineText(a) {
     switch (a && a.offlineReason) {
@@ -8194,12 +8283,14 @@ function ampTuneButton(a, lock) {
             : a.tuneDrive === 'low' ? 'Start the amplifier\'s autotune. Drive is in range; 10 W or more gives a more precise tune'
             : a.tuneDrive === 'outside' ? 'Start the amplifier\'s autotune. The amplifier tunes only with 4-39 W of drive'
             : 'Start the amplifier\'s autotune';
-    b.onclick = function (e) {
-        e.stopPropagation();
-        if (b.disabled) return;
-        ampTunePending = true; b.disabled = true; b.classList.remove('ready');
-        send({ cmd: 'ampTune' });
-    };
+    // Punch list 56c: acts on the press (a panel rebuild cannot swallow it).
+    txPressBind(b, function () {
+        return function () {
+            if (b.disabled) return;
+            ampTunePending = true; b.disabled = true; b.classList.remove('ready');
+            send({ cmd: 'ampTune' });
+        };
+    }, true);
     return b;
 }
 // The amp's controls, as in the AetherSDR applet: OPERATE / TUNE / RESET on
@@ -8218,7 +8309,9 @@ function ampControlRows(a, lock) {
     op.disabled = !opKnown || !!lock;
     op.title = lock || (!up ? 'Amplifier offline' : !opKnown ? 'Amplifier state unknown'
              : a.operate ? 'In OPERATE: tap for STANDBY' : 'In STANDBY: tap for OPERATE');
-    op.onclick = function (e) { e.stopPropagation(); send({ cmd: 'ampOperate', value: !(ampState && ampState.operate) }); };
+    txPressBind(op, function () {
+        return op.disabled ? null : function () { send({ cmd: 'ampOperate', value: !(ampState && ampState.operate) }); };
+    }, true);
     r1.appendChild(op);
     var tb = ampTuneButton(a, lock);
     if (tb) r1.appendChild(tb);
@@ -8342,6 +8435,19 @@ function renderAmpOverlay() {
         ampTile('INTERFACE', up ? a.iface : undefined) +
         '</div>';
     body.innerHTML = html;
+    ampOverlayLastSig = ampOverlaySig();
+    var bars = body.querySelectorAll('.amp-bar');
+    if (bars[1]) bars[1].dataset.live = 'ref';
+    if (bars[2]) {
+        bars[2].dataset.live = 'swr';
+        bars[2].dataset.unit = ':1';
+        var sv = bars[2].querySelector('.amp-val');
+        if (sv) { sv.classList.add('amp-live-val'); bars[2].dataset.none = '\u2014'; }
+    }
+    var tl = body.querySelectorAll('.amp-tile span');
+    if (tl[2]) tl[2].dataset.live = 'temp';
+    if (tl[3]) tl[3].dataset.live = 'volts';
+    if (tl[4]) tl[4].dataset.live = 'amps';
 
     body.appendChild(ampControlRows(a, lock));
     var grid = document.createElement('div');
