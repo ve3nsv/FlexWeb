@@ -6562,7 +6562,7 @@ function renderCpuChip() {
     el.classList.toggle('hot', l.sysPct > 90);
     el.title = cpuDetailsHtml(l).replace(/<br>/g, '\n').replace(/<[^>]+>/g, '');
     var pop = document.getElementById('cpuPop');
-    if (pop && !pop.classList.contains('hidden') && !(document.activeElement && document.activeElement.closest('#cpuPop'))) pop.innerHTML = cpuDetailsHtml(l);
+    if (pop && !pop.classList.contains('hidden') && !(document.activeElement && document.activeElement.closest('#cpuPop select'))) pop.innerHTML = cpuDetailsHtml(l);
 }
 function toggleCpuPop() {
     var pop = document.getElementById('cpuPop');
