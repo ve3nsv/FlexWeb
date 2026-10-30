@@ -110,11 +110,12 @@ void flexRxDsp::process(QVector<float> samples, int rate, bool nnrWanted, qint64
         if (active && nr2) {
             if (!nr2WasActive) nr2->resetTransient();
             if (QDateTime::currentMSecsSinceEpoch() - queuedAtMs < kOverloadMs) {
-                double before = 0; for (float x : samples) before += double(x)*x;
+                const qint64 now = QDateTime::currentMSecsSinceEpoch();
+                const bool reportGain = now - gainAt >= 200;
+                double before = 0; if (reportGain) for (float x : samples) before += double(x)*x;
                 QVector<float> output(samples.size());
                 nr2->process(samples.constData(), output.data(), samples.size()); samples.swap(output);
-                const qint64 now = QDateTime::currentMSecsSinceEpoch();
-                if (now - gainAt >= 200) {
+                if (reportGain) {
                     double after = 0; for (float x : samples) after += double(x)*x;
                     emit nnrGain(before > 1e-12 ? float(qBound(0.0, std::sqrt(after/before), 1.0)) : 1.0f, true); gainAt = now;
                 }

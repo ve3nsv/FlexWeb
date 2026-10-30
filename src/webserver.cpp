@@ -523,6 +523,10 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
         QJsonObject dsp;
         for(const QString &key : {QString("rxDspQueueMs"),QString("rxDspProcessingUs"),QString("rxDspDroppedBlocks")})
             if(flexDspJson_.contains(key))dsp[key]=flexDspJson_[key];
+        for(const QString &key : {QString("nnr"), QString("nnrActive"), QString("nnrModel"), QString("nnrModelInUse"), QString("nnrStrength")})
+            if(flexDspJson_.contains(key))dsp[key]=flexDspJson_[key];
+        o["operatingState"] = QJsonObject{{"transmitting", nnrTx_}, {"modeKind", nnrModeKind_},
+            {"freeDvTx", freedvTxActive}, {"packetTx", packetTxBusy}};
         o["dsp"]=dsp;
         o["build"]=FLEXWEB_VERSION;
         o["performanceLog"]=performanceLog_.status();
@@ -5109,10 +5113,11 @@ void webServer::sendPeriodicStatus()
 
 void webServer::sendJsonToAll(const QJsonObject &obj)
 {
-    QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    if (wsClients.isEmpty()) return;
+    const QString data = QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
     for (QWebSocket *client : wsClients) {
         if (client->bytesToWrite() > 1024*1024) { client->close(QWebSocketProtocol::CloseCodeGoingAway, "client too slow"); continue; }
-        client->sendTextMessage(QString::fromUtf8(data));
+        client->sendTextMessage(data);
     }
 }
 

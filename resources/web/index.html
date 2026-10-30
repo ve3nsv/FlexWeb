@@ -3933,6 +3933,22 @@ function reconnectSession() {
     if (!audioCtx) { audioCtx = createRxAudioCtx(); audioStartPending = true; }
 }
 
+var displayProfile = 'normal';
+try { displayProfile = localStorage.getItem('wfDisplayProfile') || 'normal'; } catch(e) {}
+var displayProfiles = { normal: {hz:25, bins:4096}, balanced: {hz:15, bins:1024}, low: {hz:8, bins:512} };
+if (!displayProfiles[displayProfile]) displayProfile = 'normal';
+async function downloadPerformanceLog(part) {
+    try {
+        var response = await fetch('/performance-log.jsonl?part=' + part, {credentials:'same-origin', cache:'no-store'});
+        if (!response.ok) throw new Error('HTTP ' + response.status + ': ' + await response.text());
+        var blob = await response.blob();
+        if (!blob.size) throw new Error('The log is empty.');
+        var url = URL.createObjectURL(blob), a = document.createElement('a');
+        a.href = url; a.download = 'flexweb-performance-' + part + '.jsonl';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function(){ URL.revokeObjectURL(url); }, 60000);
+    } catch(e) { alert('Performance log download failed: ' + e.message); }
+}
 // A visual subscription never closes the shared control/audio WebSocket.
 function updateSpectrumSubscription() {
     if (!wsTransport || !wsTransport.isOpen()) return;
@@ -3940,7 +3956,7 @@ function updateSpectrumSubscription() {
     var canvas = document.getElementById('spectrumCanvas');
     var width = canvas ? canvas.clientWidth : 1024;
     var enabled = !document.hidden || recording;
-    wsTransport.sendCommand({cmd:'spectrumSubscribe', enabled:enabled, maxHz:25, bins:Math.max(128, Math.min(4096, Math.ceil(width || 1024)))});
+    wsTransport.sendCommand({cmd:'spectrumSubscribe', enabled:enabled, maxHz:displayProfiles[displayProfile].hz, bins:Math.max(128, Math.min(displayProfiles[displayProfile].bins, Math.ceil(width || 1024)))});
 }
 document.addEventListener('visibilitychange', updateSpectrumSubscription);
 window.addEventListener('resize', updateSpectrumSubscription);
@@ -6527,9 +6543,9 @@ function cpuDetailsHtml(l) {
         var log=l.performanceLog;
         html += '<hr>Performance log: ' + (log.enabled ? 'ON' : 'OFF') + (log.writeError ? ' · WRITE ERROR' : '') + (log.droppedSamples ? ' · skipped ' + log.droppedSamples : '')
             + '<br><button type="button" onclick="event.stopPropagation();send({cmd: &quot;performanceLog&quot;, enabled: ' + (!log.enabled) + '});">' + (log.enabled?'Stop logging':'Start logging') + '</button>'
-            + ' <a href="/performance-log.jsonl" download="flexweb-performance.jsonl" onclick="event.stopPropagation()">Download latest</a>'
-            + '<br><label>Older segment <select onchange="event.stopPropagation(); if(this.value) window.open(this.value, &quot;_blank&quot;);this.selectedIndex=0;" onclick="event.stopPropagation()"><option value="">Choose…</option>';
-        for(var i=1;i<log.parts;i++)html += '<option value="/performance-log.jsonl?part='+i+'">'+i+'</option>';
+            + ' <button type="button" onclick="event.stopPropagation();downloadPerformanceLog(0)">Download latest</button>'
+            + '<br><label>Older segment <select onchange="event.stopPropagation(); if(this.value) downloadPerformanceLog(Number(this.value));this.selectedIndex=0;" onclick="event.stopPropagation()"><option value="">Choose…</option>';
+        for(var i=1;i<log.parts;i++)html += '<option value="'+i+'">'+i+'</option>';
         html += '</select></label>';
     }
     return html;
@@ -7970,6 +7986,13 @@ function renderFuncOverlay() {
     grid.appendChild(makeFuncBtn('METER', meterStyle.toUpperCase(), meterStyle !== 'auto', function() {
         cycleMeterStyle();
         renderFuncOverlay();
+    }));
+
+    grid.appendChild(makeFuncBtn('DISPLAY', displayProfile.toUpperCase(), displayProfile !== 'normal', function() {
+        var names = ['normal', 'balanced', 'low'];
+        displayProfile = names[(names.indexOf(displayProfile)+1)%names.length];
+        try { localStorage.setItem('wfDisplayProfile', displayProfile); } catch(e) {}
+        updateSpectrumSubscription(); renderFuncOverlay();
     }));
 
     // Server CPU chip in the top bar
