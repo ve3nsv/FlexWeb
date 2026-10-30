@@ -21,12 +21,14 @@
 
 #include "audioconverter.h"
 #include "nnrfilter.h"
+#include "SpectralNR.h"
 
 class flexRxDsp : public QObject
 {
     Q_OBJECT
 public:
     struct Settings {
+        int method = 0, nr2Reduction = 100, nr2Naturalness = 0, nr2Smoothing = 80, nr2Threshold = 20, nr2Gain = 2, nr2Noise = 0, nr2Ae = 1;
         int strength = 38, model = 0, alpha = 100, knee = 100, tau = 200,
             maxGain = 120, attack = 0, release = 0;
     };
@@ -55,6 +57,9 @@ private:
     QByteArray guid;
     Settings cfg;
     std::unique_ptr<nnrFilter> filter;
+    std::unique_ptr<AetherSDR::SpectralNR> nr2;
+    int nr2Rate = 0;
+    bool nr2WasActive = false;
     int modelInUse = 0;
     qint64 gainAt = 0;
     bool lastActive = false;

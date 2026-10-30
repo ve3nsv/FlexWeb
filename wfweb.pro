@@ -483,3 +483,7 @@ macx:HEADERS += include/tlsproxy.h
 # FlexWeb build number (include/wfweb_version.h): CI exports FLEXWEB_BUILD.
 FLEXWEB_BUILD_NO = $$(FLEXWEB_BUILD)
 !isEmpty(FLEXWEB_BUILD_NO): DEFINES += FLEXWEB_BUILD=\\\"$$FLEXWEB_BUILD_NO\\\"
+
+# AetherSDR NR2, using its portable radix-2 fallback (no FFTW symbols).
+SOURCES += src/SpectralNR.cpp
+HEADERS += include/SpectralNR.h include/Nr2GammaTables.inc

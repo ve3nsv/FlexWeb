@@ -32,3 +32,14 @@ Use a dummy load or mock radio for transmit regression tests.
 This stage does not implement the later resource optimizations or claim
 measured savings. Hardware measurements and full Qt integration tests remain
 required before treating an installer as validated.
+
+## NR2
+The noise reduction panel has NNR / NR2 method buttons with a common on/off
+switch. NR2 offers Gamma/OSMS defaults and the AetherSDR spectral controls.
+Only one method processes a stream. Both methods bypass FM, CW, data and TX;
+SSB and AM are eligible, subject to the existing digital-decoder hold.
+The initial NR2 uses AetherSDR's portable FFT fallback, not FFTW. No first-use
+FFTW planning or additional runtime DLL is required. The FFT frame is 2048
+samples; reported buffering delay follows the stream's sample rate. Measure
+process CPU with diagnostics and compare NNR, NR2 and OFF under the same load.
+The source is ported from AetherSDR commit 1199ed38; CPU savings are not assumed.

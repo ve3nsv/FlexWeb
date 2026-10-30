@@ -14,6 +14,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 UNITS = {
+    "nr2_stream": ["src/SpectralNR.cpp"],
+    "nr2_post2": ["src/SpectralNR.cpp"],
     # WSJT-X NetworkMessage serialization, checked by deserializing with Qt's
     # own schema-3 representation.
     "wsjtx_protocol": ["src/wsjtxmessage.cpp"],

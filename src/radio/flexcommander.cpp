@@ -1158,6 +1158,14 @@ void flexCommander::nnrApply()
     // The filter lives on the RX DSP thread (punch list 52): post the settings.
     if (!rxDsp) return;
     flexRxDsp::Settings st;
+    st.method = nnrCfg.method;
+    st.nr2Reduction = nnrCfg.nr2Reduction;
+    st.nr2Naturalness = nnrCfg.nr2Naturalness;
+    st.nr2Smoothing = nnrCfg.nr2Smoothing;
+    st.nr2Threshold = nnrCfg.nr2Threshold;
+    st.nr2Gain = nnrCfg.nr2Gain;
+    st.nr2Noise = nnrCfg.nr2Noise;
+    st.nr2Ae = nnrCfg.nr2Ae;
     st.strength = nnrCfg.strength;
     st.model = nnrCfg.model;
     st.alpha = nnrCfg.alpha;
@@ -1222,6 +1230,14 @@ void flexCommander::nnrLoad()
 {
     std::unique_ptr<QSettings> s(nnrStore());
     nnrCfg.on = s->value("on", 0).toInt();
+    nnrCfg.method = s->value("method", nnrCfg.method).toInt();
+    nnrCfg.nr2Reduction = s->value("nr2Reduction", nnrCfg.nr2Reduction).toInt();
+    nnrCfg.nr2Naturalness = s->value("nr2Naturalness", nnrCfg.nr2Naturalness).toInt();
+    nnrCfg.nr2Smoothing = s->value("nr2Smoothing", nnrCfg.nr2Smoothing).toInt();
+    nnrCfg.nr2Threshold = s->value("nr2Threshold", nnrCfg.nr2Threshold).toInt();
+    nnrCfg.nr2Gain = s->value("nr2Gain", nnrCfg.nr2Gain).toInt();
+    nnrCfg.nr2Noise = s->value("nr2Noise", nnrCfg.nr2Noise).toInt();
+    nnrCfg.nr2Ae = s->value("nr2Ae", nnrCfg.nr2Ae).toInt();
     nnrCfg.strength = s->value("strength", 38).toInt();
     nnrCfg.model = s->value("model", 0).toInt();
     nnrCfg.alpha = s->value("alpha", 100).toInt();
@@ -1236,6 +1252,14 @@ void flexCommander::nnrSave()
 {
     std::unique_ptr<QSettings> s(nnrStore());
     s->setValue("on", nnrCfg.on);
+    s->setValue("method", nnrCfg.method);
+    s->setValue("nr2Reduction", nnrCfg.nr2Reduction);
+    s->setValue("nr2Naturalness", nnrCfg.nr2Naturalness);
+    s->setValue("nr2Smoothing", nnrCfg.nr2Smoothing);
+    s->setValue("nr2Threshold", nnrCfg.nr2Threshold);
+    s->setValue("nr2Gain", nnrCfg.nr2Gain);
+    s->setValue("nr2Noise", nnrCfg.nr2Noise);
+    s->setValue("nr2Ae", nnrCfg.nr2Ae);
     s->setValue("strength", nnrCfg.strength);
     s->setValue("model", nnrCfg.model);
     s->setValue("alpha", nnrCfg.alpha);
@@ -1249,6 +1273,14 @@ void flexCommander::nnrSave()
 bool flexCommander::setNnr(const QString& key, int value)
 {
     if (key == "nnr") nnrCfg.on = value ? 1 : 0;
+    else if (key == "nrMethod") nnrCfg.method = qBound(0, value, 1);
+    else if (key == "nr2Reduction") nnrCfg.nr2Reduction = qBound(50, value, 200);
+    else if (key == "nr2Naturalness") nnrCfg.nr2Naturalness = qBound(0, value, 15);
+    else if (key == "nr2Smoothing") nnrCfg.nr2Smoothing = qBound(50, value, 98);
+    else if (key == "nr2Threshold") nnrCfg.nr2Threshold = qBound(5, value, 50);
+    else if (key == "nr2Gain") nnrCfg.nr2Gain = qBound(0, value, 3);
+    else if (key == "nr2Noise") nnrCfg.nr2Noise = qBound(0, value, 2);
+    else if (key == "nr2Ae") nnrCfg.nr2Ae = qBound(0, value, 1);
     else if (key == "nnrStrength") nnrCfg.strength = qBound(0, value, 100);
     else if (key == "nnrModel") nnrCfg.model = qBound(0, value, 1);
     else if (key == "nnrAlpha") nnrCfg.alpha = qBound(0, value, 400);
@@ -2898,6 +2930,14 @@ void flexCommander::publishDsp()
             for (auto it = extra.constBegin(); it != extra.constEnd(); ++it)
                 st[it.key()] = it.value();
             st["nnr"] = nnrCfg.on;
+            st["nrMethod"] = nnrCfg.method;
+            st["nr2Reduction"] = nnrCfg.nr2Reduction;
+            st["nr2Naturalness"] = nnrCfg.nr2Naturalness;
+            st["nr2Smoothing"] = nnrCfg.nr2Smoothing;
+            st["nr2Threshold"] = nnrCfg.nr2Threshold;
+            st["nr2Gain"] = nnrCfg.nr2Gain;
+            st["nr2Noise"] = nnrCfg.nr2Noise;
+            st["nr2Ae"] = nnrCfg.nr2Ae;
             st["nnrStrength"] = nnrCfg.strength;
             st["nnrModel"] = nnrCfg.model;
             st["nnrModelInUse"] = nnrDelayMs > 0 ? nnrModelInUse : nnrCfg.model;

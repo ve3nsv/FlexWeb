@@ -328,7 +328,7 @@ private:
     // NNR (neural noise reduction) on the RX audio; settings kept in
     // QSettings("wfweb", "nnr"). Fixed-point for the page: alpha x100,
     // knee x10, tau x100, max gain x10, attack / release in ms.
-    struct nnrSettings { int on = 0, strength = 38, model = 0, alpha = 100, knee = 100, tau = 200,
+    struct nnrSettings { int method = 0, nr2Reduction = 100, nr2Naturalness = 0, nr2Smoothing = 80, nr2Threshold = 20, nr2Gain = 2, nr2Noise = 0, nr2Ae = 1; int on = 0, strength = 38, model = 0, alpha = 100, knee = 100, tau = 200,
                          maxGain = 120, attack = 0, release = 0; } nnrCfg;
     // The filter runs on rxDsp's own thread (punch list 52, flexrxdsp.h);
     // these mirror what it reports (nnrState).

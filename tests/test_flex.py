@@ -255,7 +255,9 @@ def test_flex_extras(flex):
         sock.close()
 
 
-def test_nnr(flex):
+@pytest.mark.parametrize("method", [0, 1], ids=["nnr", "nr2"])
+@pytest.mark.parametrize("bypass_mode", ["CW", "FM", "DIGU"])
+def test_nnr(flex, method, bypass_mode):
     """NNR runs on the RX audio in voice modes: the page gets NR GAIN
     readings and the state; in CW it waits (a speech model would remove the
     carrier) and says so."""
@@ -268,6 +270,7 @@ def test_nnr(flex):
     try:
         requests.put(f"{rest}/mode", json={"mode": "USB", "filter": 1}, timeout=5)
         _ws_send(sock, {"cmd": "enableAudio", "value": True})
+        _ws_send(sock, {"cmd": "flexDsp", "key": "nrMethod", "value": method})
         _ws_send(sock, {"cmd": "flexDsp", "key": "nnrModel", "index": 0, "value": 0})
         _ws_send(sock, {"cmd": "flexDsp", "key": "nnr", "index": 0, "value": 1})
         gains, active_state = [], None
@@ -308,16 +311,17 @@ def test_nnr(flex):
                     break
             assert resumed, "NNR did not come back after unkey"
 
-        requests.put(f"{rest}/mode", json={"mode": "CW", "filter": 1}, timeout=5)
+        requests.put(f"{rest}/mode", json={"mode": bypass_mode, "filter": 1}, timeout=5)
         stopped = False
         for text in reader.frames(8.0):
             m = json.loads(text)
             if m.get("type") == "nnrGain" and not m.get("active"):
                 stopped = True
                 break
-        assert stopped, "NNR kept running in CW"
+        assert stopped, f"Noise reduction kept running in {bypass_mode}"
     finally:
         _ws_send(sock, {"cmd": "flexDsp", "key": "nnr", "index": 0, "value": 0})
+        _ws_send(sock, {"cmd": "flexDsp", "key": "nrMethod", "value": 0})
         requests.put(f"{rest}/mode", json={"mode": "USB", "filter": 1}, timeout=5)
         sock.close()
 

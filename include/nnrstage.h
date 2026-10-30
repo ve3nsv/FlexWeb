@@ -14,6 +14,7 @@
 #include <memory>
 
 class nnrFilter;
+namespace AetherSDR { class SpectralNR; }
 
 class nnrStage
 {
@@ -36,9 +37,12 @@ public:
     QJsonObject state() const;
 
 private:
-    struct settings { int on = 0, strength = 38, model = 0, alpha = 100, knee = 100, tau = 200,
+    struct settings { int method = 0, nr2Reduction = 100, nr2Naturalness = 0, nr2Smoothing = 80, nr2Threshold = 20, nr2Gain = 2, nr2Noise = 0, nr2Ae = 1; int on = 0, strength = 38, model = 0, alpha = 100, knee = 100, tau = 200,
                       maxGain = 120, attack = 0, release = 0; } cfg;
     std::unique_ptr<nnrFilter> f;
+    std::unique_ptr<AetherSDR::SpectralNR> nr2;
+    int nr2Rate = 0;
+    float nr2Gain = 1.0f;
     int modelInUse = 0;
     bool wasActive = false;
     void apply();

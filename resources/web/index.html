@@ -3967,7 +3967,7 @@ var GUEST_TUNE_CMDS = { setFrequency: 1, setMode: 1, setFilter: 1, setFilterWidt
     packetEnable: 1, packetSetMode: 1 };
 var GUEST_TUNE_DSP = { rxAnt: 1, rxEqOn: 1, rxEqBand: 1, rxEqFlat: 1, apf: 1, apfLevel: 1, wnb: 1,
     wnbLevel: 1, nbLevel: 1, nrLevel: 1, anfLevel: 1, tnfEnabled: 1, panCenter: 1, panBandwidth: 1,
-    panFree: 1, panRfGain: 1, filterLo: 1, filterHi: 1, band: 1, nnr: 1, nnrStrength: 1, nnrModel: 1,
+    panFree: 1, panRfGain: 1, filterLo: 1, filterHi: 1, band: 1, nnr: 1, nrMethod: 1, nr2Reduction: 1, nr2Naturalness: 1, nr2Smoothing: 1, nr2Threshold: 1, nr2Gain: 1, nr2Noise: 1, nr2Ae: 1, nnrStrength: 1, nnrModel: 1,
     nnrAlpha: 1, nnrKnee: 1, nnrTau: 1, nnrMaxGain: 1, nnrAttack: 1, nnrRelease: 1 };
 function guestMaySend(obj) {
     if (GUEST_CMDS[obj.cmd]) return true;
@@ -6065,7 +6065,7 @@ function renderRxDspOverlay() {
     toggle('TNF', 'tnfEnabled');
     grid.appendChild(makeFuncBtn('+ NOTCH', 'AT VFO', false, function () { sendFlexDsp('tnfAdd', 0, 0, true); }));
     if (flexDsp.nnr !== undefined)
-        grid.appendChild(makeFuncBtn('NNR\u2026', flexDsp.nnr ? (flexDsp.nnrModel ? 'PREMIUM' : 'STANDARD') : 'OFF', !!flexDsp.nnr,
+        grid.appendChild(makeFuncBtn('NR\u2026', flexDsp.nnr ? (flexDsp.nrMethod ? 'NR2' : flexDsp.nnrModel ? 'PREMIUM' : 'STANDARD') : 'OFF', !!flexDsp.nnr,
             function () { togglePanel('nnr'); }));
     grid.appendChild(dspBackButton());
     wrap.appendChild(grid);
@@ -6204,7 +6204,8 @@ function renderNnrOverlay() {
     var grid = document.createElement('div');
     grid.className = 'overlay-grid';
     grid.appendChild(makeFuncBtn('NNR', d.nnr ? 'ON' : 'OFF', !!d.nnr, toggleNnr));
-    ['STANDARD', 'PREMIUM'].forEach(function (name, m) {
+    ['NNR', 'NR2'].forEach(function(name, method) { grid.appendChild(makeFuncBtn(name, 'METHOD', (d.nrMethod || 0) === method, function() { d.nrMethod = method; nnrSend('nrMethod', method, true); renderNnrOverlay(); })); });
+    if (!d.nrMethod) ['STANDARD', 'PREMIUM'].forEach(function (name, m) {
         grid.appendChild(makeFuncBtn(name, 'MODEL', d.nnrModel === m, function () {
             d.nnrModel = m; nnrSend('nnrModel', m, true); renderNnrOverlay();
         }));
@@ -6233,12 +6234,21 @@ function renderNnrOverlay() {
         r.appendChild(name); r.appendChild(input); r.appendChild(val);
         wrap.appendChild(r);
     }
-    row('STRENGTH', 'nnrStrength', 0, 100, String);
+    if (d.nrMethod) {
+        row('REDUCTION', 'nr2Reduction', 50, 200, function(v){return (v/100).toFixed(2);});
+        row('NATURALNESS', 'nr2Naturalness', 0, 15, function(v){return (v/100).toFixed(2);});
+        row('SMOOTHING', 'nr2Smoothing', 50, 98, function(v){return (v/100).toFixed(2);});
+        row('THRESHOLD', 'nr2Threshold', 5, 50, function(v){return (v/100).toFixed(2);});
+        row('GAIN METHOD', 'nr2Gain', 0, 3, function(v){return ['Linear','Log','Gamma','Trained'][v];});
+        row('NOISE ESTIMATE', 'nr2Noise', 0, 2, function(v){return ['OSMS','MMSE','NSTAT'][v];});
+        row('ARTIFACT FILTER', 'nr2Ae', 0, 1, function(v){return v ? 'ON' : 'OFF';});
+        note.textContent = 'NR2 spectral noise reduction (AetherSDR / WDSP). SSB and AM only; bypassed during TX, FM, CW and data. Runs on the server.';
+    } else row('STRENGTH', 'nnrStrength', 0, 100, String);
     var adv = document.createElement('div');
     adv.className = 'nnr-adv-title';
     adv.textContent = 'ADVANCED \u2014 WDSP LEAVES THESE UNDOCUMENTED';
     wrap.appendChild(adv);
-    NNR_ADV.forEach(function (a) { row(a.label, a.key, a.min, a.max, a.fmt); });
+    if (!d.nrMethod) NNR_ADV.forEach(function (a) { row(a.label, a.key, a.min, a.max, a.fmt); });
 
     var st = document.createElement('div');
     st.className = 'nnr-status';
@@ -6247,7 +6257,7 @@ function renderNnrOverlay() {
     st.appendChild(dot);
     var m = document.createElement('span');
     m.innerHTML = '<span class="nnr-k">METHOD</span> <b>' + (d.nnr
-        ? 'NNR \u00b7 ' + (d.nnrModelInUse ? 'Premium' : 'Standard') + ' \u00b7 floor ' + d.nnrStrength
+        ? (d.nrMethod ? 'NR2' : 'NNR \u00b7 ' + (d.nnrModelInUse ? 'Premium' : 'Standard') + ' \u00b7 floor ' + d.nnrStrength)
           + (d.nnrActive ? (d.nnrDelayMs ? ' \u00b7 ' + d.nnrDelayMs + ' ms' : '') : ' \u00b7 waits for a voice mode')
         : 'off') + '</b>';
     st.appendChild(m);
@@ -7885,7 +7895,7 @@ function renderFuncOverlay() {
     }
     var nnrF = nnrObj();
     if (nnrF && nnrF.nnr !== undefined)
-        grid.appendChild(makeFuncBtn('NNR', nnrF.nnr ? (nnrF.nnrModel ? 'PREMIUM' : 'STANDARD') : 'OFF', !!nnrF.nnr,
+        grid.appendChild(makeFuncBtn('NR', nnrF.nnr ? (nnrF.nrMethod ? 'NR2' : nnrF.nnrModel ? 'PREMIUM' : 'STANDARD') : 'OFF', !!nnrF.nnr,
             function() { togglePanel('nnr'); }));
 
     // FIL opens the FILTER window (FIL1/2/3, width, twin PBT, shape) the way

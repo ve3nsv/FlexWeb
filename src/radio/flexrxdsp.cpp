@@ -21,8 +21,21 @@ flexRxDsp::~flexRxDsp() = default;
 
 void flexRxDsp::applySettings(const Settings& s)
 {
+    if (cfg.method != s.method) {
+        if (nr2) nr2->reset();
+        if (filter) filter->reset();
+        nr2WasActive = false; lastActive = false;
+    }
     cfg = s;
     applyToFilter();
+    if (nr2) {
+        nr2->setGainMax(cfg.nr2Reduction / 100.0f);
+        nr2->setGainFloor(cfg.nr2Naturalness / 100.0f);
+        nr2->setGainSmooth(cfg.nr2Smoothing / 100.0f);
+        nr2->setQspp(cfg.nr2Threshold / 100.0f);
+        nr2->setGainMethod(cfg.nr2Gain); nr2->setNpeMethod(cfg.nr2Noise);
+        nr2->setAeFilter(cfg.nr2Ae != 0);
+    }
 }
 
 void flexRxDsp::applyToFilter()
@@ -40,11 +53,32 @@ void flexRxDsp::applyToFilter()
 void flexRxDsp::reset()
 {
     if (filter) filter->reset();
+    if (nr2) nr2->resetTransient();
 }
 
 void flexRxDsp::process(QVector<float> samples, int rate, bool nnrWanted, qint64 queuedAtMs, quint32 seq)
 {
-    if (nnrWanted) {
+    if (cfg.method == 1) {
+        const bool active = nnrWanted;
+        if (active && (!nr2 || nr2Rate != rate)) {
+            nr2.reset(new AetherSDR::SpectralNR(2048, rate, 4)); nr2Rate = rate;
+            applySettings(cfg);
+        }
+        if (active && nr2) {
+            if (!nr2WasActive) nr2->resetTransient();
+            if (QDateTime::currentMSecsSinceEpoch() - queuedAtMs < kOverloadMs) {
+                double before = 0; for (float x : samples) before += double(x)*x;
+                QVector<float> output(samples.size());
+                nr2->process(samples.constData(), output.data(), samples.size()); samples.swap(output);
+                const qint64 now = QDateTime::currentMSecsSinceEpoch();
+                if (now - gainAt >= 200) {
+                    double after = 0; for (float x : samples) after += double(x)*x;
+                    emit nnrGain(before > 1e-12 ? float(qBound(0.0, std::sqrt(after/before), 1.0)) : 1.0f, true); gainAt = now;
+                }
+            }
+        }
+        nr2WasActive = active;
+    } else if (nnrWanted) {
         if (!filter || filter->rate() != rate) {
             filter.reset(new nnrFilter(rate));
             if (!filter->isValid()) {
@@ -84,8 +118,9 @@ void flexRxDsp::process(QVector<float> samples, int rate, bool nnrWanted, qint64
         overloaded = false;
     }
 
-    const bool active = nnrWanted && filter;
-    const int delay = filter ? filter->delayMs() : 0;
+    if (cfg.method == 0) nr2WasActive = false;
+    const bool active = nnrWanted && (cfg.method == 1 ? bool(nr2) : bool(filter));
+    const int delay = cfg.method == 1 ? (nr2 ? 2048000 / rate : 0) : (filter ? filter->delayMs() : 0);
     if (active != lastActive || (active && (modelInUse != lastModel || delay != lastDelay))) {
         lastActive = active;
         lastModel = modelInUse;
