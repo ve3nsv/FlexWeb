@@ -514,6 +514,38 @@ def test_intercom_talk(server):
         b.close()
 
 
+def test_performance_logging(server):
+    base, port, env, radio = server
+    token = _login(base, "tom", PASSWORD).cookies["wfweb_session"]
+    cookies = {"wfweb_session": token}
+    target = Path(env["WFWEB_CONFIG_DIR"]) / "performance" / "performance-0.jsonl"
+    assert _wait(lambda: target.exists() and target.stat().st_size > 0)
+    response = requests.get(base + "/performance-log.jsonl", cookies=cookies, verify=False, timeout=5)
+    assert response.status_code == 200
+    rows = [json.loads(line) for line in response.text.splitlines() if line]
+    assert any(row.get("type") == "serverLoad" and "procMemMb" in row for row in rows)
+    assert requests.get(base + "/performance-log.jsonl?part=-1", cookies=cookies, verify=False, timeout=5).status_code == 400
+    anonymous = requests.get(base + "/performance-log.jsonl", verify=False, timeout=5)
+    assert anonymous.status_code in (401, 403)
+    _, sock, buf = _ws(port, token)
+    reader = _Reader(sock, buf)
+    try:
+        _ws_send(sock, {"cmd": "performanceLog", "enabled": False})
+        result = _drain_until(reader, lambda m: m.get("type") == "performanceLog")
+        assert result and result["enabled"] is False
+        _ws_send(sock, {"cmd": "performanceLog", "enabled": True})
+        result = _drain_until(reader, lambda m: m.get("type") == "performanceLog")
+        assert result and result["enabled"] is True
+        _ws_send(sock, {"cmd":"performanceSample", "sample":{"frameP95Ms":12,"password":"must-not-be-logged"}})
+        def browser_rows():
+            data=requests.get(base+"/performance-log.jsonl",cookies=cookies,verify=False,timeout=5).text
+            return [json.loads(line) for line in data.splitlines() if line.startswith('{') and 'browserPerformance' in line]
+        assert _wait(browser_rows)
+        assert "must-not-be-logged" not in json.dumps(browser_rows())
+    finally:
+        sock.close()
+
+
 def test_lockout(server):
     base, _, _, _ = server
     # The earlier sign-ins reset the count: five wrong passwords lock.
@@ -584,6 +616,7 @@ def test_guest_view(guest_server):
     assert "View only (no password)" in page.text and 'name="guest"' in page.text
     token = _guest_token(base)
     jar = {"wfweb_session": token}
+    assert requests.get(base + "/performance-log.jsonl", cookies=jar, verify=False, timeout=5).status_code == 403
     assert requests.get(base + "/", cookies=jar, verify=False, timeout=5).status_code == 200
     assert requests.get(base + "/api/v1/radio/info", cookies=jar, verify=False, timeout=5).ok
     # nothing changes through the API on the web port

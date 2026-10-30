@@ -1,5 +1,6 @@
 #include "webserver.h"
 #include "serverload.h"
+#include <cmath>
 #include "rfkitconnection.h"
 #include "freedvprocessor.h"
 #include <QtMath>
@@ -518,10 +519,18 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
             queued += double(c->bytesToWrite());
             written += c->property("metricsWrittenBytes").toDouble();
         }
+        o["webSocketWrittenBytesTotal"] = double(metricsBytesWritten_);
+        QJsonObject dsp;
+        for(const QString &key : {QString("rxDspQueueMs"),QString("rxDspProcessingUs"),QString("rxDspDroppedBlocks")})
+            if(flexDspJson_.contains(key))dsp[key]=flexDspJson_[key];
+        o["dsp"]=dsp;
+        o["build"]=FLEXWEB_VERSION;
+        o["performanceLog"]=performanceLog_.status();
         o["spectrumDroppedActiveConnections"] = dropped;
         o["connectedBrowsers"] = wsClients.size();
         o["webSocketQueuedBytes"] = queued;
         o["webSocketWrittenBytesActiveConnections"] = written;
+        performanceLog_.record(o);
         if (!wsClients.isEmpty())
             sendJsonToAll(o);
     });
@@ -873,6 +882,20 @@ void webServer::onHttpReadyRead()
         return;
     }
 
+    if (path == "/performance-log.jsonl") {
+        const QString user=requestUser(socket,headerSection);
+        if(method!="GET" || onRestPort || !webAuth::hasUsers() || webAuth::role(user)!="admin") {
+            sendHttpResponse(socket,403,"Forbidden","text/plain","Admin login required");return;
+        }
+        bool ok=true;const int part=query.hasQueryItem("part")?query.queryItemValue("part").toInt(&ok):0;
+        if(!ok || part<0 || part>=performanceLog_.status()["parts"].toInt()) {
+            sendHttpResponse(socket,400,"Bad Request","text/plain","Invalid log segment");return;
+        }
+        QPointer<QTcpSocket> target(socket);
+        performanceLog_.download(part,this,[this,target](const QByteArray &data){
+            if(target)sendHttpResponse(target,data.isEmpty()?404:200,data.isEmpty()?"Not Found":"OK","application/x-ndjson",data);
+        });return;
+    }
     // REST API routing
     if (path.startsWith("/api/v1/")) {
         handleRestRequest(socket, method, path, query, body);
@@ -1873,9 +1896,11 @@ void webServer::onWsNewConnection()
     connect(pSocket, &QWebSocket::binaryMessageReceived, this, &webServer::onWsBinaryMessage);
     connect(pSocket, &QWebSocket::disconnected, this, &webServer::onWsDisconnected);
 
+    pSocket->setProperty("performanceClientId",double(++metricsNextClientId_));
     pSocket->setProperty("metricsWrittenBytes", 0.0);
-    connect(pSocket, &QWebSocket::bytesWritten, pSocket, [pSocket](qint64 n) {
+    connect(pSocket, &QWebSocket::bytesWritten, this, [this,pSocket](qint64 n) {
         pSocket->setProperty("metricsWrittenBytes", pSocket->property("metricsWrittenBytes").toDouble() + double(n));
+        metricsBytesWritten_ += quint64(qMax<qint64>(0,n));
     });
     wsClients.append(pSocket);
     browserCount_ = wsClients.size();
@@ -2288,6 +2313,32 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         client->setProperty("scopeBins", qBound(128, cmd["bins"].toInt(2048), 8192));
         client->setProperty("scopeNextMs", 0.0);
         return;
+    }
+    if (type == "performanceSample") {
+        if(!client || !performanceLog_.enabled())return;
+        const qint64 now=QDateTime::currentMSecsSinceEpoch();
+        if(now-client->property("lastPerformanceSampleMs").toLongLong()<2000)return;
+        client->setProperty("lastPerformanceSampleMs",now);
+        const auto input=cmd["sample"].toObject();QJsonObject sample;
+        sample["type"]="browserPerformance";sample["clientReported"]=true;
+        sample["client"]=client->property("performanceClientId").toDouble();
+        sample["hidden"]=input["hidden"].toBool();
+        for(const QString &key : {QString("elapsedSeconds"),QString("frameP95Ms"),QString("longTasks"),QString("longTaskMs"),QString("jsHeapBytes")}) {
+            const auto value=input[key];
+            if(value.isDouble() && std::isfinite(value.toDouble()) && value.toDouble()>=0 && value.toDouble()<=68719476736.0)sample[key]=value;
+            else sample[key]=QJsonValue(QJsonValue::Null);
+        }
+        QJsonObject bytes;
+        for(const QString &key : {QString("audio"),QString("spectrum"),QString("json"),QString("other")}) {
+            const auto value=input["payloadBytes"].toObject()[key];
+            if(value.isDouble() && std::isfinite(value.toDouble()) && value.toDouble()>=0 && value.toDouble()<=1073741824.0)bytes[key]=value;
+        }
+        sample["payloadBytes"]=bytes;performanceLog_.record(sample);return;
+    }
+    if (type == "performanceLog") {
+        if (!isAdmin(client) || !webAuth::hasUsers()) return;
+        if(cmd.contains("enabled"))performanceLog_.setEnabled(cmd["enabled"].toBool());
+        auto result=performanceLog_.status();result["type"]="performanceLog";sendJsonTo(client,result);return;
     }
     if (type == "qsoLogged") {
         QsoRecord r = QsoRecord::fromJson(cmd["qso"].toObject());
@@ -9792,7 +9843,7 @@ void webServer::broadcastGuestMode()
 bool webServer::guestAllowed(const QString &cmd)
 {
     static const QSet<QString> ok = {
-        QStringLiteral("spectrumSubscribe"), QStringLiteral("enableAudio"), QStringLiteral("setAudioCodec"), QStringLiteral("getStatus"),
+        QStringLiteral("performanceSample"), QStringLiteral("spectrumSubscribe"), QStringLiteral("enableAudio"), QStringLiteral("setAudioCodec"), QStringLiteral("getStatus"),
         QStringLiteral("timePing"), QStringLiteral("aprsRequestSnapshot"), QStringLiteral("termList"),
         QStringLiteral("termHistory"), QStringLiteral("getMemories"),
         QStringLiteral("setTxListen"),   // OPERATOR / OFF only (see setTxListen)

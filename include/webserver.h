@@ -29,6 +29,7 @@
 #include "logbook.h"
 #include "webauth.h"
 #include "serverload.h"
+#include "performancelog.h"
 #include "nnrstage.h"
 namespace AetherSDR { class RfkitConnection; }
 
@@ -953,6 +954,8 @@ private:
     // mode, so the folded value is briefly nonsense — TONE on its way to TSQL
     // reads as TONE(T)/TSQL(R) in between. Clients are told once things settle.
     int slowPollTick = 0;        // 5 s tick in sendPeriodicStatus (duplex offset, tuner status)
+    PerformanceLog performanceLog_;
+    quint64 metricsBytesWritten_ = 0, metricsNextClientId_ = 0;
     ServerLoad serverLoad;       // CPU / memory sampler for the CPU chip
     // NNR for radios other than the Flex (punch list 19d; the Flex runs its
     // own in flexCommander). Applied to the RX audio sent to browsers.

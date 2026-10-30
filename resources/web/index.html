@@ -4111,6 +4111,9 @@ function handleMessage(msg) {
             usersData = msg;
             renderUsersPanel();
             break;
+        case 'performanceLog':
+            if(serverLoad) { serverLoad.performanceLog = msg; renderCpuChip(); }
+            break;
         case 'serverLoad':
             serverLoad = msg;
             renderCpuChip();
@@ -6519,7 +6522,17 @@ function cpuDetailsHtml(l) {
     if (l.memTotalMb) rows.push(['Memory', (l.memUsedMb !== undefined ? (l.memUsedMb / 1024).toFixed(1) + ' / ' : '') + (l.memTotalMb / 1024).toFixed(1) + ' GB']);
     if (l.procMemMb !== undefined) rows.push(['FlexWeb memory', l.procMemMb + ' MB']);
     if (l.uptimeS !== undefined) rows.push(['FlexWeb up', fmtUptime(l.uptimeS)]);
-    return '<b>Server CPU</b><br>' + rows.map(function (r) { return r[0] + ': <b>' + r[1] + '</b>'; }).join('<br>');
+    var html = '<b>Server CPU</b><br>' + rows.map(function (r) { return r[0] + ': <b>' + r[1] + '</b>'; }).join('<br>');
+    if (webRole === 'admin' && l.performanceLog) {
+        var log=l.performanceLog;
+        html += '<hr>Performance log: ' + (log.enabled ? 'ON' : 'OFF') + (log.writeError ? ' · WRITE ERROR' : '') + (log.droppedSamples ? ' · skipped ' + log.droppedSamples : '')
+            + '<br><button type="button" onclick="event.stopPropagation();send({cmd: &quot;performanceLog&quot;, enabled: ' + (!log.enabled) + '});">' + (log.enabled?'Stop logging':'Start logging') + '</button>'
+            + ' <a href="/performance-log.jsonl" download="flexweb-performance.jsonl" onclick="event.stopPropagation()">Download latest</a>'
+            + '<br><label>Older segment <select onchange="event.stopPropagation(); if(this.value) window.open(this.value, &quot;_blank&quot;);this.selectedIndex=0;" onclick="event.stopPropagation()"><option value="">Choose…</option>';
+        for(var i=1;i<log.parts;i++)html += '<option value="/performance-log.jsonl?part='+i+'">'+i+'</option>';
+        html += '</select></label>';
+    }
+    return html;
 }
 function renderCpuChip() {
     var el = document.getElementById('cpuChip');
@@ -6533,7 +6546,7 @@ function renderCpuChip() {
     el.classList.toggle('hot', l.sysPct > 90);
     el.title = cpuDetailsHtml(l).replace(/<br>/g, '\n').replace(/<[^>]+>/g, '');
     var pop = document.getElementById('cpuPop');
-    if (pop && !pop.classList.contains('hidden')) pop.innerHTML = cpuDetailsHtml(l);
+    if (pop && !pop.classList.contains('hidden') && !(document.activeElement && document.activeElement.closest('#cpuPop'))) pop.innerHTML = cpuDetailsHtml(l);
 }
 function toggleCpuPop() {
     var pop = document.getElementById('cpuPop');

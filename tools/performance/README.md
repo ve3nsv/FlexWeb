@@ -1,7 +1,10 @@
 # Stage-one diagnostics
 
-Open the station URL with `?metrics=1`. The Metrics button exports up to one
-hour of two-second samples. Diagnostics are off on ordinary page loads.
+Server logging is enabled by default and persists across restarts. Click the
+CPU chip as an admin to stop/start logging or download a segment. Opening the
+station URL with `?metrics=1` additionally keeps up to one hour of two-second
+samples in that tab for the Metrics button to export. Ordinary tabs send only
+bounded summaries to the station while server logging is enabled.
 Exports contain timings, byte counts and server load, not audio or commands.
 Treat the export as machine information when sharing it.
 
@@ -66,3 +69,33 @@ an operator's connection invokes the transmit release handler.
 
 Validate Chrome/Firefox/Safari for recording, wrap seams, resize and tuning;
 compare payload and render metrics before/after under identical settings.
+
+## Automatic persistent logging
+
+Every two seconds the server writes CPU, RAM, connected-browser count, queued
+WebSocket output, bytes written, spectrum drop counters and available Flex DSP
+queue/processing counters, even with no browser connected. A separate worker
+performs disk writes and downloads; at most eight log writes are pending. Slow
+or failed storage drops measurements rather than blocking radio control.
+Errors and skipped samples appear in the CPU-chip logging status.
+
+Location: `WFWEB_CONFIG_DIR/performance` when that override is set; otherwise
+`performance` under Qt's application-data directory. The adjacent
+`performance.ini` stores `Enabled=true/false` (under QSettings' General group).
+Files are `performance-0.jsonl` (current), then parts 1–15 newest to oldest.
+Each segment is capped at 4 MiB: 64 MiB total, or seven days, whichever limit
+removes data first. Expired files are pruned during writes and hourly even
+when collection is disabled. An app crash may lose the final queued samples.
+
+Download the latest segment using the CPU-chip popup, or select an older
+segment. Access requires an admin session on the main web port. Guests,
+listeners, operators and the separate REST port cannot download logs.
+
+Connected browsers automatically submit summary timings, incoming payload
+byte counts and JS heap where supported. These are labelled client-reported;
+unsupported fields are null. They are not browser process CPU/RAM. No audio,
+passwords or commands are recorded. These reports are rate-limited and only
+whitelisted numeric fields are retained. No third-party service receives them.
+WebSocket bytes are application writer statistics, not a NIC traffic capture.
+Cumulative byte counts restart with the process; use timestamps/uptime when
+calculating rates. The worker telemetry currently covers the Flex DSP path.

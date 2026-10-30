@@ -8,8 +8,8 @@ const context = {location:{search:'?metrics=1'}, URLSearchParams, performance:{n
  URL:{createObjectURL:()=> 'blob:test',revokeObjectURL:()=>{}},
  document:{hidden:false,body:{appendChild:()=>{}},createElement:()=>({style:{},click:()=>{}})}, window:{}};
 vm.runInNewContext(source, context);
-context.window.flexMetrics.binary(new Uint8Array([1,0,0]).buffer);
 context.window.flexMetrics.json({type:'serverLoad',procPct:5});
+context.window.flexMetrics.binary(new Uint8Array([1,0,0]).buffer);
 timer(); context.window.flexMetrics.export();
 assert.equal(report.samples[0].payloadBytes.spectrum,3);
 assert.equal(report.samples[0].server.procPct,5);
@@ -17,6 +17,12 @@ assert.equal(report.samples[0].jsHeapBytes,null);
 assert.equal(report.samples[0].longTasks,null);
 for(let i=0;i<1810;i++)timer();
 context.window.flexMetrics.export();assert.equal(report.samples.length,1800);
-const off={...context,location:{search:''},window:{}};
-vm.runInNewContext(source,off);assert.equal(off.window.flexMetrics,undefined);
+const off={...context,PerformanceObserver:class {observe(){throw Error("unsupported");} disconnect(){}},location:{search:''},window:{}};
+vm.runInNewContext(source,off);
+off.window.flexMetrics.export();assert.equal(report.samples.length,0);
+let sent=[];off.window.wsTransport={isOpen:()=>true,sendCommand:m=>sent.push(m)};
+off.window.flexMetrics.json({type:'serverLoad',performanceLog:{enabled:true}});
+timer();assert.equal(sent.length,1);assert.equal(sent[0].cmd,'performanceSample');
+off.window.flexMetrics.json({type:'serverLoad',performanceLog:{enabled:false}});
+timer();assert.equal(sent.length,1);
 console.log('metrics: counters, bounded history, unavailable sensors and opt-in passed');
