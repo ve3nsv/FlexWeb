@@ -70,6 +70,10 @@
         if(server && server.performanceLog && server.performanceLog.enabled && window.wsTransport && window.wsTransport.isOpen()) {
             window.wsTransport.sendCommand({cmd:'performanceSample',sample:{hidden:sample.hidden,elapsedSeconds:seconds,
                 frameP95Ms:sample.frameP95Ms,longTasks:sample.longTasks,longTaskMs:sample.longTaskMs,jsHeapBytes:sample.jsHeapBytes,
+                audioBufferMs: window.audioJbStats ? window.audioJbStats.bufMs : null,
+                audioTargetMs: window.audioJbStats ? window.audioJbStats.targetMs : null,
+                audioUnderruns: window.audioJbStats ? window.audioJbStats.underruns : null,
+                audioSkips: window.audioJbStats ? window.audioJbStats.skips : null,
                 payloadBytes:received}});
         }
         const rate = Object.values(received).reduce((a,b) => a+b,0) / seconds;

@@ -2327,7 +2327,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         sample["type"]="browserPerformance";sample["clientReported"]=true;
         sample["client"]=client->property("performanceClientId").toDouble();
         sample["hidden"]=input["hidden"].toBool();
-        for(const QString &key : {QString("elapsedSeconds"),QString("frameP95Ms"),QString("longTasks"),QString("longTaskMs"),QString("jsHeapBytes")}) {
+        for(const QString &key : {QString("elapsedSeconds"),QString("frameP95Ms"),QString("longTasks"),QString("longTaskMs"),QString("jsHeapBytes"),QString("audioBufferMs"),QString("audioTargetMs"),QString("audioUnderruns"),QString("audioSkips")}) {
             const auto value=input[key];
             if(value.isDouble() && std::isfinite(value.toDouble()) && value.toDouble()>=0 && value.toDouble()<=68719476736.0)sample[key]=value;
             else sample[key]=QJsonValue(QJsonValue::Null);

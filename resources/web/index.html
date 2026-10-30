@@ -2560,6 +2560,7 @@ try {
         <span id="dspIndicators"></span>
         <span class="flex-space"></span>
         <span id="peopleChip" hidden role="button" tabindex="0" onclick="togglePeoplePop()" title="Who is connected"></span>
+        <span id="audioHealthChip" role="status" aria-live="polite" style="font-size:12px;white-space:nowrap" title="Waiting for playback measurements">AUDIO —</span>
         <span id="cpuChip" hidden role="button" tabindex="0" onclick="toggleCpuPop()">CPU --</span>
         <span id="rigTag" title="Rig"></span>
         <button id="recBtn" class="rec-btn" title="Record">REC</button>
@@ -11210,9 +11211,35 @@ function audioJbOptions() {
     try { o.targetMs = Math.min(parseFloat(localStorage.getItem('wfAudioBufMs')) || 0, 300); } catch (e) {}
     return o;
 }
+var audioHealthLastReport = 0, audioHealthLastGap = 0;
+function renderAudioHealth() {
+    var chip = document.getElementById('audioHealthChip');
+    if (!chip) return;
+    var now = performance.now(), st = audioJbStats;
+    var state = 'WAIT', color = '#aaa', detail = 'Waiting for playback measurements';
+    if (!audioEnabled) { state = 'OFF'; detail = 'Receive audio is off'; }
+    else if (audioHealthLastGap && now - audioHealthLastGap < 10000) {
+        state = 'GAPS'; color = '#ff6666'; detail = 'Playback interruption in the last 10 seconds';
+    } else if (!audioHealthLastReport || now - audioHealthLastReport > 6000) {
+        state = 'WAIT'; detail = 'Playback measurements are unavailable or stale';
+    } else if (st && st.started) {
+        state = st.bufMs > 150 ? 'BUFFERED' : 'GOOD';
+        color = st.bufMs > 150 ? '#e0a020' : '#68d391';
+        detail = state === 'GOOD' ? 'No recent playback interruptions' : 'Playback is buffered above 150 ms';
+    }
+    chip.textContent = 'AUDIO ' + state;
+    chip.style.color = color;
+    chip.title = detail + (st ? '\nBuffered audio: ' + Math.round(st.bufMs || 0) + ' ms (not end-to-end latency)' +
+        '\nTarget: ' + Math.round(st.targetMs || 0) + ' ms; underruns this session: ' + (st.underruns || 0) : '') +
+        (serverLoad && serverLoad.sysPct !== undefined ? '\nServer CPU: ' + Math.round(serverLoad.sysPct) + '%' : '');
+}
+setInterval(renderAudioHealth, 1000);
 var audioJbSavedMs = -1;
 function onAudioJbEvent(ev) {
     audioJbStats = ev;
+    audioHealthLastReport = performance.now();
+    if (ev.type === 'underrun' || ev.type === 'skip' || ev.type === 'overflow') audioHealthLastGap = audioHealthLastReport;
+    renderAudioHealth();
     if (ev.type === 'underrun')
         console.log('[Audio] underrun #' + ev.underruns + ': ' + Math.round(ev.gapMs) + ' ms gap, buffer ' +
             Math.round(ev.fromMs) + ' \u2192 ' + Math.round(ev.toMs) + ' ms');

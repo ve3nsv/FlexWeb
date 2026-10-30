@@ -1208,7 +1208,7 @@ void flexCommander::ensureRxDsp()
         nnrCfg.on = 0;
         publishDsp();
     }, Qt::QueuedConnection);
-    rxDspThread->start();
+    rxDspThread->start(QThread::HighPriority);
     nnrApply();
 }
 
