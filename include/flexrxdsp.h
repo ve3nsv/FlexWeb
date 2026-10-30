@@ -18,6 +18,9 @@
 #include <QVector>
 #include <QByteArray>
 #include <memory>
+#include <atomic>
+#include <deque>
+#include <QMutex>
 
 #include "audioconverter.h"
 #include "nnrfilter.h"
@@ -39,11 +42,14 @@ public:
     static constexpr qint64 kCaughtUpMs = 50;     // back within this: NNR again
 
     // All of these run on the worker's thread (posted by flexCommander).
+    void enqueue(QVector<float> samples, int rate, bool wanted, qint64 at, quint32 seq);
+    std::atomic<bool> eligible{true};
     void process(QVector<float> samples, int rate, bool nnrWanted, qint64 queuedAtMs, quint32 seq);
     void applySettings(const Settings& s);
     void reset();
 
 signals:
+    void processingStats(int queueMs, int processingUs, double dropped);
     void audio(const audioPacket& pkt);
     // ~5 per second while NNR runs (the page's NR GAIN).
     void nnrGain(float gain, bool active);
@@ -53,6 +59,13 @@ signals:
     void nnrFailed(int rate);
 
 private:
+    struct Block { QVector<float> samples; int rate; bool wanted; qint64 at; quint32 seq; };
+    QMutex pendingMutex;
+    std::deque<Block> pending;
+    double pendingMs = 0, droppedBlocks = 0;
+    bool drainScheduled = false;
+    qint64 statsAt = 0;
+    void drain();
     void applyToFilter();
     QByteArray guid;
     Settings cfg;

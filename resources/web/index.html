@@ -3558,7 +3558,8 @@ var scopeSweepGapMs = 250;       // smoothed inter-sweep gap: the rig's own cade
 // The waterfall slides continuously between sweeps instead of stepping n
 // rows when one lands: the picture drifts down by the rows the next sweep
 // will add, timed to the cadence, so the new rows arrive where the slide is.
-var wfBufDirty = true;           // offscreen buffer changed since the last putImageData
+var wfRingHead = 0, wfDirtyRows = 0, wfNeedsFullUpload = true;
+var wfBufDirty = true; wfNeedsFullUpload = true;           // offscreen buffer changed since the last putImageData
 var wfScrollRows = 0;            // rows the buffer scrolled at the last sweep
 var scopeFreezeDuringDrag = false;
 var scopeDragActive = false;
@@ -3932,10 +3933,24 @@ function reconnectSession() {
     if (!audioCtx) { audioCtx = createRxAudioCtx(); audioStartPending = true; }
 }
 
+// A visual subscription never closes the shared control/audio WebSocket.
+function updateSpectrumSubscription() {
+    if (!wsTransport || !wsTransport.isOpen()) return;
+    var recording = typeof Recorder !== 'undefined' && Recorder.isRecording();
+    var canvas = document.getElementById('spectrumCanvas');
+    var width = canvas ? canvas.clientWidth : 1024;
+    var enabled = !document.hidden || recording;
+    wsTransport.sendCommand({cmd:'spectrumSubscribe', enabled:enabled, maxHz:25, bins:Math.max(128, Math.min(4096, Math.ceil(width || 1024)))});
+}
+document.addEventListener('visibilitychange', updateSpectrumSubscription);
+window.addEventListener('resize', updateSpectrumSubscription);
+setInterval(updateSpectrumSubscription, 5000); // recording can start while visible then continue hidden
+
 function ensureWsTransport() {
     if (wsTransport) return;
     wsTransport = new WebSocketRigTransport();
-    wsTransport.addEventListener('open',    onTransportOpen);
+    wsTransport.addEventListener('open', onTransportOpen);
+    wsTransport.addEventListener('open', updateSpectrumSubscription);
     wsTransport.addEventListener('close',   onTransportClose);
     wsTransport.addEventListener('message', function (e) { if(window.flexMetrics) window.flexMetrics.json(e.detail); handleMessage(e.detail); });
     wsTransport.addEventListener('binary',  function (e) { if(window.flexMetrics) window.flexMetrics.binary(e.detail); handleBinaryMessage(e.detail); });
@@ -3956,7 +3971,7 @@ function scheduleReconnect() {
 }
 
 // What a guest may send: the server's webServer::guestAllowed list.
-var GUEST_CMDS = { enableAudio: 1, setAudioCodec: 1, getStatus: 1, timePing: 1,
+var GUEST_CMDS = { spectrumSubscribe: 1, enableAudio: 1, setAudioCodec: 1, getStatus: 1, timePing: 1,
     aprsRequestSnapshot: 1, termList: 1, termHistory: 1, getMemories: 1, setTxListen: 1 };
 // ...and what a tuning guest may also send: webServer::guestTuneAllowed.
 var GUEST_TUNE_CMDS = { setFrequency: 1, setMode: 1, setFilter: 1, setFilterWidth: 1, setFilterShape: 1,
@@ -11231,7 +11246,7 @@ function setWfPalette(key) {
     buildColorTable();
     renderWfPaletteButtons();
     // Repaint the history in the new colours rather than leaving a seam.
-    if (wfImageData) { wfFillBlank(wfImageData.data, 0, wfImageData.data.length); wfBufDirty = true; }
+    if (wfImageData) { wfFillBlank(wfImageData.data, 0, wfImageData.data.length); wfBufDirty = true; wfNeedsFullUpload = true; }
 }
 
 // The spectrum trace: CYAN (the AetherSDR look, the default), wfweb's
@@ -11434,7 +11449,7 @@ function scopeModeReported(m) {
     // New glass: history painted for the old window is meaningless (a CENTER
     // span can be as wide as the FIXED edges, so the span-change blank would
     // not fire), the trace snaps, and nothing stays sliding or paused.
-    if (wfImageData) { wfFillBlank(wfImageData.data, 0, wfImageData.data.length); wfBufDirty = true; }
+    if (wfImageData) { wfFillBlank(wfImageData.data, 0, wfImageData.data.length); wfBufDirty = true; wfNeedsFullUpload = true; }
     spectHold.length = 0;
     spectShown = null;
     scopeSetVisualPan(0);
@@ -11623,7 +11638,8 @@ function initWaterfallBuffer(dataLen) {
     // One buffer row per CSS px, not per device px: the scroll speed is
     // rows per sweep, and a HiDPI canvas must not halve it.
     var h = Math.round(wfCanvas.height / scopeDpr) || 200;
-    var prevImage = wfImageData;
+    var prevImage = wfImageData, prevHead = wfRingHead;
+    wfRingHead = 0; wfDirtyRows = 0;
     wfOffCanvas = document.createElement('canvas');
     wfOffCanvas.width = dataLen; wfOffCanvas.height = h;
     wfOffCtx = wfOffCanvas.getContext('2d');
@@ -11635,9 +11651,12 @@ function initWaterfallBuffer(dataLen) {
     // waterfall continuous instead of blanking it on every panel toggle.
     if (prevImage && prevImage.width === dataLen) {
         var rows = Math.min(prevImage.height, h);
-        wfImageData.data.set(prevImage.data.subarray(0, rows * dataLen * 4), 0);
+        for(var row=0;row<rows;row++) {
+            var oldRow = (prevHead + row) % prevImage.height;
+            wfImageData.data.set(prevImage.data.subarray(oldRow*dataLen*4, (oldRow+1)*dataLen*4), row*dataLen*4);
+        }
     }
-    wfBufDirty = true;
+    wfBufDirty = true; wfNeedsFullUpload = true;
 }
 
 // Scope sync: hold the spectrum, waterfall and S meter back by the
@@ -11898,7 +11917,7 @@ function shiftWaterfallForFreqChange() {
     var curSpan = spectEndFreq - spectStartFreq;
     if (curSpan <= 0) return;
     var w = wfImageData.width, d = wfImageData.data, rowBytes = w * 4;
-    wfBufDirty = true;
+    wfBufDirty = true; wfNeedsFullUpload = true;
     if (Math.abs((prevSpectEndFreq - prevSpectStartFreq) - curSpan) > curSpan * 1e-3) {
         // Span changed: the history is at another scale, start over like the rig does.
         wfFillBlank(d, 0, d.length);
@@ -11963,9 +11982,10 @@ function updateWaterfallRow() {
     // blend toward the previous sweep so the scroll stays smooth.
     var n = Math.max(1, Math.min(WF_SPEED_ROWS[wfSpeed] || 1, wfImageData.height));
     var prev = (wfPrevSweep && wfPrevSweep.length === len) ? wfPrevSweep : null;
-    d.copyWithin(w * 4 * n, 0, d.length - w * 4 * n);
+    wfRingHead = (wfRingHead - n + wfImageData.height) % wfImageData.height;
+    wfDirtyRows = Math.min(wfImageData.height, wfDirtyRows + n);
     for (var row = 0; row < n; row++) {
-        var alpha = (n - row) / n, rs = row * w * 4;
+        var alpha = (n - row) / n, rs = ((wfRingHead + row) % wfImageData.height) * w * 4;
         for (var i = 0; i < w; i++) {
             var amp = i < len ? spectData[i] : 0;
             if (row > 0 && prev && i < len) amp = prev[i] + (amp - prev[i]) * alpha;
@@ -11974,7 +11994,8 @@ function updateWaterfallRow() {
             d[idx] = c[0]; d[idx+1] = c[1]; d[idx+2] = c[2]; d[idx+3] = 255;
         }
     }
-    wfPrevSweep = new Uint8Array(spectData);
+    if (!wfPrevSweep || wfPrevSweep.length !== len) wfPrevSweep = new Uint8Array(len);
+    wfPrevSweep.set(spectData);
     wfScrollRows = n;
     wfBufDirty = true;
 }
@@ -12342,7 +12363,15 @@ function drawWaterfall() {
     var ctx = canvas.getContext('2d');
     var w = canvas.width / scopeDpr, h = canvas.height / scopeDpr;
     ctx.setTransform(scopeDpr, 0, 0, scopeDpr, 0, 0);
-    if (wfBufDirty) { wfOffCtx.putImageData(wfImageData, 0, 0); wfBufDirty = false; }
+    if (wfBufDirty) {
+        if (wfNeedsFullUpload) wfOffCtx.putImageData(wfImageData, 0, 0);
+        else {
+            var firstRows = Math.min(wfDirtyRows, wfImageData.height-wfRingHead);
+            if(firstRows) wfOffCtx.putImageData(wfImageData, 0, 0, 0, wfRingHead, wfImageData.width, firstRows);
+            if(wfDirtyRows>firstRows) wfOffCtx.putImageData(wfImageData, 0, 0, 0, 0, wfImageData.width, wfDirtyRows-firstRows);
+        }
+        wfBufDirty = false; wfNeedsFullUpload = false; wfDirtyRows = 0;
+    }
     // Slide: how far into the current sweep interval we are decides how far
     // down the picture has drifted (0 .. rows-per-sweep). Bilinear so the
     // sub-pixel motion is real, not a snap to whole device pixels.
@@ -12350,10 +12379,12 @@ function drawWaterfall() {
     if (p > 1) p = 1; else if (p < 0) p = 0;
     var offset = p * wfScrollRows * (h / wfImageData.height);
     ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(wfOffCanvas, 0, offset, w, h);
+    var first = wfImageData.height-wfRingHead, scale=h/wfImageData.height;
+    ctx.drawImage(wfOffCanvas, 0, wfRingHead, wfImageData.width, first, 0, offset, w, first*scale);
+    if(wfRingHead) ctx.drawImage(wfOffCanvas, 0, 0, wfImageData.width, wfRingHead, 0, offset+first*scale, w, wfRingHead*scale);
     // The strip uncovered at the top is the newest row, stretched: it grows
     // until the next sweep's rows replace it in place.
-    if (offset > 0) ctx.drawImage(wfOffCanvas, 0, 0, wfImageData.width, 1, 0, 0, w, offset + 0.5);
+    if (offset > 0) ctx.drawImage(wfOffCanvas, 0, wfRingHead, wfImageData.width, 1, 0, 0, w, offset + 0.5);
 
     // Passband indicator bar, hung off the VFO marker
     var cx = scopeIndicatorX(w);

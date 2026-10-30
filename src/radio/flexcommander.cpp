@@ -1062,6 +1062,7 @@ void flexCommander::handleStatus(const message& msg)
             }
             if (tx != transmitting) {
                 transmitting = tx;
+                nnrApply();
                 if (tx) { lastAlc = 0.0; txPeakWindow = 0.0f; }
                 // NNR pauses on the air (handleRxAudio): say so at once rather
                 // than on the next RX audio packet, which may be a while.
@@ -1157,6 +1158,7 @@ void flexCommander::nnrApply()
 {
     // The filter lives on the RX DSP thread (punch list 52): post the settings.
     if (!rxDsp) return;
+    rxDsp->eligible.store(nnrCfg.on && nnrModeOk() && !transmitting && !nnrHold);
     flexRxDsp::Settings st;
     st.method = nnrCfg.method;
     st.nr2Reduction = nnrCfg.nr2Reduction;
@@ -1197,6 +1199,10 @@ void flexCommander::ensureRxDsp()
             if (!active) emit flexNnrGain(1.0f, false);
         }
         publishDsp();
+    }, Qt::QueuedConnection);
+    connect(rxDsp, &flexRxDsp::processingStats, this, [this](int queued, int usec, double dropped) {
+        extra["rxDspQueueMs"] = queued; extra["rxDspProcessingUs"] = usec;
+        extra["rxDspDroppedBlocks"] = dropped; publishDsp();
     }, Qt::QueuedConnection);
     connect(rxDsp, &flexRxDsp::nnrFailed, this, [this](int) {
         nnrCfg.on = 0;
@@ -1408,6 +1414,10 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
     }
     if (kvs.contains("mode")) {
         mode = kvs.value("mode").toUpper();
+        nnrApply();
+        if (!nnrModeOk() && nnrCfg.on) {
+            nnrWasActive = false; emit flexNnrGain(1.0f, false); publishDsp();
+        }
         modeChanged = true;
     }
     if (kvs.contains("filter_lo") || kvs.contains("filter_hi")) {
@@ -1834,9 +1844,8 @@ void flexCommander::handleRxAudio(const QByteArray& d, const vitaPacket& p)
     out.resize(int(outLen));
     const qint64 queuedAt = QDateTime::currentMSecsSinceEpoch();
     const quint32 seq = rxSeq++;
-    QMetaObject::invokeMethod(rxDsp, [w = rxDsp, out, rate = int(outRate), nnrWanted, queuedAt, seq]() {
-        w->process(out, rate, nnrWanted, queuedAt, seq);
-    }, Qt::QueuedConnection);
+    rxDsp->eligible.store(nnrWanted);
+    rxDsp->enqueue(std::move(out), int(outRate), nnrWanted, queuedAt, seq);
 }
 
 void flexCommander::webTxAudio(const audioPacket& data)
@@ -2337,6 +2346,10 @@ void flexCommander::receiveCommand(funcs func, QVariant value, uchar receiver)
         }
         filterNum = fil;
         mode = fm;
+        nnrApply();
+        if (!nnrModeOk() && nnrCfg.on) {
+            nnrWasActive = false; emit flexNnrGain(1.0f, false); publishDsp();
+        }
         pbtIn = pbtOut = 128;               // a filter preset starts centred
         applyFilterWidth(presetWidth(fm, fil));
         reportCurrent(funcSelectedMode);

@@ -43,3 +43,26 @@ FFTW planning or additional runtime DLL is required. The FFT frame is 2048
 samples; reported buffering delay follows the stream's sample rate. Measure
 process CPU with diagnostics and compare NNR, NR2 and OFF under the same load.
 The source is ported from AetherSDR commit 1199ed38; CPU savings are not assumed.
+
+## Spectrum and bounded-pipeline update
+Browsers subscribe to spectrum independently of the shared station-control
+socket. The initial profile requests up to 25 updates/second and no more bins
+than the viewport needs (bounded 128–4096). Downsampling uses each bin group's
+peak to preserve narrow signals. Hidden tabs unsubscribe, except while the
+built-in recorder is running. Existing clients retain the full source bins.
+This stops delivery to that browser, not radio-side FFT acquisition.
+
+Waterfall rows use circular storage and partial uploads; tuning shifts still
+require a full update. Wrapped history is re-ordered when the pane is resized.
+
+The Flex DSP mailbox is bounded to 200 ms / 32 blocks. Above 100 ms of queue
+age it bypasses noise reduction; under sustained overload it discards oldest
+queued blocks to prevent runaway latency. DSP telemetry reports queue wait,
+processing time for a sampled block, and cumulative dropped blocks; processing
+microseconds are not CPU percent. The generic non-Flex DSP path is unchanged.
+Slow clients drop spectrum above 128 KiB of queued output; audio clients are
+closed above 512 KiB and broadcast status closes clients above 1 MiB. Closing
+an operator's connection invokes the transmit release handler.
+
+Validate Chrome/Firefox/Safari for recording, wrap seams, resize and tuning;
+compare payload and render metrics before/after under identical settings.

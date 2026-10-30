@@ -512,11 +512,13 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
     serverLoadTimer = new QTimer(this);
     connect(serverLoadTimer, &QTimer::timeout, this, [this]() {
         QJsonObject o = serverLoad.sample();
-        double queued = 0, written = 0;
+        double queued = 0, written = 0, dropped = 0;
         for (QWebSocket *c : wsClients) {
+            dropped += c->property("scopeDropped").toDouble();
             queued += double(c->bytesToWrite());
             written += c->property("metricsWrittenBytes").toDouble();
         }
+        o["spectrumDroppedActiveConnections"] = dropped;
         o["connectedBrowsers"] = wsClients.size();
         o["webSocketQueuedBytes"] = queued;
         o["webSocketWrittenBytesActiveConnections"] = written;
@@ -2279,6 +2281,14 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         return;
     }
 
+    if (type == "spectrumSubscribe") {
+        if (!client) return;
+        client->setProperty("scopeEnabled", cmd["enabled"].toBool(true));
+        client->setProperty("scopeHz", qBound(1, cmd["maxHz"].toInt(25), 60));
+        client->setProperty("scopeBins", qBound(128, cmd["bins"].toInt(2048), 8192));
+        client->setProperty("scopeNextMs", 0.0);
+        return;
+    }
     if (type == "qsoLogged") {
         QsoRecord r = QsoRecord::fromJson(cmd["qso"].toObject());
         if (!logbookAdd(r))
@@ -5050,6 +5060,7 @@ void webServer::sendJsonToAll(const QJsonObject &obj)
 {
     QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
     for (QWebSocket *client : wsClients) {
+        if (client->bytesToWrite() > 1024*1024) { client->close(QWebSocketProtocol::CloseCodeGoingAway, "client too slow"); continue; }
         client->sendTextMessage(QString::fromUtf8(data));
     }
 }
@@ -5062,7 +5073,31 @@ void webServer::sendJsonTo(QWebSocket *client, const QJsonObject &obj)
 
 void webServer::sendBinaryToAll(const QByteArray &data)
 {
+    const bool spectrum = data.size() > 12 && quint8(data[0]) == 1;
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
     for (QWebSocket *client : wsClients) {
+        if (spectrum) {
+            if (client->property("scopeEnabled").isValid() && !client->property("scopeEnabled").toBool()) continue;
+            if (now < client->property("scopeNextMs").toDouble()) continue;
+            // Visual history is expendable: never queue stale spectrum behind a slow link.
+            if (client->bytesToWrite() > 128 * 1024) {
+                client->setProperty("scopeDropped", client->property("scopeDropped").toDouble()+1); continue;
+            }
+            const int hz = qBound(1, client->property("scopeHz").isValid() ? client->property("scopeHz").toInt() : 60, 60);
+            client->setProperty("scopeNextMs", double(now + 1000 / hz));
+            const int requested = client->property("scopeBins").isValid() ? client->property("scopeBins").toInt() : data.size()-12;
+            const int bins = qMin(requested, data.size()-12);
+            if (bins < data.size()-12) {
+                QByteArray reduced = data.left(12); reduced.resize(12+bins);
+                const int n = data.size()-12;
+                for (int i=0;i<bins;++i) {
+                    uchar peak=0;
+                    for(int j=i*n/bins;j<(i+1)*n/bins;++j) peak=qMax(peak,uchar(data[12+j]));
+                    reduced[12+i]=char(peak);
+                }
+                client->sendBinaryMessage(reduced); continue;
+            }
+        }
         client->sendBinaryMessage(data);
     }
 }
@@ -5077,6 +5112,9 @@ void webServer::sendBinaryToAudioClients(const QByteArray &data)
         if (rxAudio && !rxAudioWanted(client)) continue;
         // Opus browsers get this receive audio from sendRxOpus below.
         if (rxAudio && quint8(data[1]) == 0x00 && opusClients.contains(client)) continue;
+        if (client->bytesToWrite() > 512 * 1024) {
+            client->close(QWebSocketProtocol::CloseCodeGoingAway, "audio client too slow"); continue;
+        }
         client->sendBinaryMessage(data);
     }
     if (rxAudio && data.size() > 6 && quint8(data[1]) == 0x00 && !opusClients.isEmpty())
@@ -5177,9 +5215,10 @@ void webServer::sendRxOpus(const QByteArray &pcm)
         memcpy(msg.data() + 2, &seq, 2);
         memcpy(msg.data() + 4, &rateDiv, 2);
         msg.append(reinterpret_cast<const char *>(out), n);
-        for (QWebSocket *c : opusClients)
-            if (audioClients.contains(c) && rxAudioWanted(c))
-                c->sendBinaryMessage(msg);
+        for (QWebSocket *c : opusClients) {
+            if (c->bytesToWrite() > 512 * 1024) { c->close(QWebSocketProtocol::CloseCodeGoingAway, "audio client too slow"); continue; }
+            if (audioClients.contains(c) && rxAudioWanted(c)) c->sendBinaryMessage(msg);
+        }
     }
 }
 
@@ -9753,7 +9792,7 @@ void webServer::broadcastGuestMode()
 bool webServer::guestAllowed(const QString &cmd)
 {
     static const QSet<QString> ok = {
-        QStringLiteral("enableAudio"), QStringLiteral("setAudioCodec"), QStringLiteral("getStatus"),
+        QStringLiteral("spectrumSubscribe"), QStringLiteral("enableAudio"), QStringLiteral("setAudioCodec"), QStringLiteral("getStatus"),
         QStringLiteral("timePing"), QStringLiteral("aprsRequestSnapshot"), QStringLiteral("termList"),
         QStringLiteral("termHistory"), QStringLiteral("getMemories"),
         QStringLiteral("setTxListen"),   // OPERATOR / OFF only (see setTxListen)

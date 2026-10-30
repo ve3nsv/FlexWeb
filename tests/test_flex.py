@@ -1122,3 +1122,41 @@ def test_tune_owner_disconnect_releases_both_lanes(flex):
         owner.close()
         spectator.close()
         requests.put(f'{rest}/ptt', json={'transmitting': False}, timeout=5)
+
+
+def test_spectrum_subscription(flex):
+    radio, rest = flex
+    from test_web_login import _ws, _ws_send, _Reader
+    import socket
+    port = int(rest.split(':')[2].split('/')[0]) - 1
+    _, sock, buf = _ws(port, None)
+    reader = _Reader(sock, buf)
+    def spectra(seconds):
+        result=[]; end=time.monotonic()+seconds; sock.settimeout(.1)
+        while time.monotonic()<end:
+            frame=reader._one()
+            if frame is not None:
+                op, payload=frame
+                if op==2 and payload[:1]==b'\x01': result.append(payload)
+                continue
+            try:
+                chunk=sock.recv(65536)
+                if not chunk: break
+                reader.buf+=chunk
+            except socket.timeout: pass
+        return result
+    try:
+        _ws_send(sock, {'cmd':'spectrumSubscribe','enabled':True,'bins':128,'maxHz':5})
+        spectra(.5)  # drain frames produced before the subscription
+        reduced=spectra(2)
+        assert reduced and all(len(frame)<=140 for frame in reduced)
+        assert len(reduced)<=12
+        _ws_send(sock, {'cmd':'spectrumSubscribe','enabled':False})
+        spectra(.5)
+        assert not spectra(.5)
+        _ws_send(sock, {'cmd':'getStatus'})
+        # Resume uses the same socket, proving visual pause did not close it.
+        _ws_send(sock, {'cmd':'spectrumSubscribe','enabled':True,'bins':128,'maxHz':5})
+        assert spectra(1)
+    finally:
+        sock.close()

@@ -4,7 +4,7 @@
     if (new URLSearchParams(location.search).get('metrics') !== '1') return;
     const history = [], maxSamples = 1800;
     let received = {audio: 0, spectrum: 0, json: 0, other: 0};
-    let server = null, frames = [], lastFrame = 0, longTasks = 0, longTaskMs = 0;
+    let server = null, dsp = null, frames = [], lastFrame = 0, longTasks = 0, longTaskMs = 0;
     let observer = null;
     try {
         observer = new PerformanceObserver(list => {
@@ -26,6 +26,7 @@
         json(message) {
             received.json += new TextEncoder().encode(JSON.stringify(message)).length;
             if (message.type === 'serverLoad') server = message;
+            if (message.type === 'flexDsp') dsp = {queueMs:message.rxDspQueueMs, processingUs:message.rxDspProcessingUs, droppedBlocks:message.rxDspDroppedBlocks};
         },
         binary(buffer) {
             const type = new Uint8Array(buffer)[0];
@@ -52,7 +53,7 @@
             payloadBytes: received, frameP95Ms: sorted.length ? sorted[Math.floor((sorted.length-1)*.95)] : null,
             longTasks: observer ? longTasks : null, longTaskMs: observer ? longTaskMs : null,
             jsHeapBytes: performance.memory ? performance.memory.usedJSHeapSize : null,
-            server: server};
+            server: server, dsp: dsp};
         history.push(sample); if (history.length > maxSamples) history.shift();
         const rate = Object.values(received).reduce((a,b) => a+b,0) / seconds;
         panel.textContent = 'Metrics: ' + (rate/1024).toFixed(1) + ' KiB/s · Export';
