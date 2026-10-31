@@ -39,6 +39,7 @@ def test_ft991a_server_integration(tmp_path):
     import shutil
     import socket
     import subprocess
+    import sys
     import time
     import pytest
     import requests
@@ -47,7 +48,9 @@ def test_ft991a_server_integration(tmp_path):
     if not binary.exists():
         pytest.skip('server binary not built')
     bindir = tmp_path / 'bin'
-    rigdir = tmp_path / 'share' / 'wfview' / 'rigs'
+    # Linux searches ../share/wfview/rigs; macOS searches beside the binary.
+    rigdir = (tmp_path / 'share' / 'wfview' / 'rigs'
+              if sys.platform.startswith('linux') else bindir / 'rigs')
     bindir.mkdir()
     rigdir.mkdir(parents=True)
     executable = bindir / 'wfweb'

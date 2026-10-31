@@ -39,7 +39,7 @@ inline std::optional<Estimate> estimate(const std::vector<float> &first,
     if (index==0 || index==int(scores.size())-1 || *best<0.55) return std::nullopt;
     double competitor=-2;
     for(int i=0;i<int(scores.size());++i)
-        if (std::abs(i-index)>10) competitor=std::max(competitor,scores[i]);
+        if (std::abs(i-index)>10) competitor=(std::max)(competitor,scores[i]);
     // Repeated or flat envelopes yield ambiguous peaks; keep the last good
     // offset in the caller instead of tracking a random match.
     if (*best-competitor<0.08) return std::nullopt;

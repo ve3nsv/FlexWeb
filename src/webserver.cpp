@@ -3,6 +3,11 @@
 #include "cputemperature.h"
 #include "guestpolicy.h"
 #include "rfkitconnection.h"
+#include "acomconnection.h"
+#include "Kpa500Connection.h"
+#include "Kpa1500Connection.h"
+#include "SpeConnection.h"
+#include "VkampConnection.h"
 #include "freedvprocessor.h"
 #include <QtMath>
 #include <codec2/freedv_api.h>
@@ -501,6 +506,7 @@ void webServer::init(quint16 httpPort, quint16 wsPort)
     statusTimer = new QTimer(this);
     connect(statusTimer, &QTimer::timeout, this, &webServer::sendPeriodicStatus);
     statusTimer->start(200);
+    netLogger_ = new NetLogger::Client(this);
     rtlScope_ = new RtlTcpSource(this);
     rtlScope_->setFrameCallback([this](const SdrSpectrum::Frame &frame, quint32 center, quint32 rate) {
         if (!rtlScopeLocal_ && !rtlScopeSoapy_ && !rtlScopeKiwi_) sendRtlScopeFrame(frame, center, rate);
@@ -2222,7 +2228,17 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         sendJsonTo(client, QJsonObject{{"type", "readOnly"}, {"message", "View-only guest session"}}); return;
     }
 
-    if (type == "setSdrScope") {
+    if (type == "netlogger") {
+        if (!client || !netLogger_) return;
+        const QString routine = cmd.value("routine").toString();
+        const QJsonObject args = cmd.value("args").toObject();
+        const QPointer<QWebSocket> recipient(client);
+        netLogger_->request(routine, args, reporterCallsign, [this, recipient, routine, args](const QJsonObject &result) {
+            if (!recipient || !wsClients.contains(recipient.data())) return;
+            sendJsonTo(recipient.data(), QJsonObject{{"type", "netlogger"}, {"routine", routine}, {"args", args}, {"result", result}});
+        });
+    }
+    else if (type == "setSdrScope") {
         if (!configureRtlScope(cmd.value("settings").toObject(), true) && client)
             sendJsonTo(client, QJsonObject{{"type", "error"}, {"message", "Invalid SDR scope settings or settings could not be saved"}});
     }
@@ -2904,16 +2920,25 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         // RF-KIT: OPERATE / STANDBY. The panel repaints from the amplifier's
         // reply, never from this request.
         if (rfkit_) rfkit_->setOperate(cmd["value"].toBool());
+        else if (acom_) acom_->setOperate(cmd["value"].toBool());
+        else if (kpa500_) kpa500_->setOperate(cmd["value"].toBool());
+        else if (kpa1500_) kpa1500_->setOperate(cmd["value"].toBool());
+        else if (vkamp_) vkamp_->setBypass(!cmd["value"].toBool());
+        else if (spe_ && spe_->isConnected() && ampJson_.value("connected").toBool()
+                 && ampJson_.value("operate").isBool() && spe_->lastStatus().operate != cmd["value"].toBool()) spe_->toggleOperate();
     }
     else if (type == "ampTune") {
         // Asks the amplifier's own autotune to start (modified servers only;
         // the connection refuses otherwise). It tunes only while a tune
         // carrier is on the air; nothing here keys the radio.
         if (rfkit_) rfkit_->startTune();
+        else if (kpa1500_) kpa1500_->startTune();
     }
     else if (type == "ampAntenna") {
         // Internal antennas 1-4 only; the connection refuses anything else.
-        if (rfkit_) {
+        if (kpa1500_) kpa1500_->selectAntenna(cmd["value"].toInt());
+        else if (vkamp_) vkamp_->selectAntenna(cmd["value"].toInt());
+        else if (rfkit_) {
             AetherSDR::Rfkit::Antenna a;
             a.type = AetherSDR::Rfkit::AntennaType::Internal;
             a.number = cmd["value"].toInt();
@@ -2923,6 +2948,10 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     else if (type == "ampErrorReset") {
         // Only while the amp reports a fault (RESET is red then).
         if (rfkit_ && ampFault_) rfkit_->resetError();
+        else if (acom_ && ampFault_) acom_->clearFaults();
+        else if (kpa500_ && ampFault_) kpa500_->clearFault();
+        else if (kpa1500_ && ampFault_) kpa1500_->clearFault();
+        else if (vkamp_ && ampFault_) vkamp_->startReset();
     }
     else if (type == "stopCW") {
         // Send empty string to stop CW transmission
@@ -7470,6 +7499,194 @@ void webServer::wsjtxSendDecode(const QJsonObject &cmd)
     d.mode = cmd["mode"].toString();
     d.message = cmd["message"].toString();
     wsjtxSendDatagram(WsjtxMessage::decode(wsjtxId_, d));
+}
+
+void webServer::configureSpe(const QString &target)
+{
+    if (target.trimmed().isEmpty() || rfkit_ || acom_ || kpa500_ || kpa1500_ || vkamp_) return;
+    if (spe_) { spe_->disconnect(); spe_->deleteLater(); spe_ = nullptr; }
+    QString address = target.trimmed();
+    const bool legacy = address.startsWith("legacy:", Qt::CaseInsensitive);
+    if (legacy) address.remove(0, 7);
+    spe_ = new AetherSDR::SpeConnection(this);
+    spe_->setVariant(legacy ? AetherSDR::Spe::Variant::Legacy1k : AetherSDR::Spe::Variant::Expert);
+    spe_->setAutoReconnect(true);
+    connect(spe_, &AetherSDR::SpeConnection::disconnected, this, [this] { ampJson_ = QJsonObject(); publishAmp(); });
+    connect(spe_, &AetherSDR::SpeConnection::connectionFailed, this, [this](const QString &error) {
+        ampFault_ = false; ampJson_ = QJsonObject{{"type", "amp"}, {"connected", false}, {"device", "SPE Expert"}, {"error", error}}; sendJsonToAll(ampJson_);
+    });
+    connect(spe_, &AetherSDR::SpeConnection::statusUpdated, this, [this](const AetherSDR::Spe::Status &st) {
+        using namespace AetherSDR::Spe;
+        const auto &spec = modelSpec(st.id);
+        QJsonObject o{{"type", "amp"}, {"connected", true}, {"device", QString("SPE Expert %1").arg(spec.displayName)},
+            {"deviceType", "spe"}, {"maxFwd", double(spec.maxPowerW)}, {"operate", st.operate}, {"fwd", double(st.outputPowerW)},
+            {"swr", double(st.swrAnt)}, {"volts", double(st.paVoltageV)}, {"amps", double(st.paCurrentA)},
+            {"temp", st.tempUpper}, {"band", bandName(st.bandIndex)}, {"tuneApi", "unsupported"}, {"tunerKnown", false}};
+        const QString alarm = !st.alarmDetail.isEmpty() ? st.alarmDetail : alarmText(st.alarm);
+        ampFault_ = !st.alarmDetail.isEmpty() || st.alarm != QChar('N');
+        if (ampFault_) o["ampError"] = alarm;
+        ampJson_ = o; publishAmp();
+    });
+    if (address.startsWith("tcp://", Qt::CaseInsensitive)) {
+        QUrl url(address); int port = url.port();
+        if (url.host().isEmpty() || port < 1 || port > 65535) {
+            ampJson_ = QJsonObject{{"type", "amp"}, {"connected", false}, {"error", "Invalid SPE TCP address"}}; publishAmp(); return;
+        }
+        spe_->connectNetwork(url.host(), quint16(port));
+    } else {
+        spe_->connectSerial(address);
+    }
+}
+
+void webServer::configureVkamp(const QString &target)
+{
+    if (target.trimmed().isEmpty() || rfkit_ || acom_ || kpa500_ || kpa1500_) return;
+    if (vkamp_) { vkamp_->disconnect(); vkamp_->deleteLater(); vkamp_ = nullptr; }
+    rfkitTarget_ = target.trimmed();
+    QUrl url(rfkitTarget_.startsWith("tcp://", Qt::CaseInsensitive) ? rfkitTarget_ : "tcp://" + rfkitTarget_);
+    int port = url.port(5005);
+    if (url.host().isEmpty() || port < 1 || port > 65535) {
+        ampJson_ = QJsonObject{{"type", "amp"}, {"connected", false}, {"error", "Invalid VK3AMP TCP address"}}; publishAmp(); return;
+    }
+    vkamp_ = new AetherSDR::VkampConnection(this);
+    vkamp_->setAutoReconnect(true);
+    connect(vkamp_, &AetherSDR::VkampConnection::disconnected, this, [this] { ampJson_ = QJsonObject(); publishAmp(); });
+    connect(vkamp_, &AetherSDR::VkampConnection::connectionFailed, this, [this](const QString &error) {
+        ampJson_ = QJsonObject{{"type", "amp"}, {"connected", false}, {"device", "VK3AMP"}, {"error", error}};
+        ampFault_ = false; sendJsonToAll(ampJson_);
+    });
+    connect(vkamp_, &AetherSDR::VkampConnection::statusUpdated, this, [this](const AetherSDR::Vkamp::Status &st) {
+        QJsonObject o=ampJson_;
+        o["type"]="amp";o["connected"]=true;o["device"]="VK3AMP";o["deviceType"]="vkamp";
+        o["operate"]=!st.bypass;o["temp"]=st.temp_c;o["volts"]=double(st.volts);
+        o["band"]=AetherSDR::Vkamp::bandName(st.band);o["tuneApi"]="unsupported";o["tunerKnown"]=false;
+        QJsonArray antennas;for(int i=1;i<=3;i++)antennas.append(QJsonObject{{"num",i},{"external",false},{"state",i==st.antenna?"active":"available"}});o["antennas"]=antennas;
+        ampFault_=st.error_code!=0;if(ampFault_)o["ampError"]=QString("Fault %1").arg(st.error_code);else o.remove("ampError");
+        ampJson_=o;publishAmp();
+    });
+    connect(vkamp_, &AetherSDR::VkampConnection::telemetryUpdated, this, [this](const AetherSDR::Vkamp::Telemetry &t) {
+        if (!ampJson_.value("connected").toBool()) return;
+        ampJson_["fwd"]=double(t.outputWatts());ampJson_["ref"]=double(t.reflectedWatts());
+        ampJson_["swr"]=double(t.swr());ampJson_["amps"]=double(t.currentAmps());publishAmp();
+    });
+    connect(vkamp_, &AetherSDR::VkampConnection::telemetryStalled, this, [this] {
+        ampJson_.remove("fwd");ampJson_.remove("ref");ampJson_.remove("swr");ampJson_.remove("amps");publishAmp();
+    });
+    vkamp_->connectNetwork(url.host(),quint16(port));
+}
+
+void webServer::configureKpa1500(const QString &target)
+{
+    if (target.trimmed().isEmpty() || rfkit_ || acom_ || kpa500_) return;
+    if (kpa1500_) { kpa1500_->disconnect(); kpa1500_->deleteLater(); kpa1500_ = nullptr; }
+    rfkitTarget_ = target.trimmed();
+    QUrl url(rfkitTarget_.startsWith("tcp://", Qt::CaseInsensitive) ? rfkitTarget_ : "tcp://" + rfkitTarget_);
+    int port = url.port(AetherSDR::Kpa1500::kDefaultPort);
+    if (url.host().isEmpty() || port < 1 || port > 65535) {
+        ampJson_ = QJsonObject{{"type", "amp"}, {"connected", false}, {"error", "Invalid KPA1500 TCP address"}}; publishAmp(); return;
+    }
+    kpa1500_ = new AetherSDR::Kpa1500Connection(this);
+    kpa1500_->setAutoReconnect(true);
+    connect(kpa1500_, &AetherSDR::Kpa1500Connection::disconnected, this, [this] { ampJson_ = QJsonObject(); publishAmp(); });
+    connect(kpa1500_, &AetherSDR::Kpa1500Connection::connectionFailed, this, [this](const QString &error) {
+        ampJson_ = QJsonObject{{"type", "amp"}, {"connected", false}, {"device", "Elecraft KPA1500"}, {"error", error}};
+        ampFault_ = false; sendJsonToAll(ampJson_);
+    });
+    connect(kpa1500_, &AetherSDR::Kpa1500Connection::statusUpdated, this, [this](const AetherSDR::Kpa1500::Status &st) {
+        QJsonObject o{{"type", "amp"}, {"connected", true}, {"device", "Elecraft KPA1500"},
+                      {"deviceType", "kpa1500"}, {"maxFwd", 1500}, {"tuneApi", "supported"}};
+        if (st.operate) o["operate"] = *st.operate;
+        if (st.forwardWatts) o["fwd"] = double(*st.forwardWatts);
+        if (st.reflectedWatts) o["ref"] = double(*st.reflectedWatts);
+        if (st.swr) o["swr"] = double(*st.swr);
+        if (st.tempC) o["temp"] = *st.tempC;
+        if (st.band) o["band"] = AetherSDR::Kpa1500::bandName(*st.band);
+        if (st.atuMode && *st.atuMode != AetherSDR::Kpa1500::AtuMode::Unknown) {
+            const bool in = *st.atuMode == AetherSDR::Kpa1500::AtuMode::Inline;
+            o["tunerKnown"] = true; o["tunerInUse"] = in; o["tunerPill"] = in ? "ATU IN" : "ATU BYP";
+            o["tuner"] = st.tuning && *st.tuning ? "TUNING" : (in ? "INLINE" : "BYPASS");
+            o["tuneAllowed"] = !st.tuning || !*st.tuning;
+        }
+        if (st.antenna) { QJsonArray antennas; for (int i=1;i<=2;++i) antennas.append(QJsonObject{{"num", i}, {"external", false}, {"state", i==*st.antenna ? "active" : "available"}}); o["antennas"] = antennas; }
+        ampFault_ = st.faultCode && *st.faultCode != 0;
+        if (ampFault_) o["ampError"] = QString("Fault %1").arg(*st.faultCode);
+        ampJson_ = o; publishAmp();
+    });
+    kpa1500_->connectNetwork(url.host(), quint16(port));
+}
+
+void webServer::configureKpa500(const QString &target)
+{
+    if (target.trimmed().isEmpty() || rfkit_ || acom_) return;
+    if (kpa500_) { kpa500_->disconnect(); kpa500_->deleteLater(); kpa500_ = nullptr; }
+    rfkitTarget_ = target.trimmed();
+    kpa500_ = new AetherSDR::Kpa500Connection(this);
+    kpa500_->setAutoReconnect(true);
+    connect(kpa500_, &AetherSDR::Kpa500Connection::disconnected, this, [this] { ampJson_ = QJsonObject(); publishAmp(); });
+    connect(kpa500_, &AetherSDR::Kpa500Connection::connectionFailed, this, [this](const QString &error) {
+        ampJson_ = QJsonObject{{"type", "amp"}, {"connected", false}, {"device", "Elecraft KPA500"}, {"error", error}};
+        ampFault_ = false; sendJsonToAll(ampJson_);
+    });
+    connect(kpa500_, &AetherSDR::Kpa500Connection::statusUpdated, this, [this](const AetherSDR::Kpa500::Status &st) {
+        QJsonObject o{{"type", "amp"}, {"connected", true}, {"device", "Elecraft KPA500"},
+                      {"deviceType", "kpa500"}, {"maxFwd", 600}, {"tuneApi", "unsupported"}, {"tunerKnown", false}};
+        if (st.operate) o["operate"] = *st.operate;
+        if (st.forwardPowerW) o["fwd"] = double(*st.forwardPowerW);
+        if (st.swr) o["swr"] = double(*st.swr);
+        if (st.paTemperatureC) o["temp"] = double(*st.paTemperatureC);
+        if (st.paVoltageV) o["volts"] = double(*st.paVoltageV);
+        if (st.paCurrentA) o["amps"] = double(*st.paCurrentA);
+        if (st.band) o["band"] = AetherSDR::Kpa500::bandName(*st.band);
+        ampFault_ = st.faultCode && *st.faultCode != 0;
+        if (ampFault_) o["ampError"] = QString("Fault %1").arg(*st.faultCode);
+        ampJson_ = o; publishAmp();
+    });
+    if (rfkitTarget_.startsWith("tcp://", Qt::CaseInsensitive)) {
+        const QUrl url(rfkitTarget_); const int port = url.port();
+        if (url.host().isEmpty() || port < 1 || port > 65535) {
+            ampJson_ = QJsonObject{{"type", "amp"}, {"connected", false}, {"error", "Invalid KPA500 TCP address"}}; publishAmp(); return;
+        }
+        kpa500_->connectToHost(url.host(), quint16(port));
+    } else kpa500_->connectSerial(rfkitTarget_);
+}
+
+void webServer::configureAcom(const QString &target)
+{
+    if (target.trimmed().isEmpty() || rfkit_) return;
+    if (acom_) { acom_->disconnect(); acom_->deleteLater(); acom_ = nullptr; }
+    rfkitTarget_ = target.trimmed();
+    acom_ = new AetherSDR::AcomConnection(this);
+    acom_->setAutoReconnect(true);
+    connect(acom_, &AetherSDR::AcomConnection::disconnected, this, [this] {
+        ampJson_ = QJsonObject(); publishAmp();
+    });
+    connect(acom_, &AetherSDR::AcomConnection::connectionFailed, this, [this](const QString &error) {
+        ampJson_ = QJsonObject{{"type", "amp"}, {"connected", false}, {"device", "ACOM"}, {"error", error}};
+        ampFault_ = false; sendJsonToAll(ampJson_);
+    });
+    connect(acom_, &AetherSDR::AcomConnection::telemetryUpdated, this, [this](const AetherSDR::Acom::Telemetry &t) {
+        using namespace AetherSDR::Acom;
+        const QString model = acom_->currentModel();
+        const auto &spec = modelSpec(model);
+        const bool operating = t.mode == Mode::OperateRx || t.mode == Mode::OperateTx;
+        ampFault_ = t.errorCode != 0xff;
+        QJsonObject o{{"type", "amp"}, {"connected", true}, {"device", QString("ACOM %1").arg(model)},
+            {"model", model}, {"deviceType", "acom"}, {"maxFwd", double(spec.maxForwardW)}, {"maxRef", double(spec.maxReflectedW)}, {"fwd", double(t.forwardPowerW)},
+            {"ref", double(t.reflectedPowerW)}, {"swr", double(t.swr_x100)/100.0},
+            {"temp", int(t.paTempRaw)-spec.temperatureOffset}, {"amps", double(t.id1_mA)/1000.0},
+            {"band", bandName(t.activeBand)}, {"freq", QString::number(double(t.carrierFreqKHz)/1000.0, 'f', 3)},
+            {"tuneApi", "unsupported"}, {"tunerKnown", false}};
+        if (t.mode == Mode::Standby || operating) o["operate"] = operating;
+        if (ampFault_) o["ampError"] = errorCodeName(t.errorCode);
+        ampJson_ = o; publishAmp();
+    });
+    if (rfkitTarget_.startsWith("tcp://", Qt::CaseInsensitive)) {
+        const QUrl url(rfkitTarget_); const int port = url.port();
+        if (url.host().isEmpty() || port < 1 || port > 65535) {
+            ampJson_ = QJsonObject{{"type", "amp"}, {"connected", false}, {"error", "Invalid ACOM TCP address"}}; publishAmp(); return;
+        }
+        acom_->connectNetwork(url.host(), quint16(port));
+    } else acom_->connectSerial(rfkitTarget_);
 }
 
 void webServer::configureRfkit(const QString &target)

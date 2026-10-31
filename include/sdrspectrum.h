@@ -53,7 +53,7 @@ inline Frame transform(const std::vector<std::complex<float>> &samples) {
     const float gain = 2.0f / float(n - 1);
     for (std::size_t i = 0; i < n; ++i) {
         const float magnitude = std::abs(v[(i + n / 2) % n]) * gain;
-        out.db[i] = 20.0f * std::log10(std::max(magnitude, 1.0e-12f));
+        out.db[i] = 20.0f * std::log10((std::max)(magnitude, 1.0e-12f));
     }
     return out;
 }
@@ -70,7 +70,7 @@ inline std::vector<unsigned char> display(const Frame &frame, float &smoothedFlo
     std::vector<unsigned char> out(frame.db.size());
     for (std::size_t i = 0; i < out.size(); ++i) {
         const float x = (frame.db[i] - base) * ampMax / 45.0f;
-        out[i] = static_cast<unsigned char>(std::lround(std::max(0.0f, std::min(float(ampMax), x))));
+        out[i] = static_cast<unsigned char>(std::lround((std::max)(0.0f, (std::min)(float(ampMax), x))));
     }
     return out;
 }

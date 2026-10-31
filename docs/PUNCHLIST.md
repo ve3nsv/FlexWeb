@@ -21,6 +21,33 @@ is deferred until the native LEVEL timing is checked on the radio. The RF-KIT
 manual's complete error-help catalog and dBFS-only meter labeling remain follow-up
 work. CPU subcomponent attribution is deferred until the SDR pipeline exists.
 
+Combined next build (local work in progress; not published or hardware-verified):
+
+- User requests **one combined build** for the remaining features. Keep feature
+  changes local, run focused checks, and push once the complete batch is ready.
+- 2: guest sessions, default-deny command policy, binary transmit rejection,
+  launcher/CLI configuration and session revocation implemented locally.
+- 3: FT-991A rig definition, model-ID width fix and CAT simulator are local;
+  full application integration and station testing remain.
+- 4–8: reusable IQ FFT, clipping detection, rtl_tcp framing and an asynchronous
+  remote source are local; an initial remote-source selector and spectrum
+  routing are implemented but need server integration tests. A local RTL-SDR
+  driver source and selector have mock-device coverage; real hardware testing
+  remains. A lag estimator is tested in isolation. Other SDRs, Kiwi, complete
+  status and automatic sync integration remain unfinished.
+- 10–11: editable server-saved SSTV layouts/macros, received-image inset and
+  streaming FSK callsign send/decode implemented locally. Layout and on-air
+  interoperability still need verification.
+- 13: conservative trailing-row blanking after the final confirmed line sync;
+  a real noisy recording is still required to verify the reported failure.
+- 21: asynchronous Windows CPU-temperature collection and Linux hwmon support;
+  unavailable/stale readings remain explicitly unavailable. Windows/NUC hardware
+  verification is outstanding; see CPU_TEMPERATURE.md.
+- Focused local checks pass for temperature parsing, guest authentication policy,
+  FSK framing/sample rates/tuning offsets, template validation/rendering helpers,
+  and the existing meter/recorder timing simulation. Full application compilation
+  and end-to-end guest enforcement checks are still outstanding.
+
 The original requirements and historical batches follow unchanged.
 
 ---

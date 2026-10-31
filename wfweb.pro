@@ -14,6 +14,8 @@ CONFIG += console
 macx:CONFIG -= app_bundle
 macx:CONFIG += c++17
 win32:CONFIG += c++17
+# Avoid the Windows SDK min/max macros breaking standard library calls.
+win32:DEFINES += NOMINMAX
 
 # WFWEB_VERSION lives in include/wfweb_version.h so header-dep tracking
 # forces a rebuild of every consumer on bump. Do NOT add a -D for it here.
@@ -247,6 +249,12 @@ win32 {
     }
     LIBS += -lcodec2
 }
+SOURCES += src/SpeConnection.cpp src/SpeProtocol.cpp src/SpeLegacyProtocol.cpp
+HEADERS += include/SpeConnection.h include/SpeProtocol.h include/SpeLegacyProtocol.h include/SpeLcdScheduler.h
+SOURCES += src/acomprotocol.cpp src/acomconnection.cpp src/Kpa500Protocol.cpp src/Kpa500Connection.cpp src/Kpa500Maintenance.cpp src/Kpa500FaultHistory.cpp src/Kpa1500Protocol.cpp src/Kpa1500Connection.cpp src/VkampProtocol.cpp src/VkampConnection.cpp
+HEADERS += include/acomprotocol.h include/acomconnection.h include/Kpa500Protocol.h include/Kpa500Connection.h include/Kpa500Maintenance.h include/Kpa500FaultHistory.h include/Kpa1500Protocol.h include/Kpa1500Connection.h include/VkampProtocol.h include/VkampConnection.h
+DEFINES += HAVE_SERIALPORT
+
 SOURCES += src/freedvprocessor.cpp src/freedvreporter.cpp src/pskreporter.cpp
 HEADERS += include/freedvprocessor.h include/freedvreporter.h include/pskreporter.h include/spotreporter.h
 message("FreeDV codec2 support enabled")
@@ -407,6 +415,7 @@ HEADERS  += \
     include/cputemperature.h \
     include/sdrspectrum.h \
     include/scopesync.h \
+    include/netlogger.h \
     include/rtltcpprotocol.h \
     include/rtltcpsource.h \
     include/rtllocalsource.h \

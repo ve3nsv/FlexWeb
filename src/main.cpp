@@ -440,6 +440,11 @@ int main(int argc, char *argv[])
         "  --rest                  Open the plain-HTTP REST port (web port + 1) to the\n"
         "                          LAN; default is 127.0.0.1 only. With web users, LAN\n"
         "                          requests need HTTP Basic auth\n"
+        "  --spe <[legacy:]port>    SPE Expert serial port or tcp://host:port\n"
+        "  --vkamp <host[:port]>    VK3AMP network amplifier\n"
+        "  --kpa1500 <host[:port]>  Elecraft KPA1500 amplifier (TCP)\n"
+        "  --kpa500 <port|tcp://host:port>  Elecraft KPA500 amplifier\n"
+        "  --acom <port|tcp://host:port>  ACOM 600S serial or raw TCP amplifier\n"
         "  --rfkit <host[:port]>   RF-KIT (RF2K-S) amplifier on the LAN (REST API, port\n"
         "                          8080 if omitted); shown under FUNC > AMP\n"
         "  --remote-log-decodes    Also forward FT8/FT4 decodes to the remote logger\n"
@@ -709,6 +714,26 @@ int main(int argc, char *argv[])
             smartLinkClient::forgetCertPins();
             std::cout << "SmartLink sign-in removed.\n";
             return 0;
+        }
+        else if (currentArg == "--spe") {
+            if (argc > c + 1) overrides.spe = argv[++c];
+            else { std::cout << "Error: --spe requires a serial port or tcp://host:port\n"; return -1; }
+        }
+        else if (currentArg == "--vkamp") {
+            if (argc > c + 1) overrides.vkamp = argv[++c];
+            else { std::cout << "Error: --vkamp requires host[:port]\n"; return -1; }
+        }
+        else if (currentArg == "--kpa1500") {
+            if (argc > c + 1) overrides.kpa1500 = argv[++c];
+            else { std::cout << "Error: --kpa1500 requires host[:port]\n"; return -1; }
+        }
+        else if (currentArg == "--kpa500") {
+            if (argc > c + 1) overrides.kpa500 = argv[++c];
+            else { std::cout << "Error: --kpa500 requires a serial port or tcp://host:port\n"; return -1; }
+        }
+        else if (currentArg == "--acom") {
+            if (argc > c + 1) overrides.acom = argv[++c];
+            else { std::cout << "Error: --acom requires a serial port or tcp://host:port\n"; return -1; }
         }
         else if (currentArg == "--rfkit")
         {

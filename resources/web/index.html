@@ -2481,6 +2481,8 @@ try {
         <span id="scopeLabel">SPECTRUM SCOPE</span>
         <button type="button" id="sdrScopeButton" onclick="editSdrScope()" title="Configure an external SDR scope">SDR</button>
         <span id="sdrScopeStatus" aria-live="polite"></span>
+        <button type="button" onclick="openNetLogger()" title="Active and past amateur radio nets">NETS</button>
+        <span id="netLoggerBanner"></span>
         <span id="otherVfoFreq">---.---.---</span>
     </div>
 
@@ -3665,7 +3667,7 @@ function onTransportClose() {
 // Web login: the signed-in user in the top bar; tap twice to sign out.
 var webUser = '';
 var webGuest = false;
-var guestReadCommands = new Set(['getStatus', 'enableAudio', 'setAudioCodec', 'setTxListen', 'timePing', 'getMemories']);
+var guestReadCommands = new Set(['getStatus', 'enableAudio', 'setAudioCodec', 'setTxListen', 'timePing', 'getMemories', 'netlogger']);
 var webLoginOn = false;      // the server has named users (web login on)
 var userBtnTimer = null;
 function setWebUser(name) {
@@ -3709,6 +3711,76 @@ function scheduleReconnect() {
         reconnectTimer = setTimeout(function () { reconnectTimer = null; connect(); }, 3000);
     }
 }
+
+var netLoggerDialog = null, netLoggerTimer = null, netLoggerState = {routine:'GetActiveNets',args:{},nets:[]};
+function netFrequencyHz(value) {
+    var mhz = Number.parseFloat(String(value || '').replace(',', '.'));
+    return Number.isFinite(mhz) && mhz >= .1 && mhz <= 1300 ? Math.round(mhz * 1000000) : 0;
+}
+function updateNetLoggerBanner() {
+    var label = document.getElementById('netLoggerBanner'); if (!label) return;
+    var f = typeof currentFreq === 'number' ? currentFreq : 0;
+    var net = netLoggerState.nets.find(function(n){ var hz=netFrequencyHz(n.Frequency);return hz && Math.abs(hz-f)<=3000; });
+    label.textContent = net ? 'NET: ' + net.NetName : '';
+    label.title = net ? 'Active net near this frequency' : '';
+}
+function requestNetLogger(routine,args) {
+    netLoggerState.routine=routine; netLoggerState.args=args||{};
+    var status=document.getElementById('netLoggerStatus');if(status)status.textContent='Loading…';
+    send({cmd:'netlogger',routine:routine,args:netLoggerState.args});
+}
+function openNetLogger() {
+    if(netLoggerDialog){netLoggerDialog.showModal();return;}
+    var d=document.createElement('dialog');netLoggerDialog=d;
+    d.style.cssText='background:#16222e;color:white;border:1px solid #6f8aa0;border-radius:8px;padding:18px;width:min(760px,90vw);max-height:80vh;overflow:auto';
+    d.innerHTML='<h3>NetLogger nets</h3><div><button type="button" id="nlActive">Active nets</button> <button type="button" id="nlPast">Past nets</button> <label>Days <input id="nlDays" type="number" value="7" min="1" max="365" style="width:4em"></label> <input id="nlFilter" placeholder="Filter by net name" maxlength="64"> <input id="nlBand" placeholder="Band" maxlength="16" style="width:5em"> <input id="nlMode" placeholder="Mode" maxlength="16" style="width:5em"> <button type="button" id="nlRefresh">Refresh</button> <button type="button" id="nlClose">Close</button></div><p id="netLoggerStatus" aria-live="polite"></p><div id="netLoggerRows"></div>';
+    document.body.appendChild(d);
+    function e(id){return d.querySelector('#'+id);}
+    e('nlActive').onclick=function(){requestNetLogger('GetActiveNets',{});};
+    e('nlPast').onclick=function(){requestNetLogger('GetPastNets',{days:Number(e('nlDays').value),filter:e('nlFilter').value.trim()});};
+    e('nlRefresh').onclick=function(){requestNetLogger(netLoggerState.routine,netLoggerState.args);};
+    e('nlClose').onclick=function(){d.close();};
+    ['nlFilter','nlBand','nlMode'].forEach(function(id){e(id).oninput=function(){if(netLoggerState.lastMessage)renderNetLogger(netLoggerState.lastMessage);};});
+    d.onclose=function(){if(netLoggerTimer)clearInterval(netLoggerTimer);netLoggerTimer=null;d.remove();netLoggerDialog=null;};
+    d.showModal();requestNetLogger('GetActiveNets',{});
+    netLoggerTimer=setInterval(function(){var r=netLoggerState.routine;if(r==='GetActiveNets'||r==='GetCheckins')requestNetLogger(r,netLoggerState.args);},20000);
+}
+function receiveNetLogger(msg) {
+    if(msg.routine==='GetActiveNets' && msg.result && Array.isArray(msg.result.nets)){netLoggerState.nets=msg.result.nets;updateNetLoggerBanner();}
+    if(!netLoggerDialog || msg.routine!==netLoggerState.routine)return;
+    netLoggerState.lastMessage=msg;renderNetLogger(msg);
+}
+function renderNetLogger(msg) {
+    var d=netLoggerDialog;if(!d)return;
+    var result=msg.result||{},status=d.querySelector('#netLoggerStatus'),box=d.querySelector('#netLoggerRows');
+    status.textContent=(result.error||'')+(result.cached ? ' · Cached '+Math.round(result.ageSeconds||0)+' s'+(result.stale?' (stale)':'') : '');box.replaceChildren();
+    var isNets=msg.routine==='GetActiveNets'||msg.routine==='GetPastNets';
+    var rows=isNets?(result.nets||[]):(result.checkins||[]);
+    var filter=d.querySelector('#nlFilter').value.trim().toLowerCase();
+    if(isNets) {
+        var band=d.querySelector('#nlBand').value.trim().toLowerCase(),mode=d.querySelector('#nlMode').value.trim().toLowerCase();
+        rows=rows.filter(function(n){return (!filter || String(n.NetName||'').toLowerCase().includes(filter)) && (!band || String(n.Band||'').toLowerCase().includes(band)) && (!mode || String(n.Mode||'').toLowerCase().includes(mode));});
+    }
+    if(!rows.length){var empty=document.createElement('p');empty.textContent=result.error?'No data available.':'No entries found.';box.appendChild(empty);return;}
+    rows.forEach(function(rec){
+        var line=document.createElement('div');line.style.cssText='padding:8px 0;border-bottom:1px solid #345;display:flex;gap:8px;align-items:center;flex-wrap:wrap';
+        var label=document.createElement('span');
+        if(isNets){
+            label.textContent=[rec.NetName,rec.Frequency?rec.Frequency+' MHz':'',rec.Mode,rec.NetControl?'NCS '+rec.NetControl:''].filter(Boolean).join(' · ');line.appendChild(label);
+            var listen=document.createElement('button');listen.textContent='Check-ins';listen.onclick=function(){
+                var past=msg.routine==='GetPastNets';requestNetLogger(past?'GetPastNetCheckins':'GetCheckins',{server:rec.ServerName,net:rec.NetName,id:String(rec.NetID||'')});
+            };line.appendChild(listen);
+            var hz=netFrequencyHz(rec.Frequency);if(hz){var tune=document.createElement('button');tune.textContent='Tune';tune.onclick=function(){send({cmd:'setFrequency',value:hz});var mode=String(rec.Mode||'').toUpperCase();if(mode==='SSB')mode=hz<10000000?'LSB':'USB';if(['LSB','USB','FM','AM','CW'].includes(mode))send({cmd:'setMode',value:mode});};line.appendChild(tune);}
+        }else{
+            label.textContent=[rec.SerialNo,rec.Callsign,rec.PreferredName||rec.FirstName,rec.State,rec.Grid,rec.Remarks].filter(Boolean).join(' · ');
+            if(String(rec.SerialNo)===String(result.Pointer))label.style.fontWeight='bold';
+            if(rec.Callsign && typeof getMyCall==='function' && rec.Callsign.toUpperCase()===getMyCall().toUpperCase())label.style.color='#70d8ff';
+            line.appendChild(label);
+        }
+        box.appendChild(line);
+    });
+}
+setInterval(updateNetLoggerBanner,5000);
 
 var sdrScopeConfig = {};
 function updateSdrScope(msg) {
@@ -3802,6 +3874,9 @@ function handleMessage(msg) {
         case 'sstvSettings':
             window._sstvSettings = msg.settings;
             if (window._sstvSettingsChanged) window._sstvSettingsChanged(msg.settings);
+            break;
+        case 'netlogger':
+            receiveNetLogger(msg);
             break;
         case 'sdrScopeStatus':
             updateSdrScope(msg);
@@ -7396,11 +7471,12 @@ function ampControlRows(a, lock) {
     var rs = document.createElement('button'); rs.type = 'button';
     rs.className = 'amp-ctl ' + (up ? (fault ? 'reset-fault' : 'reset-clear') : '');
     rs.textContent = 'RESET';
-    rs.disabled = !up || !fault || !!lock;
+    rs.disabled = !up || !fault || !!lock || (a && a.deviceType === 'spe');
     rs.title = lock || (fault ? 'Reset the amplifier\'s error (' + fault + '); it returns in STANDBY' : 'No error to reset');
-    rs.onclick = function (e) { e.stopPropagation(); send({ cmd: 'ampErrorReset' }); };
+    rs.onclick = function (e) { e.stopPropagation(); if (a.deviceType === 'vkamp' && !confirm('Reset the VK3AMP? Reset takes about 10 seconds.')) return; send({ cmd: 'ampErrorReset' }); };
     r1.appendChild(rs);
     box.appendChild(r1);
+    if (a && (a.deviceType === 'acom' || a.deviceType === 'kpa500' || a.deviceType === 'spe')) return box;
     var r2 = document.createElement('div'); r2.className = 'amp-ctl-row';
     var ants = (up && a.antennas) || [];
     for (var n = 1; n <= 5; n++) {
@@ -7469,8 +7545,8 @@ function renderAmpOverlay() {
         refLevel = s >= 2 ? 'bad' : (s >= 1.5 ? 'warn' : '');
     }
     html += '<div class="amp-bars">' +
-        ampBar('FWD', up ? a.fwd : undefined, 1600, (a.fwd || 0) + ' W') +
-        ampBar('REF', ref, 200, (ref || 0) + ' W', refLevel) +
+        ampBar('FWD', up ? a.fwd : undefined, a.maxFwd || 1600, (a.fwd || 0) + ' W') +
+        ampBar('REF', ref, a.maxRef || 200, (ref || 0) + ' W', refLevel) +
         ampBar('SWR', swr === undefined ? undefined : ampSwrFrac(swr) * 4, 4,
                swr === undefined ? '' : swr.toFixed(2) + ':1', swrLevel) +
         '</div>';

@@ -111,6 +111,47 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
                 QMetaObject::invokeMethod(web, "configureRfkit", Qt::QueuedConnection,
                                           Q_ARG(QString, rfkit));
         }
+        {
+            const QString acom = !cliOverrides.acom.isEmpty() ? cliOverrides.acom
+                : settings ? settings->value("Amplifier/Acom").toString() : QString();
+            if (!acom.isEmpty() && cliOverrides.rfkit.isEmpty()
+                && !(settings && !settings->value("Amplifier/Rfkit").toString().isEmpty()))
+                QMetaObject::invokeMethod(web, "configureAcom", Qt::QueuedConnection, Q_ARG(QString, acom));
+        }
+        {
+            const QString kpa = !cliOverrides.kpa500.isEmpty() ? cliOverrides.kpa500
+                : settings ? settings->value("Amplifier/Kpa500").toString() : QString();
+            if (!kpa.isEmpty() && cliOverrides.rfkit.isEmpty() && cliOverrides.acom.isEmpty()
+                && !(settings && (!settings->value("Amplifier/Rfkit").toString().isEmpty()
+                                  || !settings->value("Amplifier/Acom").toString().isEmpty())))
+                QMetaObject::invokeMethod(web, "configureKpa500", Qt::QueuedConnection, Q_ARG(QString, kpa));
+        }
+        {
+            const QString kpa = !cliOverrides.kpa1500.isEmpty() ? cliOverrides.kpa1500
+                : settings ? settings->value("Amplifier/Kpa1500").toString() : QString();
+            if (!kpa.isEmpty() && cliOverrides.rfkit.isEmpty() && cliOverrides.acom.isEmpty() && cliOverrides.kpa500.isEmpty()
+                && !(settings && (!settings->value("Amplifier/Rfkit").toString().isEmpty()
+                    || !settings->value("Amplifier/Acom").toString().isEmpty() || !settings->value("Amplifier/Kpa500").toString().isEmpty())))
+                QMetaObject::invokeMethod(web, "configureKpa1500", Qt::QueuedConnection, Q_ARG(QString, kpa));
+        }
+        {
+            const QString v = !cliOverrides.vkamp.isEmpty() ? cliOverrides.vkamp
+                : settings ? settings->value("Amplifier/Vkamp").toString() : QString();
+            if (!v.isEmpty() && cliOverrides.rfkit.isEmpty() && cliOverrides.acom.isEmpty() && cliOverrides.kpa500.isEmpty() && cliOverrides.kpa1500.isEmpty()
+                && !(settings && (!settings->value("Amplifier/Rfkit").toString().isEmpty() || !settings->value("Amplifier/Acom").toString().isEmpty()
+                    || !settings->value("Amplifier/Kpa500").toString().isEmpty() || !settings->value("Amplifier/Kpa1500").toString().isEmpty())))
+                QMetaObject::invokeMethod(web, "configureVkamp", Qt::QueuedConnection, Q_ARG(QString, v));
+        }
+        {
+            const QString spe = !cliOverrides.spe.isEmpty() ? cliOverrides.spe
+                : settings ? settings->value("Amplifier/Spe").toString() : QString();
+            if (!spe.isEmpty() && cliOverrides.rfkit.isEmpty() && cliOverrides.acom.isEmpty()
+                && cliOverrides.kpa500.isEmpty() && cliOverrides.kpa1500.isEmpty() && cliOverrides.vkamp.isEmpty()
+                && !(settings && (!settings->value("Amplifier/Rfkit").toString().isEmpty()
+                    || !settings->value("Amplifier/Acom").toString().isEmpty() || !settings->value("Amplifier/Kpa500").toString().isEmpty()
+                    || !settings->value("Amplifier/Kpa1500").toString().isEmpty() || !settings->value("Amplifier/Vkamp").toString().isEmpty())))
+                QMetaObject::invokeMethod(web, "configureSpe", Qt::QueuedConnection, Q_ARG(QString, spe));
+        }
         QMetaObject::invokeMethod(web, "setGuestView", Qt::QueuedConnection,
             Q_ARG(bool, cliOverrides.guestView >= 0 ? cliOverrides.guestView != 0
                 : settings && settings->value("Web/GuestView", false).toBool()));

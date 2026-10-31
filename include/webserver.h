@@ -31,8 +31,9 @@
 #include "rtllocalsource.h"
 #include "soapysource.h"
 #include "kiwisource.h"
+#include "netlogger.h"
 #include <limits>
-namespace AetherSDR { class RfkitConnection; }
+namespace AetherSDR { class RfkitConnection; class AcomConnection; class Kpa500Connection; class Kpa1500Connection; class VkampConnection; class SpeConnection; }
 
 #if (QT_VERSION < QT_VERSION_CHECK(6,0,0))
 #include <QAudioDeviceInfo>
@@ -140,6 +141,11 @@ public slots:
     // --rfkit host[:port]: an RF-KIT (RF2K-S) amplifier on the LAN, shown in
     // the AMP panel. Runs on the web thread; empty = no amplifier.
     void configureRfkit(const QString &target);
+    void configureAcom(const QString &target);
+    void configureKpa500(const QString &target);
+    void configureKpa1500(const QString &target);
+    void configureSpe(const QString &target);
+    void configureVkamp(const QString &target);
     // FlexRadio EQ / TX audio processing snapshot (flexCommander::flexDspState),
     // pushed to the page as {type:'flexDsp'} for FUNC > EQ and FUNC > PROC.
     void onFlexDspState(QJsonObject state);
@@ -376,6 +382,7 @@ private:
     cachingQueue *queue = nullptr;
     rigCapabilities *rigCaps = nullptr;
     ServerLoad serverLoad_;
+    NetLogger::Client *netLogger_ = nullptr;
     RtlTcpSource *rtlScope_ = nullptr;
     RtlLocalSource *rtlLocalScope_ = nullptr;
     SoapySource *soapyScope_ = nullptr;
@@ -715,6 +722,11 @@ private:
     // RF-KIT amplifier (rfkitconnection.h). ampJson_ is the last "amp"
     // message, replayed to browsers that connect later.
     AetherSDR::RfkitConnection *rfkit_ = nullptr;
+    AetherSDR::AcomConnection *acom_ = nullptr;
+    AetherSDR::Kpa500Connection *kpa500_ = nullptr;
+    AetherSDR::Kpa1500Connection *kpa1500_ = nullptr;
+    AetherSDR::SpeConnection *spe_ = nullptr;
+    AetherSDR::VkampConnection *vkamp_ = nullptr;
     QString rfkitTarget_;
     QJsonObject ampJson_;
     bool ampControlAllowed(QWebSocket *client);

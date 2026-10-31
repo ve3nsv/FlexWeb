@@ -533,17 +533,16 @@ export class SstvDecoder {
     _finish(why) {
         const P = this.pic;
         if (!P) return;
-        // A lost tail must not turn post-picture noise or FSK ID into rows.
-        // Keep internal weak lines, but blank every row beyond the final
-        // confirmed sync. Do not crop the image's standard dimensions.
+        // Preserve a complete image when the last sync was merely weak.
+        // Only trim a clearly interrupted tail with multiple missing syncs;
+        // final-row noise still needs validation against an off-air recording.
         const lastSyncLine = P.syncs.length ? P.syncs[P.syncs.length - 1][0] + 1 : 0;
-        if (lastSyncLine < P.done) {
+        if (why !== 'complete' && lastSyncLine + 1 < P.done) {
             const firstRow = lastSyncLine * (P.m.color === 'pd' ? 2 : 1);
             for (let i = firstRow * P.m.w * 4; i < P.rgba.length; i += 4) {
                 P.rgba[i] = P.rgba[i + 1] = P.rgba[i + 2] = 0; P.rgba[i + 3] = 255;
             }
             P.done = lastSyncLine;
-            if (why === 'complete') why = 'incomplete tail';
         }
         this.pic = null;
         this.lastPicEnd = this.end;

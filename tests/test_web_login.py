@@ -513,16 +513,6 @@ def test_intercom_talk(server):
         b.close()
 
 
-def test_lockout(server):
-    base, _, _, _ = server
-    # The earlier sign-ins reset the count: five wrong passwords lock.
-    codes = [_login(base, "tom", f"bad{i}").status_code for i in range(5)]
-    assert codes[:4] == [401] * 4 and codes[4] == 429, codes
-    # Even the right password is refused while locked out.
-    r = _login(base, "tom", PASSWORD)
-    assert r.status_code == 429 and "Try again" in r.text
-
-
 def test_guest_view_only(tmp_path):
     """An enabled guest can observe, but cannot key, tune, or write via REST.
 
@@ -659,3 +649,12 @@ def test_remote_rtl_scope(server):
         stopped.set()
         listener.close()
         thread.join(timeout=2)
+
+def test_lockout(server):
+    base, _, _, _ = server
+    # The earlier sign-ins reset the count: five wrong passwords lock.
+    codes = [_login(base, "tom", f"bad{i}").status_code for i in range(5)]
+    assert codes[:4] == [401] * 4 and codes[4] == 429, codes
+    # Even the right password is refused while locked out.
+    r = _login(base, "tom", PASSWORD)
+    assert r.status_code == 429 and "Try again" in r.text

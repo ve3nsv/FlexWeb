@@ -18,6 +18,9 @@ UNITS = {
     "sdrspectrum": [],
     "scopesync": [],
     "kiwiwaterfall": [],
+    "netlogger": [],
+    "spe_protocol": ["src/SpeProtocol.cpp"],
+    "spe_legacy_protocol": ["src/SpeLegacyProtocol.cpp", "src/SpeProtocol.cpp"],
     "kiwisource": [],
     "rtltcpprotocol": [],
     "rtltcpsource": [],
@@ -36,6 +39,14 @@ UNITS = {
     "flexprotocol": ["src/radio/flexprotocol.cpp"],
     # RF-KIT (RF2K-S) amplifier REST/JSON codec.
     "rfkitprotocol": ["src/rfkitprotocol.cpp"],
+    "acomprotocol": ["src/acomprotocol.cpp"],
+    "acomconnection": ["src/acomconnection.cpp", "src/acomprotocol.cpp"],
+    "kpa500protocol": ["src/Kpa500Protocol.cpp"],
+    "kpa1500protocol": ["src/Kpa1500Protocol.cpp"],
+    "vkampprotocol": ["src/VkampProtocol.cpp"],
+    "vkampconnection": ["src/VkampConnection.cpp", "src/VkampProtocol.cpp"],
+    "kpa1500connection": ["src/Kpa1500Connection.cpp", "src/Kpa1500Protocol.cpp"],
+    "kpa500connection": ["src/Kpa500Connection.cpp", "src/Kpa500Protocol.cpp", "src/Kpa500Maintenance.cpp"],
     "rfkitconnection": ["src/rfkitconnection.cpp", "src/rfkitprotocol.cpp"],
     # Windows launcher helpers: wfweb command line composed from the form,
     # and the server log lines the launcher reacts to.
@@ -46,7 +57,12 @@ UNITS = {
 }
 
 # Units that need more than Qt5Core.
-MODULES = {"kiwisource": ["Qt5Core", "Qt5Network", "Qt5WebSockets"],
+MODULES = {"vkampconnection": ["Qt5Core", "Qt5Network"],
+           "netlogger": ["Qt5Core", "Qt5Network"],
+           "kpa1500connection": ["Qt5Core", "Qt5Network"],
+           "kpa500connection": ["Qt5Core", "Qt5Network", "Qt5SerialPort"],
+           "acomconnection": ["Qt5Core", "Qt5Network", "Qt5SerialPort"],
+           "kiwisource": ["Qt5Core", "Qt5Network", "Qt5WebSockets"],
            "rtltcpsource": ["Qt5Core", "Qt5Network"],
            "webauth": ["Qt5Core", "Qt5Network"],
            "rfkitconnection": ["Qt5Core", "Qt5Network"]}
@@ -67,14 +83,17 @@ def test_cpp_unit(unit, tmp_path):
 
     executable = tmp_path / f"{unit}_test"
     extra = []
-    if unit == "rfkitconnection":
+    if unit in ("rfkitconnection", "acomconnection", "kpa500connection", "kpa1500connection", "vkampconnection"):
         moc = shutil.which("moc") or shutil.which("moc-qt5")
         assert moc, "Qt moc is required to test the RF-KIT transport"
-        generated = tmp_path / "moc_rfkitconnection.cpp"
-        subprocess.run([moc, str(ROOT / "include/rfkitconnection.h"), "-o", str(generated)], check=True)
+        generated = tmp_path / f"moc_{unit}.cpp"
+        defines = ["-DHAVE_SERIALPORT"] if unit in ("acomconnection", "kpa500connection") else []
+        header = {"vkampconnection": "VkampConnection.h", "kpa500connection": "Kpa500Connection.h", "kpa1500connection": "Kpa1500Connection.h"}.get(unit, f"{unit}.h")
+        subprocess.run([moc, *defines, str(ROOT / "include" / header), "-o", str(generated)], check=True)
         extra.append(str(generated))
     command = [
         "g++", "-std=c++17", "-fPIC",
+        *(["-DHAVE_SERIALPORT"] if unit in ("acomconnection", "kpa500connection") else []),
         "-I", str(ROOT / "include"),
         str(ROOT / "tests" / f"{unit}_test.cpp"),
         *(str(ROOT / src) for src in UNITS[unit]),

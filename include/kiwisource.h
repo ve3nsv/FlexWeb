@@ -48,7 +48,7 @@ private:
     void status(const QString &s){if(status_)status_(s);}
     void requestView(){
         if(config_.center>30000000){valid_=false;status("outside Kiwi HF range");return;}
-        auto view=KiwiWaterfall::view(config_.center,config_.span,30000000,std::min(zoomMax_,zoomCap_));
+        auto view=KiwiWaterfall::view(config_.center,config_.span,30000000,(std::min)(zoomMax_,zoomCap_));
         if(!view){valid_=false;return;}
         // Start units use advertised zoom_max even when the receiver caps the
         // available zoom. Recalculate with the correct fixed-point scale.
