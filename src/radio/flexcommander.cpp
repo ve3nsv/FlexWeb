@@ -1276,7 +1276,8 @@ bool flexCommander::setExtra(const QString& key, int index, int value)
 {
     static const QMap<QString, QString> sliceKeys = {
         {"nbLevel", "nb_level"}, {"nrLevel", "nr_level"}, {"anfLevel", "anf_level"},
-        {"apf", "apf"}, {"apfLevel", "apf_level"}, {"xitOn", "xit_on"}, {"xitFreq", "xit_freq"}};
+        {"apf", "apf"}, {"apfLevel", "apf_level"}, {"xitOn", "xit_on"}, {"xitFreq", "xit_freq"},
+        {"ritOn", "rit_on"}, {"ritFreq", "rit_freq"}};
     static const QMap<QString, QString> txKeys = {
         {"tunePower", "tunepower"}, {"maxPower", "max_power_level"}, {"amCarrier", "am_carrier"},
         {"monGainCw", "mon_gain_cw"}};
@@ -1285,10 +1286,14 @@ bool flexCommander::setExtra(const QString& key, int index, int value)
         {"iambicMode", "mode"}, {"sidetone", "sidetone"}};
     if (sliceKeys.contains(key)) {
         if (sliceId < 0) return true;
-        const bool onOff = key == "apf" || key == "xitOn";
-        const int v = onOff ? (value ? 1 : 0) : key == "xitFreq" ? qBound(-99999, value, 99999) : qBound(0, value, 100);
+        const bool onOff = key == "apf" || key == "xitOn" || key == "ritOn";
+        const bool hz = key == "xitFreq" || key == "ritFreq";
+        const int v = onOff ? (value ? 1 : 0) : hz ? qBound(-99999, value, 99999) : qBound(0, value, 100);
         sliceSet(QString("%1=%2").arg(sliceKeys.value(key)).arg(v));
         extra[key] = v;
+        // RIT is also the Icom-side funcRitStatus / funcRitFreq.
+        if (key == "ritOn") ritOn = v != 0;
+        if (key == "ritFreq") ritFreq = v;
     } else if (txKeys.contains(key)) {
         const int v = qBound(0, value, 100);
         sendCmd(QString("transmit set %1=%2").arg(txKeys.value(key)).arg(v));
@@ -1447,7 +1452,8 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
     if (kvs.contains("rit_freq")) { ritFreq = kvs.value("rit_freq").toInt(); reportCurrent(funcRitFreq); }
     static const char* const sliceMap[][2] = {
         {"nb_level", "nbLevel"}, {"nr_level", "nrLevel"}, {"anf_level", "anfLevel"},
-        {"apf", "apf"}, {"apf_level", "apfLevel"}, {"xit_on", "xitOn"}, {"xit_freq", "xitFreq"}};
+        {"apf", "apf"}, {"apf_level", "apfLevel"}, {"xit_on", "xitOn"}, {"xit_freq", "xitFreq"},
+        {"rit_on", "ritOn"}, {"rit_freq", "ritFreq"}};
     takeExtra(kvs, sliceMap, int(sizeof(sliceMap) / sizeof(sliceMap[0])));
 }
 

@@ -2473,12 +2473,16 @@ body.digi-open #bottomBar { grid-row: 5; }
 <link rel="stylesheet" href="sstv-panel.css">
 <!-- AetherSDR-style skin: restyles only, loaded last so it wins. -->
 <link rel="stylesheet" href="aether.css" id="aetherCss">
+<!-- Wizard skin (wizard-look branch): on top of the AetherSDR layout. -->
+<link rel="stylesheet" href="wizard.css" id="wizardCss">
+<style>.wz-only { display: none; }</style>
 <script>
-// FUNC > LOOK: CLASSIC turns the AetherSDR skin and layout off for this
-// browser (set before first paint, so there is no flash of the other look).
+// FUNC > LOOK: WIZARD (default), AETHER or CLASSIC, per browser; set before
+// first paint, so there is no flash of another look.
 try {
-    if (localStorage.getItem('wfLook') === 'classic')
-        document.getElementById('aetherCss').disabled = true;
+    var wfLookEarly = localStorage.getItem('wfLook');
+    if (wfLookEarly === 'classic') document.getElementById('aetherCss').disabled = true;
+    if (wfLookEarly === 'classic' || wfLookEarly === 'aether') document.getElementById('wizardCss').disabled = true;
 } catch (e) {}
 </script>
 </head>
@@ -2550,6 +2554,8 @@ try {
 <div id="radio">
     <!-- Row 1: Top bar -->
     <div id="topBar">
+        <button type="button" id="wzMenuBtn" class="wz-only" title="Show / hide the side panels" aria-label="Side panels" onclick="wzToggleSide()">&#9776;</button>
+        <span id="wzLogo" class="wz-only" aria-hidden="true"><svg viewBox="0 0 24 24" width="26" height="26"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.6"/><ellipse cx="12" cy="12" rx="4.4" ry="10" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.5 9h19M2.5 15h19M12 2v20" stroke="currentColor" stroke-width="1.2" fill="none"/></svg><span>Flex<b>Web</b></span></span>
         <span id="txIndicator">RX</span>
         <span id="tuneLabel">TUNE</span>
         <span id="txByLabel" hidden role="status"></span>
@@ -2558,6 +2564,7 @@ try {
         <span id="pbBars"><i></i><i></i></span>
         <span id="filterText" onclick="openFilterModal()">FIL1</span>
         <span id="dspIndicators"></span>
+        <span id="wzAudioChip" class="wz-only" role="button" tabindex="0" title="Audio" onclick="wzAudioClick()"><span class="wz-audio-txt">AUDIO</span><span class="wz-bars"><i></i><i></i><i></i><i></i></span></span>
         <span class="flex-space"></span>
         <span id="peopleChip" hidden role="button" tabindex="0" onclick="togglePeoplePop()" title="Who is connected"></span>
         <span id="cpuChip" hidden role="button" tabindex="0" onclick="toggleCpuPop()">CPU --</span>
@@ -2566,6 +2573,7 @@ try {
         <button id="qsoLogBtn" class="qso-log-btn" title="Log QSO">LOG</button>
         <button id="userBtn" class="user-btn" hidden title="Signed in. Tap to sign out" onclick="userBtnClick()"></button>
         <button id="discBtn" class="user-btn" title="Disconnect this browser (tap twice)" onclick="discBtnClick()">&#x23CF;</button>
+        <button type="button" id="wzGearBtn" class="wz-only" title="Settings (FUNC)" aria-label="Settings" onclick="setPanel(currentPanel === 'func' ? 'default' : 'func')">&#9881;</button>
         <span id="clock">--:--</span>
         <button id="fullscreenBtn" title="Full Screen" onclick="toggleFullscreen()">&#x26F6;</button>
         <button id="powerBtn" class="on" title="Power" onclick="togglePower()">&#x23FB;</button>
@@ -2585,6 +2593,7 @@ try {
                 <span id="splitFreq" class="hidden"></span>
             </div>
             <div id="freqDisplay" tabindex="0"></div>
+            <span id="wzMhz" class="wz-only">MHz</span>
             <!-- AetherSDR layout: mode / filter / antenna of the slice (aeTick) -->
             <div id="slicePills" aria-label="Slice settings"></div>
         </div>
@@ -2596,6 +2605,7 @@ try {
     <div id="scopeInfoBar">
         <span id="spanIndicator" onclick="togglePanel('span')"></span>
         <span id="scopeLabel">SPECTRUM SCOPE</span>
+        <span id="wzScopeChips" class="wz-only"><span class="wz-chip" id="wzSpanChip" onclick="togglePanel('span')" title="Span"></span><span class="wz-chip" id="wzRbwChip" title="Resolution: the span over the scope's points"></span></span>
         <span id="otherVfoFreq">---.---.---</span>
     </div>
 
@@ -3241,6 +3251,7 @@ try {
 <script src="reporters.js"></script>
 <script src="wf-canvas.js"></script>
 <script src="needle-meter.js"></script>
+<script src="wizard-meter.js"></script>
 <script>window.wfRecorderCredit = { name: 'FlexWeb', url: 'github.com/ve3nsv/FlexWeb', filePrefix: 'FlexWeb' };</script>
 <script src="recorder.js"></script>
 <script src="rx-jitter.js"></script>
@@ -5581,7 +5592,12 @@ try { meterStyle = localStorage.getItem('wfMeterStyle') || 'auto'; } catch (e) {
 
 function needleActive() {
     return meterStyle === 'needle' ||
-           (meterStyle === 'auto' && NeedleMeter.isNeedleRig(rigModelName));
+           (meterStyle === 'auto' && !wizardActive() && NeedleMeter.isNeedleRig(rigModelName));
+}
+// The wizard face (wizard-meter.js): AUTO picks it with LOOK: WIZARD.
+function wizardActive() {
+    return typeof WizardMeter !== 'undefined' &&
+           (meterStyle === 'wizard' || (meterStyle === 'auto' && wzLook));
 }
 
 function txMeterKinds() {
@@ -5596,15 +5612,19 @@ function applyMeterStyle() {
     if (needle && !txMeterChosen) txMeterKind = 'po';
     var canvas = document.getElementById('meterCanvas');
     canvas.style.cursor = txMeterKinds().length > 1 ? 'pointer' : '';
-    if (document.body.classList.contains('meter-needle') !== needle) {
-        document.body.classList.toggle('meter-needle', needle);
+    // The wizard face wants the tall meter row too.
+    var tall = needle || wizardActive();
+    document.body.classList.toggle('meter-wizard', wizardActive());
+    if (document.body.classList.contains('meter-needle') !== tall) {
+        document.body.classList.toggle('meter-needle', tall);
         resizeCanvases();        // the meter row changed height
     }
     drawMeter();
 }
 
 function cycleMeterStyle() {
-    meterStyle = (meterStyle === 'auto') ? 'bar' : (meterStyle === 'bar') ? 'needle' : 'auto';
+    meterStyle = (meterStyle === 'auto') ? 'bar' : (meterStyle === 'bar') ? 'needle'
+               : (meterStyle === 'needle') ? 'wizard' : 'auto';
     try { localStorage.setItem('wfMeterStyle', meterStyle); } catch (e) {}
     applyMeterStyle();
     sendTxMeterSelection();
@@ -6512,7 +6532,8 @@ function renderCpuChip() {
     var show = cpuChipOn && l && l.sysPct !== undefined;
     el.hidden = !show;
     if (!show) { closeCpuPop(); return; }
-    el.innerHTML = '<span class="cpu-lbl">CPU </span>' + Math.round(l.sysPct) + '%';
+    el.innerHTML = '<span class="cpu-lbl">CPU </span>' + Math.round(l.sysPct) + '%' +
+        '<span class="wz-cpu-bar"><i style="width:' + Math.max(0, Math.min(100, l.sysPct)).toFixed(0) + '%"></i></span>';
     el.classList.toggle('warn', l.sysPct > 70 && l.sysPct <= 90);
     el.classList.toggle('hot', l.sysPct > 90);
     el.title = cpuDetailsHtml(l).replace(/<br>/g, '\n').replace(/<[^>]+>/g, '');
@@ -6545,6 +6566,17 @@ document.addEventListener('click', function (e) {
 
 function drawMeter() {
     var canvas = document.getElementById('meterCanvas');
+    if (wizardActive()) {
+        NeedleMeter.stop();
+        var wf = txMeterFace(txMeterKind, 300);
+        WizardMeter.draw(canvas, {
+            tx: isTransmitting, s: meterShown, peak: meterPeakDb,
+            po: powerVal, poFull: poFullScale,
+            auxLabel: wf.label, auxText: wf.text(txMeterValue(txMeterKind))
+        });
+        return;
+    }
+    if (typeof WizardMeter !== 'undefined') WizardMeter.stop();
     if (needleActive()) {
         NeedleMeter.draw(canvas, {
             tx: isTransmitting, kind: txMeterKind, s: meterVal,
@@ -6904,6 +6936,7 @@ function renderBottomBar(force) {
         if (b.spacer) {   // AetherSDR layout: a gap between button groups
             var sp = document.createElement('span');
             sp.className = 'ae-gap' + (b.grow ? ' ae-grow' : '') + (b.cls ? ' ' + b.cls : '');
+            if (b.text) sp.textContent = b.text;
             bar.appendChild(sp);
             continue;
         }
@@ -7018,17 +7051,27 @@ var AE_PHONE_MQ = '(orientation: portrait) and (max-width: 600px)';
 var AE_MODES = ['LSB', 'USB', 'CW', 'AM', 'FM', 'DIGU', 'DIGL', 'RTTY', 'USB-D', 'LSB-D'];
 
 // FUNC > LOOK: AETHER (default) or CLASSIC, per browser.
-var aeClassic = false;
-try { aeClassic = localStorage.getItem('wfLook') === 'classic'; } catch (e) {}
-function setLook(classic) {
-    aeClassic = !!classic;
-    try { localStorage.setItem('wfLook', aeClassic ? 'classic' : 'aether'); } catch (e) {}
+var aeClassic = false, wzLook = true;
+try {
+    var _lk = localStorage.getItem('wfLook');
+    aeClassic = _lk === 'classic';
+    wzLook = !aeClassic && _lk !== 'aether';
+} catch (e) {}
+// look: 'wizard' (this branch's default), 'aether' or 'classic'
+function setLook(look) {
+    aeClassic = look === 'classic';
+    wzLook = look === 'wizard';
+    try { localStorage.setItem('wfLook', look); } catch (e) {}
     var css = document.getElementById('aetherCss');
     if (css) css.disabled = aeClassic;
+    var wcss = document.getElementById('wizardCss');
+    if (wcss) wcss.disabled = !wzLook;
     document.body.classList.toggle('ae-classic', aeClassic);
     aeLayout();
+    if (typeof applyMeterStyle === 'function') applyMeterStyle();
     if (typeof resizeCanvases === 'function') resizeCanvases();
 }
+function lookName() { return aeClassic ? 'classic' : wzLook ? 'wizard' : 'aether'; }
 
 // The applet drawer on a narrow desktop layout (under 1000 px, aether.css):
 // PANELS opens / closes it, Escape or a press on the scope closes it, and
@@ -7070,6 +7113,7 @@ function aeLayout() {
     aeDesktop = desk; aePhone = phone;
     document.body.classList.toggle('ae-desktop', desk);
     document.body.classList.toggle('ae-phone', phone);
+    wzApplyLook();
     setAeDrawer(aeDrawerOpen);
     aeMoveGainRows(desk);
     if (changed) {
@@ -7268,16 +7312,183 @@ function flexMemRenderAll() {
     if (currentPanel === 'flexmem') flexMemRender(document.getElementById('flexMemOvBody'));
 }
 
+// ---- Wizard look (wizard-look branch; styles in wizard.css) ----
+// Everything here drives existing commands: the VFO panel's STEP / RIT / XIT
+// and A / B / SPLIT / A>B / B>A, the AUDIO chip, the scope chips, and the
+// side-panel toggle. RIT and XIT are the Flex slice's (flexDsp ritOn /
+// ritFreq / xitOn / xitFreq); other radios get no RIT / XIT fields.
+var WZ_BAND_M = { '1.8': '160m', '3.5': '80m', '7': '40m', '10': '30m', '14': '20m', '18': '17m', '21': '15m',
+    '24': '12m', '28': '10m', '50': '6m', '70': '4m', '144': '2m', '430': '70cm', '1200': '23cm' };
+var WZ_MAIN_BANDS = ['1.8', '3.5', '7', '14', '21', '28', '50'];
+var wzSideHidden = false;
+try { wzSideHidden = localStorage.getItem('wfWzSide') === 'hidden'; } catch (e) {}
+function wzApplyLook() {
+    var on = wzLook && !aeClassic;
+    document.body.classList.toggle('wz', on);
+    document.body.classList.toggle('wz-side-hidden', on && wzSideHidden && aeDesktop);
+    var rh = document.querySelector('#aeRx h2'), th = document.querySelector('#aeTx h2');
+    if (rh) rh.textContent = on ? 'RX CONTROLS' : 'RX';
+    if (th) th.textContent = on ? 'TX CONTROLS' : 'TX';
+    var pv = document.getElementById('rfPowerVal');
+    var pl = pv && pv.parentNode.querySelector('.gain-label');
+    if (pl) pl.textContent = on ? 'RF POWER' : 'PWR';
+    if (typeof updateVfoDisplay === 'function') updateVfoDisplay();
+    updateClock();
+}
+function wzToggleSide() {
+    if (aeDrawerMode()) { toggleAeDrawer(); return; }
+    wzSideHidden = !wzSideHidden;
+    try { localStorage.setItem('wfWzSide', wzSideHidden ? 'hidden' : 'shown'); } catch (e) {}
+    wzApplyLook();
+    if (typeof resizeCanvases === 'function') resizeCanvases();
+}
+
+// AUDIO chip: OFF until the browser plays the radio's audio; then GOOD with
+// four bars, fewer for a while after the jitter buffer ran dry.
+var wzUnderruns = 0, wzUnderrunAt = 0;
+function wzAudioChip() {
+    var el = document.getElementById('wzAudioChip');
+    if (!el || !wzLook || aeClassic) return;
+    var txt, bars, cls;
+    if (!audioAvailable) { txt = 'NO AUDIO'; bars = 0; cls = 'off'; }
+    else if (!audioEnabled) { txt = 'AUDIO OFF'; bars = 0; cls = 'warn'; }
+    else {
+        var u = audioJbStats ? audioJbStats.underruns || 0 : 0;
+        if (u > wzUnderruns) wzUnderrunAt = Date.now();
+        wzUnderruns = u;
+        var ago = wzUnderrunAt ? (Date.now() - wzUnderrunAt) / 1000 : 1e9;
+        if (ago < 10) { txt = 'AUDIO POOR'; bars = 1; cls = 'bad'; }
+        else if (ago < 60) { txt = 'AUDIO FAIR'; bars = 3; cls = 'warn'; }
+        else { txt = 'AUDIO GOOD'; bars = 4; cls = 'ok'; }
+    }
+    var key = txt + bars;
+    if (el.wzKey === key) return;
+    el.wzKey = key;
+    el.querySelector('.wz-audio-txt').textContent = txt;
+    el.className = 'wz-only wz-' + cls;
+    var is = el.querySelectorAll('.wz-bars i');
+    for (var i = 0; i < is.length; i++) is[i].classList.toggle('on', i < bars);
+    el.title = audioEnabled ? 'Receive audio: ' + audioBufState() + ' (tap for the audio settings)' : 'Tap for the audio settings';
+}
+function wzAudioClick() { togglePanel('audiomiс'); }
+
+// Scope header chips: the span and the resolution (span / points).
+function wzScopeChips() {
+    var span = (spectEndFreq - spectStartFreq) * 1e6;
+    if (!(span > 0)) return;
+    var sp = document.getElementById('wzSpanChip'), rb = document.getElementById('wzRbwChip');
+    if (!sp || !rb) return;
+    var spT = 'SPAN ' + (span >= 1e6 ? (span / 1e6).toFixed(span >= 1e7 ? 0 : 1) + ' MHz' : Math.round(span / 1000) + ' kHz');
+    var hz = spectDataLen ? span / spectDataLen : 0;
+    var rbT = hz ? 'RBW ' + (hz >= 1000 ? (hz / 1000).toFixed(1) + ' kHz' : Math.round(hz) + ' Hz') : '';
+    if (sp.textContent !== spT) sp.textContent = spT;
+    if (rb.textContent !== rbT) { rb.textContent = rbT; rb.hidden = !rbT; }
+}
+
+// The VFO panel's controls: built once, then updated in place (a field being
+// typed in is left alone).
+function wzRitText(hz) { return ((hz || 0) / 1000).toFixed(3); }
+function wzVfoControls(host) {
+    if (!host.wzBuilt) {
+        host.wzBuilt = true;
+        host.innerHTML = '';
+        var r1 = document.createElement('div'); r1.className = 'wz-vfo-row';
+        var stl = document.createElement('label'); stl.className = 'wz-field';
+        stl.innerHTML = '<span>STEP</span>';
+        var sel = document.createElement('select'); sel.id = 'wzStep';
+        sel.title = 'Tuning step for the wheel and arrow keys';
+        TUNE_STEPS.forEach(function (st) {
+            var o = document.createElement('option');
+            o.value = st; o.textContent = st >= 1000 ? (st / 1000) + ' kHz' : st + ' Hz';
+            sel.appendChild(o);
+        });
+        sel.onchange = function () {
+            var v = parseInt(sel.value, 10);
+            // cycleTuneStep is the one place that sets and stores the step
+            for (var g = 0; g < TUNE_STEPS.length && tuneStep !== v; g++) cycleTuneStep();
+            sel.blur();
+        };
+        stl.appendChild(sel);
+        r1.appendChild(stl);
+        [['RIT', 'ritOn', 'ritFreq'], ['XIT', 'xitOn', 'xitFreq']].forEach(function (d) {
+            var f = document.createElement('span'); f.className = 'wz-field wz-offset'; f.dataset.k = d[1];
+            var b = document.createElement('button'); b.type = 'button'; b.textContent = d[0];
+            b.title = d[0] + ' on / off';
+            b.onclick = function () {
+                if (!flexDsp || flexDsp[d[1]] === undefined) return;
+                sendFlexDsp(d[1], 0, flexDsp[d[1]] ? 0 : 1, true);
+            };
+            var inp = document.createElement('input'); inp.type = 'text'; inp.inputMode = 'decimal';
+            inp.spellcheck = false; inp.autocomplete = 'off';
+            inp.title = d[0] + ' offset in kHz: type a value and press Enter (turns ' + d[0] + ' on), or use the wheel (10 Hz)';
+            var apply = function (hz) {
+                if (!flexDsp) return;
+                hz = Math.max(-99999, Math.min(99999, Math.round(hz)));
+                sendFlexDsp(d[2], 0, hz, true);
+                if (!flexDsp[d[1]] && hz !== 0) sendFlexDsp(d[1], 0, 1, true);
+                inp.value = wzRitText(hz);
+            };
+            inp.onkeydown = function (e) {
+                e.stopPropagation();   // keep the page's tuning keys out of the field
+                if (e.key === 'Enter') { var v = parseFloat(inp.value.replace(',', '.')); if (!isNaN(v)) apply(v * 1000); inp.blur(); }
+                if (e.key === 'Escape') { inp.value = wzRitText(flexDsp && flexDsp[d[2]]); inp.blur(); }
+            };
+            inp.onblur = function () { inp.value = wzRitText(flexDsp && flexDsp[d[2]]); };
+            inp.onwheel = function (e) {
+                if (!flexDsp) return;
+                e.preventDefault();
+                apply((flexDsp[d[2]] || 0) + (e.deltaY < 0 ? 10 : -10));
+            };
+            f.appendChild(b); f.appendChild(inp);
+            r1.appendChild(f);
+        });
+        host.appendChild(r1);
+        var r2 = document.createElement('div'); r2.className = 'wz-vfo-row wz-vfo-keys';
+        [['A', function () { selectVFO('A'); }, 'Receive and transmit on VFO A'],
+         ['B', function () { selectVFO('B'); }, 'Receive and transmit on VFO B'],
+         ['SPLIT', toggleSplit, 'Split: receive on A, transmit on B'],
+         ['A▶B', equalizeVFO, 'Copy VFO A to VFO B'],
+         ['B▶A', function () { if (vfoBFreq > 0) send({ cmd: 'setFrequency', value: vfoBFreq }); }, 'Tune VFO A to VFO B’s frequency']
+        ].forEach(function (k) {
+            var b = document.createElement('button'); b.type = 'button'; b.className = 'wz-key';
+            b.textContent = k[0]; b.title = k[2]; b.onclick = k[1];
+            b.dataset.k = k[0];
+            r2.appendChild(b);
+        });
+        host.appendChild(r2);
+    }
+    var sel2 = document.getElementById('wzStep');
+    if (sel2 && document.activeElement !== sel2 && sel2.value !== String(tuneStep)) sel2.value = String(tuneStep);
+    host.querySelectorAll('.wz-offset').forEach(function (f) {
+        var on = f.dataset.k, fk = on === 'ritOn' ? 'ritFreq' : 'xitFreq';
+        var has = !!(flexDsp && flexDsp[on] !== undefined);
+        f.hidden = !has;
+        if (!has) return;
+        f.classList.toggle('on', !!flexDsp[on]);
+        var inp = f.querySelector('input');
+        if (document.activeElement !== inp) inp.value = wzRitText(flexDsp[fk]);
+    });
+    host.querySelectorAll('.wz-key').forEach(function (b) {
+        var k = b.dataset.k;
+        if (k === 'A' || k === 'B') b.classList.toggle('active', currentVfo === k);
+        if (k === 'SPLIT') b.classList.toggle('active', !!isSplit);
+        if (k === 'B▶A') b.disabled = !(vfoBFreq > 0);
+    });
+}
+
 function aeTick() {
     if (!aeDesktop && !aePhone) return;
     var band = (typeof bandLabelOf === 'function') ? bandLabelOf(currentFreq) : '';
     var sig = JSON.stringify([currentMode, currentFilter, currentFilterWidth, band, nbOn, nrOn, anfOn,
         isTransmitting, flexDsp, ampConfigured, ampStructSig(ampState), tunerState, hasTuner, currentPanel,
         flexMemList === null ? -1 : flexMemList.length,
-        digiBarVisible, availableModes.length, rigBands.length, tuneStep, webUser, webLoginOn, txOtherBy, ampTunePending]);
+        digiBarVisible, availableModes.length, rigBands.length, tuneStep, webUser, webLoginOn, txOtherBy, ampTunePending,
+        wzLook, isSplit, currentVfo, vfoBFreq > 0]);
     if (sig === aeLastSig) return;
     aeLastSig = sig;
     var pills = document.getElementById('slicePills');
+    if (pills && wzLook) { wzVfoControls(pills); pills = null; }
+    else if (pills && pills.wzBuilt) pills.wzBuilt = false;
     if (pills) {
         pills.innerHTML = '';
         aeSliceTexts().forEach(function(t, i) {
@@ -7406,9 +7617,22 @@ function renderApplets() {
         tx.appendChild(pr);
     }
     var tuneCarrier = !!(flexDsp && flexDsp.tune !== undefined);
-    var tk = document.createElement('div'); tk.className = 'ae-grid ' + (tuneCarrier ? 'ae-grid-4' : 'ae-grid-3');
-    if (tuneCarrier) tk.appendChild(aePressBtn(aeBtn('TUNE', !!flexDsp.tune, toggleTuneCarrier, flexDsp.tune ? 'ae-tuning' : '')));
-    if (hasTuner) tk.appendChild(aeBtn(tunerState === 2 ? 'TUNING' : 'ATU ' + (tunerState ? 'ON' : 'OFF'), tunerState > 0, handleTunerPress));
+    if (wzLook) {
+        // TUNE | MOX | ATU, as on the wizard mock-up. MOX is the same key as
+        // the bottom bar's (.ptt-btn: pressed through the delegated handler).
+        var wk = document.createElement('div'); wk.className = 'ae-grid ae-grid-3 wz-txkeys';
+        if (tuneCarrier) wk.appendChild(aePressBtn(aeBtn('TUNE', !!flexDsp.tune, toggleTuneCarrier, flexDsp.tune ? 'ae-tuning' : '')));
+        else if (hasTuner) wk.appendChild(aeBtn('TUNE', tunerState === 2, handleTunerPress));
+        var isCwM = (currentMode === 'CW' || currentMode === 'CW-R');
+        var mx = aeBtn(isCwM ? 'KEY' : 'MOX', isTransmitting, isCwM ? toggleCWBar : null, isCwM ? 'key-btn' : 'ptt-btn wz-mox');
+        if (isTransmitting) mx.classList.add('tx-active');
+        wk.appendChild(mx);
+        if (hasTuner) wk.appendChild(aeBtn(tunerState === 2 ? 'TUNING' : 'ATU', tunerState > 0, handleTunerPress));
+        tx.appendChild(wk);
+    }
+    var tk = document.createElement('div'); tk.className = 'ae-grid ' + (tuneCarrier && !wzLook ? 'ae-grid-4' : 'ae-grid-3');
+    if (tuneCarrier && !wzLook) tk.appendChild(aePressBtn(aeBtn('TUNE', !!flexDsp.tune, toggleTuneCarrier, flexDsp.tune ? 'ae-tuning' : '')));
+    if (hasTuner && !wzLook) tk.appendChild(aeBtn(tunerState === 2 ? 'TUNING' : 'ATU ' + (tunerState ? 'ON' : 'OFF'), tunerState > 0, handleTunerPress));
     tk.appendChild(aeBtn('AUDIO', currentPanel === 'audiomiс', function() { togglePanel('audiomiс'); }));
     if (flexDsp) tk.appendChild(aeBtn('PROC…', currentPanel === 'proc', function() { togglePanel('proc'); }));
     tx.appendChild(tk);
@@ -7496,7 +7720,7 @@ function renderApplets() {
         var ah = document.createElement('h2');
         ah.innerHTML = '';
         var nm = document.createElement('span'); nm.className = 'ae-amp-name';
-        nm.textContent = a.device || 'AMP'; nm.title = a.device || 'Amplifier';
+        nm.textContent = wzLook ? 'RF-KIT AMPLIFIER' : (a.device || 'AMP'); nm.title = a.device || 'Amplifier';
         ah.appendChild(nm);
         var right = document.createElement('span');
         right.className = 'ae-amp-head';
@@ -7534,7 +7758,7 @@ function renderApplets() {
             row.appendChild(l); row.appendChild(tr); row.appendChild(v);
             return row;
         }
-        body.appendChild(meter('FWD', a.fwd, 1600, (a.fwd || 0) + ' W', 'fwd'));
+        body.appendChild(meter(wzLook ? 'PWR' : 'FWD', a.fwd, 1600, (a.fwd || 0) + ' W', 'fwd'));
         // REF and SWR rest at baseline below 1 W forward (no carrier).
         var keyed = up && a.fwd >= 1;
         var refRow = meter('REF', keyed ? a.ref : undefined, 200, keyed ? (a.ref || 0) + ' W' : '', 'ref');
@@ -7549,6 +7773,13 @@ function renderApplets() {
         swrRow.dataset.none = '\u2014';
         swrRow.querySelector('b').classList.add('amp-live-val');
         body.appendChild(swrRow);
+        if (wzLook) {
+            // TEMP as a bar (0-80 °C), as on the wizard mock-up
+            var tRow = meter('TEMP', up ? a.temp : undefined, 80, up && a.temp !== undefined ? a.temp.toFixed(0) + ' \u00b0C' : '');
+            tRow.dataset.live = 'tempbar';
+            tRow.querySelector('b').dataset.live = 'temp';
+            body.appendChild(tRow);
+        }
         var tiles = document.createElement('span'); tiles.className = 'ae-amp-tiles';
         [['TEMP', up && a.temp !== undefined ? a.temp.toFixed(0) + ' °C' : '—'],
          ['BAND', up && a.band ? a.band : '—'],
@@ -7602,22 +7833,28 @@ function aeDesktopButtons(isCW) {
     });
     out.push({ label: 'MODE…', cls: 'ae-mode', active: currentPanel === 'mode', action: function() { setPanel(currentPanel === 'mode' ? 'default' : 'mode'); } });
     out.push({ spacer: true });
+    // Wizard look: "BAND:" opens the band panel (every band), then the
+    // contest bands by their names in metres, plus the band you are on.
+    if (wzLook) out.push({ label: 'BAND:', cls: 'wz-band-btn', active: currentPanel === 'band', action: function() { togglePanel('band'); } });
     var curBand = bandLabelOf(currentFreq);
     rigBands.forEach(function(b) {
         if (/2200|630|gen/i.test(b.label)) return;
-        out.push({ label: /^2m$/i.test(b.label) ? '2m' : b.label.replace(/m$/i, ''),
+        if (wzLook && WZ_MAIN_BANDS.indexOf(b.label) < 0 && curBand !== b.label) return;
+        out.push({ label: wzLook ? (WZ_BAND_M[b.label] || b.label) : /^2m$/i.test(b.label) ? '2m' : b.label.replace(/m$/i, ''),
                    cls: 'ae-band', active: curBand === b.label,
                    action: function() { pressBand(b.freq, b.label, b.bsr); } });
     });
     // shown by aeFitBottomBar only when band keys had to be dropped
-    out.push({ label: 'BAND…', cls: 'ae-band ae-band-more', active: currentPanel === 'band', action: function() { togglePanel('band'); } });
+    if (!wzLook) out.push({ label: 'BAND…', cls: 'ae-band ae-band-more', active: currentPanel === 'band', action: function() { togglePanel('band'); } });
     out.push({ spacer: true, grow: true });
     out.push({ label: 'FT8', cls: 'ae-wide', active: digiBarVisible, action: function() { toggleDigiBar(); } });
     var sstvOn = typeof window.sstvPanelVisible === 'function' && window.sstvPanelVisible();
     if (typeof window.toggleSstvPanel === 'function')
         out.push({ label: 'SSTV', cls: 'ae-wide', active: sstvOn, action: function() { window.toggleSstvPanel(); } });
     // A Flex: TUNE is the tune carrier (as in SmartSDR); the ATU is in the TX applet.
-    if (flexDsp && flexDsp.tune !== undefined)
+    // The wizard look has TUNE in TX CONTROLS, beside MOX and the ATU.
+    if (wzLook) { /* in TX CONTROLS */ }
+    else if (flexDsp && flexDsp.tune !== undefined)
         out.push({ label: 'TUNE', cls: 'ae-wide' + (flexDsp.tune ? ' ae-tuning' : ''), active: !!flexDsp.tune, action: toggleTuneCarrier, press: true });
     else if (hasTuner) out.push({ label: 'TUNE', cls: 'ae-wide', active: tunerState === 2, action: handleTunerPress });
     out.push({ label: 'FUNC', cls: 'ae-wide', active: currentPanel === 'func', action: function() { setPanel(currentPanel === 'func' ? 'default' : 'func'); } });
@@ -7959,8 +8196,9 @@ function renderFuncOverlay() {
         ub.title = 'Web users and access requests';
         grid.appendChild(ub);
     }
-    grid.appendChild(makeFuncBtn('LOOK', aeClassic ? 'CLASSIC' : 'AETHER', aeClassic, function() {
-        setLook(!aeClassic);
+    grid.appendChild(makeFuncBtn('LOOK', lookName().toUpperCase(), aeClassic, function() {
+        var cur = lookName();
+        setLook(cur === 'wizard' ? 'aether' : cur === 'aether' ? 'classic' : 'wizard');
         renderFuncOverlay();
     }));
     var dg = makeFuncBtn('DRAG', scopeDragStyle().toUpperCase(), false, function() {
@@ -8066,6 +8304,9 @@ function ampLiveUpdate() {
         document.querySelectorAll('[data-live="' + k + '"]').forEach(function (el) { if (el.textContent !== t) el.textContent = t; });
     };
     put('temp', up && a.temp !== undefined ? a.temp.toFixed(0) + ' \u00b0C' : '\u2014');
+    document.querySelectorAll('[data-live="tempbar"] .ae-meter-fill').forEach(function (f) {
+        f.style.width = (up && a.temp !== undefined ? Math.max(0, Math.min(100, a.temp / 80 * 100)) : 0) + '%';
+    });
     put('volts', up && a.volts !== undefined ? a.volts.toFixed(1) + ' V' : '\u2014');
     put('amps', up && a.amps !== undefined ? a.amps.toFixed(1) + ' A' : '\u2014');
 }
@@ -10067,8 +10308,13 @@ function releasePTT() {
         if (pttLatchMode) { pttLatchOn(); return; }
         pttPointerActive = true;
     }
-    // Press: detected on bar via delegation
+    // Press: detected on bar via delegation (and on the wizard look's TX
+    // CONTROLS MOX in the applets)
     bar.addEventListener('pointerdown', function(e) {
+        if (isPTT(e)) pttOn(e);
+    });
+    var apl = document.getElementById('applets');
+    if (apl) apl.addEventListener('pointerdown', function(e) {
         if (isPTT(e)) pttOn(e);
     });
     // Release: on document so it fires even if button DOM was recreated
@@ -10103,7 +10349,7 @@ function updateVfoDisplay() {
     } else if (hasMainSub) {
         label.textContent = 'VFO ' + (currentVfo === 'A' ? 'MAIN' : 'SUB');
     } else {
-        label.textContent = 'VFO ' + currentVfo;
+        label.textContent = (wzLook && !aeClassic) ? currentVfo : 'VFO ' + currentVfo;
     }
     num.style.display = 'none';
 }
@@ -11980,6 +12226,7 @@ function handleBinaryMessage(buffer) {
             (spectStartFreq !== prevSpectStartFreq || spectEndFreq !== prevSpectEndFreq)) updateSpanIndex(currentSpanIndex);
     }
 
+    if (wzLook) wzScopeChips();
     shiftWaterfallForFreqChange();
     updateWaterfallRow();
     // Out of range carries no signal: paint the blank rows, but don't let a
@@ -12861,9 +13108,12 @@ function scopePointerCancel(e) {
 // ============================================================
 function updateClock() {
     var now = new Date();
-    document.getElementById('clock').textContent =
-        String(now.getUTCHours()).padStart(2, '0') + ':' +
+    var t = String(now.getUTCHours()).padStart(2, '0') + ':' +
         String(now.getUTCMinutes()).padStart(2, '0');
+    if (wzLook && !aeClassic) t += ':' + String(now.getUTCSeconds()).padStart(2, '0') + ' UTC';
+    var el = document.getElementById('clock');
+    if (el.textContent !== t) el.textContent = t;
+    if (typeof wzAudioChip === 'function') wzAudioChip();
 }
 
 // ============================================================
@@ -16959,7 +17209,7 @@ Recorder.init({
 renderBottomBar();
 applyMeterStyle();
 updateClock();
-setInterval(updateClock, 10000);
+setInterval(updateClock, 1000);
 
 // Initialize scope info bar
 var otherVfoElem = document.getElementById('otherVfoFreq');

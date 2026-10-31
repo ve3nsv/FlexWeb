@@ -24,6 +24,10 @@
         <file alias="lamejs/lame.min.js">web-shared/lamejs/lame.min.js</file>
         <file alias="theme.css">web-shared/theme.css</file>
         <file alias="aether.css">web/aether.css</file>
+        <file alias="wizard.css">web/wizard.css</file>
+        <file alias="wizard-meter.js">web/wizard-meter.js</file>
+        <file alias="wizard.jpg">web/wizard.jpg</file>
+        <file alias="wizard-bolts.jpg">web/wizard-bolts.jpg</file>
         <file alias="sync-estimator.js">web/sync-estimator.js</file>
         <file alias="js8-panel.css">web-shared/js8-panel.css</file>
         <file alias="js8-panel.mjs">web-shared/js8-panel.mjs</file>

@@ -1,0 +1,373 @@
+/* ==========================================================================
+   Wizard skin (wizard-look branch), loaded after aether.css and only while
+   FUNC > LOOK is WIZARD (body.wz). Same elements, ids and handlers as the
+   AetherSDR layout; this file restyles them into glowing rounded panels on a
+   deep navy ground, after the user's mock-up. The S-meter face is drawn by
+   wizard-meter.js. No web fonts: the page must work offline.
+   ========================================================================== */
+
+:root {
+    --wz-ground:   #050a14;
+    --wz-panel-a:  rgba(15, 29, 52, 0.96);
+    --wz-panel-b:  rgba(7, 14, 28, 0.98);
+    --wz-edge:     rgba(78, 166, 255, 0.40);
+    --wz-edge-hi:  rgba(110, 200, 255, 0.75);
+    --wz-glow:     rgba(0, 140, 255, 0.20);
+    --wz-cyan:     #33c6ff;
+    --wz-cyan-hi:  #8fe4ff;
+    --wz-cyan-lo:  #0b6fae;
+    --wz-text:     #dbe9f6;
+    --wz-dim:      #8da7c3;
+    --wz-red:      #ff3b4e;
+    --wz-green:    #3be27e;
+    --wz-amber:    #ffb547;
+    --wz-font: 'Segoe UI', 'Inter', system-ui, -apple-system, Helvetica, Arial, sans-serif;
+}
+
+.wz-only { display: none !important; }
+body.wz .wz-only { display: inline-flex !important; }
+body.wz .wz-only[hidden] { display: none !important; }
+
+/* ---- Ground and panels ------------------------------------------------- */
+body.wz {
+    background:
+        radial-gradient(ellipse 70% 50% at 50% 0%, rgba(20, 60, 130, 0.25), transparent 70%),
+        radial-gradient(ellipse 60% 60% at 80% 100%, rgba(30, 30, 110, 0.18), transparent 70%),
+        var(--wz-ground);
+    font-family: var(--wz-font);
+}
+body.wz #radio { background: transparent; }
+body.wz #topBar,
+body.wz #freqSection,
+body.wz #meterSection,
+body.wz #scopeInfoBar,
+body.wz #scopeArea,
+body.wz #bottomBar,
+body.wz .ae-applet {
+    background: linear-gradient(180deg, var(--wz-panel-a), var(--wz-panel-b));
+    border: 1px solid var(--wz-edge);
+    border-radius: 10px;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55), 0 0 16px var(--wz-glow), inset 0 0 22px rgba(0, 110, 255, 0.06);
+}
+
+/* ---- Desktop grid: top bar, VFO + meter, scope | side column, bottom bar - */
+@media (min-width: 1000px) {
+    body.wz.ae-desktop #radio,
+    body.wz.ae-desktop.meter-needle #radio {
+        grid-template-columns: minmax(0, 1fr) 305px;
+        grid-template-rows: 50px 158px 30px minmax(0, 1fr) auto;
+        grid-template-areas: "top top" "strip side" "info side" "scope side" "bottom bottom";
+        gap: 8px; padding: 8px; box-sizing: border-box;
+    }
+    body.wz.wz-side-hidden.ae-desktop #radio {
+        grid-template-columns: minmax(0, 1fr) 0;
+        column-gap: 0;
+    }
+    body.wz.wz-side-hidden.ae-desktop #applets { display: none; }
+}
+@media (min-width: 1000px) and (max-width: 1279px) {
+    body.wz.ae-desktop #radio, body.wz.ae-desktop.meter-needle #radio { grid-template-columns: minmax(0, 1fr) 265px; }
+}
+@media (max-width: 999px) {
+    body.wz.ae-desktop #radio,
+    body.wz.ae-desktop.meter-needle #radio {
+        grid-template-rows: 46px 150px 30px minmax(0, 1fr) auto;
+        gap: 6px; padding: 6px; box-sizing: border-box;
+    }
+    body.wz.ae-desktop #applets { top: 58px; background: var(--wz-ground); padding: 6px; gap: 6px; }
+}
+
+/* ---- Top bar ------------------------------------------------------------ */
+body.wz #topBar { padding: 0 12px; gap: 10px; overflow: hidden; }
+body.wz #topBar > * { order: 30; }
+body.wz #wzMenuBtn { order: 1; }
+body.wz #wzLogo { order: 2; }
+body.wz #txIndicator { order: 3; }
+body.wz #tuneLabel { order: 4; }
+body.wz #txByLabel { order: 5; }
+body.wz #talkLabel { order: 6; }
+body.wz #modeBtn { order: 7; }
+body.wz #wzAudioChip { order: 8; }
+body.wz #cpuChip { order: 9; }
+body.wz #dspIndicators { order: 10; }
+body.wz #topBar .flex-space { order: 20; }
+body.wz #peopleChip { order: 21; }
+body.wz #rigTag { order: 22; }
+body.wz #connDot { order: 23; }
+body.wz #recBtn { order: 24; }
+body.wz #qsoLogBtn { order: 25; }
+body.wz #userBtn { order: 26; }
+body.wz #discBtn { order: 27; }
+body.wz #wzGearBtn { order: 28; }
+body.wz #clock { order: 29; }
+body.wz #fullscreenBtn { order: 31; }
+body.wz #powerBtn { order: 32; }
+body.wz #pbBars, body.wz #filterText { display: none; }
+
+body.wz #wzMenuBtn, body.wz #wzGearBtn {
+    align-items: center; justify-content: center; cursor: pointer;
+    background: transparent; color: var(--wz-text); border: 0; font-size: 22px; padding: 0 4px; line-height: 1;
+}
+body.wz #wzGearBtn {
+    width: 34px; height: 30px; font-size: 18px; border-radius: 6px;
+    border: 1px solid var(--wz-edge); background: rgba(10, 22, 40, 0.8);
+}
+body.wz #wzMenuBtn:hover, body.wz #wzGearBtn:hover { color: var(--wz-cyan-hi); }
+body.wz #wzLogo { align-items: center; gap: 8px; color: var(--wz-cyan); margin-right: 14px; white-space: nowrap; }
+body.wz #wzLogo svg { filter: drop-shadow(0 0 4px rgba(0, 180, 255, 0.8)); }
+body.wz #wzLogo > span { font: 800 26px var(--wz-font); color: #fff; letter-spacing: 0.3px; text-shadow: 0 0 10px rgba(80, 170, 255, 0.35); }
+body.wz #wzLogo b { color: var(--wz-cyan); font-weight: 800; text-shadow: 0 0 12px rgba(0, 180, 255, 0.7); }
+
+/* chips: RX, mode, audio, CPU */
+body.wz #txIndicator, body.wz #modeBtn, body.wz #wzAudioChip, body.wz #cpuChip, body.wz #rigTag,
+body.wz #recBtn, body.wz #qsoLogBtn {
+    height: 30px; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px;
+    padding: 0 12px; border-radius: 6px; font: 600 13px var(--wz-font); letter-spacing: 0.4px;
+    background: rgba(8, 18, 34, 0.85); border: 1px solid var(--wz-edge); color: var(--wz-text);
+}
+body.wz #txIndicator { color: var(--wz-green); border-color: rgba(59, 226, 126, 0.75); box-shadow: 0 0 8px rgba(59, 226, 126, 0.35); padding: 0 14px; }
+body.wz #txIndicator.tx { color: #fff; background: #b3101f; border-color: var(--wz-red); box-shadow: 0 0 12px rgba(255, 40, 60, 0.7); }
+body.wz #modeBtn { color: var(--wz-text); padding: 0 16px; }
+body.wz #modeBtn:hover { border-color: var(--wz-edge-hi); }
+body.wz #wzAudioChip { cursor: pointer; font-size: 11px; color: var(--wz-dim); white-space: nowrap; }
+body.wz #wzAudioChip.wz-ok { color: var(--wz-green); }
+body.wz #wzAudioChip.wz-warn { color: var(--wz-amber); }
+body.wz #wzAudioChip.wz-bad { color: var(--wz-red); }
+body.wz .wz-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; }
+body.wz .wz-bars i { width: 3px; background: rgba(140, 160, 190, 0.35); border-radius: 1px; }
+body.wz .wz-bars i:nth-child(1) { height: 5px; }
+body.wz .wz-bars i:nth-child(2) { height: 8px; }
+body.wz .wz-bars i:nth-child(3) { height: 11px; }
+body.wz .wz-bars i:nth-child(4) { height: 14px; }
+body.wz .wz-bars i.on { background: currentColor; box-shadow: 0 0 4px currentColor; }
+body.wz #cpuChip { font-size: 11px; color: var(--wz-dim); border-color: transparent; background: transparent; padding: 0 6px; }
+body.wz #cpuChip .cpu-lbl { color: var(--wz-dim); }
+body.wz .wz-cpu-bar { display: inline-block; width: 80px; height: 10px; border: 1px solid var(--wz-edge); border-radius: 2px; overflow: hidden; background: rgba(0, 0, 0, 0.4); }
+body.wz .wz-cpu-bar i { display: block; height: 100%; background: linear-gradient(90deg, #1fbf5f, #3be27e); box-shadow: 0 0 6px rgba(59, 226, 126, 0.6); }
+body.wz #cpuChip.warn .wz-cpu-bar i { background: var(--wz-amber); }
+body.wz #cpuChip.hot .wz-cpu-bar i { background: var(--wz-red); }
+.wz-cpu-bar { display: none; }
+body.wz .wz-cpu-bar { display: inline-block; }
+body.wz #rigTag { color: var(--wz-text); font-weight: 700; border-radius: 6px 0 0 6px; border-right: 0; padding-right: 8px; max-width: 220px; }
+body.wz #rigTag::before { content: '\25A4'; color: var(--wz-dim); font-weight: 400; }
+body.wz #connDot {
+    width: 30px; height: 30px; margin-left: -10px; border-radius: 0 6px 6px 0; box-sizing: border-box;
+    border: 1px solid var(--wz-edge); border-left: 0; background: rgba(8, 18, 34, 0.85) !important;
+    display: inline-flex; align-items: center; justify-content: center;
+}
+body.wz #connDot::after { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #8a2330; }
+body.wz #connDot.connected::after { background: var(--wz-green); box-shadow: 0 0 6px var(--wz-green); }
+body.wz #recBtn { color: #ff8a95; border-color: rgba(255, 70, 90, 0.6); }
+body.wz #recBtn .rec-idle::before { content: '\25CF  '; color: var(--wz-red); }
+body.wz #qsoLogBtn { color: var(--wz-text); }
+body.wz #qsoLogBtn::before { content: '\1F56E'; font-size: 13px; filter: grayscale(1) brightness(1.6); }
+body.wz #discBtn, body.wz #userBtn, body.wz #fullscreenBtn, body.wz #powerBtn { opacity: 0.75; }
+body.wz #clock { font: 600 18px var(--wz-font); color: #fff; letter-spacing: 0.5px; margin-left: 6px; white-space: nowrap; }
+
+/* ---- VFO panel ---------------------------------------------------------- */
+body.wz.ae-desktop #meterFreqRow { padding: 0; gap: 8px; background: none; border: 0; align-items: stretch; }
+body.wz.ae-desktop #freqSection {
+    flex: 0 0 37%; min-width: 330px; box-sizing: border-box; padding: 12px 16px;
+    display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "badge freq mhz" "ctl ctl ctl";
+    align-items: center; align-content: space-between; column-gap: 12px; row-gap: 8px;
+}
+body.wz.ae-desktop #vfoLine { grid-area: badge; align-self: start; margin-top: 4px; }
+body.wz.ae-desktop #freqDisplay { grid-area: freq; height: 54px; justify-self: end; min-width: 0; }
+body.wz.ae-desktop #wzMhz { grid-area: mhz; align-self: end; margin-bottom: 8px; color: var(--wz-dim); font: 500 18px var(--wz-font); }
+body.wz.ae-desktop #slicePills { grid-area: ctl; display: flex; flex-direction: column; gap: 8px; }
+body.wz #vfoLabel {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 30px; height: 30px; padding: 0 6px; box-sizing: border-box;
+    background: linear-gradient(180deg, #5fd6ff, #22a9e8); color: #04121e; font: 800 18px var(--wz-font);
+    border-radius: 5px; box-shadow: 0 0 10px rgba(0, 180, 255, 0.6);
+}
+body.wz #freqDisplay { font-family: var(--wz-font); color: #fff; }
+body.wz #freqDisplay .freq-digit { font-size: clamp(34px, 3.9vw, 54px); font-weight: 500; width: 0.56em; text-shadow: 0 0 14px rgba(120, 190, 255, 0.35); }
+body.wz #freqDisplay .freq-digit.digit-dot { width: 0.26em; }
+body.wz .wz-vfo-row { display: flex; align-items: center; gap: 10px; }
+body.wz .wz-field { display: inline-flex; align-items: center; gap: 6px; font: 600 11px var(--wz-font); color: var(--wz-dim); letter-spacing: 0.6px; }
+body.wz .wz-field[hidden] { display: none; }
+body.wz .wz-field select, body.wz .wz-field input {
+    height: 26px; box-sizing: border-box; border-radius: 4px; padding: 0 6px;
+    background: rgba(4, 10, 20, 0.9); border: 1px solid var(--wz-edge); color: var(--wz-text);
+    font: 500 12px var(--wz-font);
+}
+body.wz .wz-field select { padding-right: 2px; cursor: pointer; }
+body.wz .wz-field input { width: 64px; text-align: center; font-family: var(--font-mono); }
+body.wz .wz-field input:focus, body.wz .wz-field select:focus { outline: none; border-color: var(--wz-cyan); box-shadow: 0 0 6px rgba(0, 180, 255, 0.5); }
+body.wz .wz-offset button {
+    background: none; border: 0; padding: 0; cursor: pointer; color: var(--wz-dim);
+    font: 600 11px var(--wz-font); letter-spacing: 0.6px;
+}
+body.wz .wz-offset.on button { color: var(--wz-cyan-hi); text-shadow: 0 0 6px rgba(0, 180, 255, 0.8); }
+body.wz .wz-offset.on input { border-color: var(--wz-cyan); color: #fff; }
+body.wz .wz-vfo-keys { gap: 8px; }
+body.wz .wz-key {
+    flex: 1 1 0; min-width: 0; height: 30px; border-radius: 5px; cursor: pointer;
+    background: rgba(6, 14, 28, 0.9); border: 1px solid var(--wz-edge); color: var(--wz-text);
+    font: 600 12px var(--wz-font);
+}
+body.wz .wz-key:hover:not(:disabled) { border-color: var(--wz-edge-hi); }
+body.wz .wz-key.active { background: linear-gradient(180deg, #3fcaff, #1b98d6); color: #04121e; border-color: #7fdcff; box-shadow: 0 0 10px rgba(0, 180, 255, 0.55); }
+body.wz .wz-key:disabled { opacity: 0.4; cursor: default; }
+
+/* ---- S-meter panel (the face is the canvas) ----------------------------- */
+body.wz.ae-desktop #meterSection {
+    flex: 1 1 auto; min-width: 0; padding: 0; overflow: hidden; position: relative;
+    --wz-power: 0;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55),
+                0 0 calc(16px + 22px * var(--wz-power)) rgba(0, 140, 255, calc(0.2 + 0.45 * var(--wz-power))),
+                inset 0 0 22px rgba(0, 110, 255, 0.06);
+    border-color: rgba(78, 166, 255, calc(0.4 + 0.5 * var(--wz-power)));
+}
+body.wz.ae-desktop #meterCanvas, body.wz.ae-desktop.meter-needle #meterCanvas { width: 100%; height: 100%; display: block; border-radius: 10px; }
+
+/* ---- Scope panel -------------------------------------------------------- */
+body.wz #scopeInfoBar {
+    border-radius: 10px 10px 0 0; border-bottom: 0; margin-bottom: -8px; z-index: 2;
+    display: flex; align-items: center; padding: 0 10px; gap: 10px; box-shadow: none;
+}
+body.wz #scopeArea { border-radius: 0 0 10px 10px; border-top: 0; overflow: hidden; }
+body.wz #scopeLabel { display: none; }
+body.wz #wzScopeChips { margin-left: auto; gap: 6px; }
+body.wz .wz-chip {
+    padding: 3px 9px; border-radius: 4px; font: 600 11px var(--wz-font); letter-spacing: 0.4px;
+    background: rgba(4, 10, 20, 0.9); border: 1px solid var(--wz-edge); color: var(--wz-text);
+}
+body.wz #wzSpanChip { color: var(--wz-cyan-hi); cursor: pointer; }
+body.wz .wz-chip[hidden] { display: none; }
+body.wz #otherVfoFreq { position: static; color: var(--wz-dim); }
+body.wz #spectrumCanvas { background: transparent; }
+
+/* ---- Side column -------------------------------------------------------- */
+body.wz.ae-desktop #applets { background: none; border: 0; gap: 8px; padding: 0; }
+body.wz #aeRx { order: 1; }
+body.wz #aeAmp { order: 2; }
+body.wz #aeTx { order: 3; }
+body.wz #aeEq { order: 4; }
+body.wz #aeMem { order: 5; }
+body.wz .ae-applet { padding-bottom: 12px; flex: 0 0 auto; }
+body.wz .ae-applet h2 {
+    background: none; padding: 11px 14px 4px; font: 700 13px var(--wz-font); letter-spacing: 1px; color: #fff;
+}
+body.wz .ae-rows { padding: 6px 14px 0; gap: 10px; }
+body.wz .ae-btns { padding: 10px 14px 0; gap: 8px; }
+body.wz .ae-grid { gap: 8px; }
+
+/* slider rows: a thin glowing track with a knob, the value in a box */
+body.wz .ae-rows .gain-row { align-items: center; }
+body.wz .ae-rows .gain-label { width: 64px; font: 600 11px var(--wz-font); color: var(--wz-text); letter-spacing: 0.4px; }
+body.wz .ae-rows .gain-bar-bg {
+    height: 6px; border-radius: 3px; overflow: visible; position: relative;
+    background: rgba(140, 170, 210, 0.18); border: 0;
+}
+body.wz .ae-rows .gain-bar-fill, body.wz .ae-rows .gain-row.tx .gain-bar-fill {
+    height: 100%; border-radius: 3px; position: relative;
+    background: linear-gradient(90deg, #1f8fd8, #44d2ff); box-shadow: 0 0 8px rgba(0, 180, 255, 0.6);
+}
+body.wz .ae-rows .gain-bar-fill::after {
+    content: ''; position: absolute; right: -8px; top: 50%; width: 16px; height: 16px; margin-top: -8px;
+    border-radius: 50%; background: radial-gradient(circle at 35% 35%, #ffffff, #b9c9da 50%, #5a6b80);
+    box-shadow: 0 0 6px rgba(160, 220, 255, 0.8);
+}
+body.wz .ae-rows .gain-val {
+    width: 48px; height: 24px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--wz-edge); border-radius: 4px; background: rgba(4, 10, 20, 0.9);
+    color: var(--wz-text); font: 500 12px var(--wz-font); margin-left: 14px;
+}
+body.wz .mic-vu { height: 6px; border-radius: 3px; }
+
+/* keys */
+body.wz .ae-key {
+    min-height: 32px; border-radius: 5px; background: rgba(6, 14, 28, 0.9);
+    border: 1px solid var(--wz-edge); color: var(--wz-text); font: 600 12px var(--wz-font);
+}
+body.wz .ae-key:hover { border-color: var(--wz-edge-hi); }
+body.wz .ae-key.active, body.wz .ae-key.ae-toggle.active {
+    background: linear-gradient(180deg, #3fcaff, #1b98d6); color: #04121e; border-color: #7fdcff;
+    box-shadow: 0 0 10px rgba(0, 180, 255, 0.55);
+}
+body.wz .ae-key.wz-mox, body.wz .ae-key.ptt-btn {
+    background: linear-gradient(180deg, #ff5a68, #d11f30); color: #fff; border-color: #ff8a95;
+    box-shadow: 0 0 10px rgba(255, 50, 70, 0.5); touch-action: none;
+}
+body.wz .ae-key.ptt-btn.tx-active { box-shadow: 0 0 18px rgba(255, 50, 70, 0.95); }
+body.wz .ae-key.ae-tuning { background: #7a1d1d !important; }
+
+/* amplifier */
+body.wz .ae-amp-name { color: #fff; }
+body.wz .ae-tuner-chip.on { background: none; border: 0; color: var(--wz-green); font: 700 11px var(--wz-font); }
+body.wz .ae-tuner-chip.on::before { content: '\25CF '; text-shadow: 0 0 6px var(--wz-green); }
+body.wz .ae-amp { width: calc(100% - 28px); margin: 8px 14px 0; }
+body.wz .ae-meter { grid-template-columns: 40px 1fr minmax(52px, auto); font: 600 11px var(--wz-font); color: var(--wz-text); margin-bottom: 8px; }
+body.wz .ae-meter-track { height: 10px; border-radius: 2px; background: rgba(0, 0, 0, 0.45); border-color: rgba(78, 166, 255, 0.25); }
+body.wz .ae-meter-fill { background: linear-gradient(90deg, #17a64e, #3be27e); box-shadow: 0 0 6px rgba(59, 226, 126, 0.6); }
+body.wz .ae-meter b { font: 600 12px var(--wz-font); color: var(--wz-text); }
+body.wz .ae-amp-tile { background: rgba(4, 10, 20, 0.9); border: 1px solid rgba(78, 166, 255, 0.25); color: var(--wz-dim); }
+body.wz .amp-ctl-rows { padding: 8px 14px 0; }
+body.wz .amp-ctl {
+    border-radius: 5px; background: rgba(6, 14, 28, 0.9); border: 1px solid var(--wz-edge); color: var(--wz-text);
+    font: 600 12px var(--wz-font); min-height: 32px;
+}
+body.wz .amp-ctl.op-on, body.wz .amp-ctl.op-standby, body.wz .amp-ctl.tune-on {
+    background: rgba(10, 60, 30, 0.55); border-color: rgba(59, 226, 126, 0.8); color: #9df5bf;
+    box-shadow: 0 0 8px rgba(59, 226, 126, 0.35);
+}
+body.wz .amp-ctl.op-standby { background: rgba(60, 45, 10, 0.5); border-color: rgba(255, 181, 71, 0.8); color: #ffd28a; box-shadow: none; }
+
+/* ---- Bottom bar --------------------------------------------------------- */
+body.wz.ae-desktop #bottomBar { padding: 8px 10px; gap: 6px; }
+body.wz .softBtn {
+    border-radius: 5px; background: rgba(6, 14, 28, 0.9); border: 1px solid var(--wz-edge); color: var(--wz-text);
+    font: 600 12px var(--wz-font);
+}
+body.wz .softBtn:hover { border-color: var(--wz-edge-hi); }
+body.wz .softBtn.active {
+    background: linear-gradient(180deg, #3fcaff, #1b98d6); color: #04121e; border-color: #7fdcff;
+    box-shadow: 0 0 10px rgba(0, 180, 255, 0.55);
+}
+body.wz.ae-desktop .softBtn.ae-band { font-family: var(--wz-font); font-weight: 600; min-width: 46px; }
+body.wz .softBtn.wz-band-btn {
+    background: none; border-color: transparent; box-shadow: none; padding: 0 4px 0 8px;
+    font: 700 11px var(--wz-font); color: var(--wz-dim); letter-spacing: 0.8px;
+}
+body.wz .softBtn.wz-band-btn:hover, body.wz .softBtn.wz-band-btn.active { color: var(--wz-cyan-hi); background: none; box-shadow: none; border-color: transparent; }
+body.wz .softBtn.ae-mox, body.wz .softBtn.ptt-btn {
+    min-width: 150px; background: linear-gradient(180deg, #ff5a68, #cf1d2e); color: #fff;
+    border-color: #ff8a95; box-shadow: 0 0 12px rgba(255, 50, 70, 0.55); letter-spacing: 1px;
+}
+body.wz .softBtn.ptt-btn.tx-active { box-shadow: 0 0 22px rgba(255, 50, 70, 1); }
+
+/* ---- Phone: the skin's colours, the AetherSDR phone layout --------------- */
+body.wz.ae-phone #radio { gap: 6px; padding: 6px; box-sizing: border-box; }
+body.wz.ae-phone #meterFreqRow { background: none; border: 0; padding: 0; gap: 6px; }
+body.wz.ae-phone #freqSection { padding: 8px 10px; }
+body.wz.ae-phone #meterSection { padding: 0; overflow: hidden; }
+body.wz.ae-phone.meter-wizard #meterCanvas { height: 110px; display: block; }
+body.wz.ae-phone #wzLogo > span { font-size: 18px; }
+body.wz.ae-phone #wzLogo svg { width: 20px; height: 20px; }
+body.wz.ae-phone #wzAudioChip .wz-audio-txt, body.wz.ae-phone #cpuChip, body.wz.ae-phone #wzMhz,
+body.wz.ae-phone #wzLogo > span, body.wz.ae-phone #rigTag, body.wz.ae-phone #connDot { display: none !important; }
+body.wz.ae-phone #topBar { gap: 6px; padding: 0 8px; }
+body.wz.ae-phone #meterSection, body.wz.ae-phone #meterCanvas { width: 100%; }
+body.wz.ae-phone #slicePills { flex-direction: column; align-items: stretch; gap: 8px; }
+body.wz.ae-phone .wz-vfo-row { flex-wrap: wrap; gap: 8px; }
+body.wz.ae-phone .wz-key { height: 36px; }
+
+/* narrower desktops: the top bar sheds its least useful text first */
+@media (max-width: 1199px) {
+    body.wz.ae-desktop .wz-cpu-bar { display: none; }
+    body.wz.ae-desktop #rigTag { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (max-width: 999px) {
+    body.wz.ae-desktop #wzLogo > span, body.wz.ae-desktop #cpuChip { display: none !important; }
+    body.wz.ae-desktop #freqSection { min-width: 0; flex-basis: 40%; }
+}
+
+/* The side column keeps RX / AMP / TX in view: the amplifier applet shows its
+   readings and OPERATE / TUNE; band, antennas and the tuner line are in its
+   panel (a tap on the readings opens it), as on the mock-up. */
+body.wz .ae-amp-tiles, body.wz .ae-amp-tuner { display: none; }
+body.wz .amp-ctl-rows .amp-ctl-row + .amp-ctl-row { display: none; }
+body.wz .amp-ctl-row { gap: 8px; }
+body.wz #applets { scrollbar-width: thin; scrollbar-color: rgba(78, 166, 255, 0.4) transparent; }

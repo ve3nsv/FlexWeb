@@ -9,6 +9,18 @@ upstream wfview history.
 Unreleased
 ----------
 
+Wizard look (wizard-look branch):
+- A new default look, FUNC > LOOK: WIZARD (AETHER and CLASSIC still there):
+  rounded glowing panels, the VFO panel with STEP, RIT, XIT and A / B /
+  SPLIT / A>B / B>A, an AUDIO quality chip, the CPU bar, a UTC clock with
+  seconds, SPAN / RBW chips over the scope, RX CONTROLS / RF-KIT AMPLIFIER /
+  TX CONTROLS (TUNE, MOX, ATU) in the side column and band keys in metres.
+- An analog S-meter with a wizard behind it: hidden below S9, fading in past
+  S9 and more intense the stronger the signal (eyes, lightning), full power
+  at +60 dB; on TX it reads Po and follows the power. FUNC > METER still
+  offers the bar and the needle.
+- RIT on a Flex can now be set from the page (flexDsp ritOn / ritFreq).
+
 FlexRadio transmit:
 - PTT and TUNE are never held up inside FlexWeb any more. Noise reduction
   (NNR) used to run in the same loop that talks to the radio; with the
