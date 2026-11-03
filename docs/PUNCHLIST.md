@@ -284,6 +284,21 @@ Status: implemented for build 60.
 
 From here on builds go by their GitHub Actions run number.
 
+Next wizard-look build (2026-11-03): items 62, 63, 64, 65, 66a and 67 done.
+62a / 65 are one mechanism: the top bar sheds text by levels until it fits
+(CPU word, logo text, clock seconds, REC / LOG as icons, AUDIO word, user
+name as an icon, full-screen key, radio name, CPU chip, logo, and on a phone
+the gear and DISCONNECT - both in FUNC, which the menu key opens there);
+keys and names in the side column take a short form ("RF-KIT AMP", "STBY",
+"P.AMP +32") before a smaller font. Checked at 360, 390, 1000, 1100, 1320
+and 1920 px: nothing past the edge, no ellipsis. 62b: the phone's AMP
+readout moved left of the dB labels. 62c: phone meter 96 px, compact
+geometry (arc lower, pivot under it, the S beside the arc end). 63: TUNE
+left of MOX / PTT; the wizard bar now drops band keys when it must ("BAND:"
+opens them all). 64: CLASSIC hides #applets / #slicePills / #aeZoom /
+#aeDrawerBtn (the PANELS key leaked too); LOOK shows the three to choose
+from. 66b (alarm latency) is server work, done on aether-look and merged.
+
 Next build (2026-10-29): items 48-55 done, with these differences from the
 plan. 51 / 52a: flexCommander's thread stays the radio's command link
 (moving the TCP / SmartLink TLS socket to another thread was the larger

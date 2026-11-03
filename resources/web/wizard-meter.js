@@ -171,7 +171,10 @@
 
     function drawScale(ctx, w, h) {
         var m = Math.max(28, w * 0.055);
-        var yEnd = h * 0.68, yTop = h * 0.34;
+        // A short, wide face (the phone, punch list 62c): the arc lower and
+        // the pivot just under it, so nothing hangs below and no band is left.
+        var compact = w / h > 3;
+        var yEnd = h * (compact ? 0.80 : 0.68), yTop = h * (compact ? 0.42 : 0.34);
         var c = w / 2 - m, s = yEnd - yTop;
         var R = (c * c + s * s) / (2 * s);
         var cx = w / 2, cy = yTop + R;
@@ -231,7 +234,7 @@
                 ctx.shadowColor = red ? 'rgba(255,40,60,0.8)' : 'rgba(0,170,255,0.7)';
                 ctx.shadowBlur = 6;
                 // The S at the start sits below the arc's end, as on the mock-up.
-                if (mk.big) { var sp = pt(mk.f, R - fs * 1.6); ctx.fillText(mk.text, sp[0] - 2, sp[1] + fs * 0.6); }
+                if (mk.big && !compact) { var sp = pt(mk.f, R - fs * 1.6); ctx.fillText(mk.text, sp[0] - 2, sp[1] + fs * 0.6); }
                 else ctx.fillText(mk.text, l[0], l[1]);
             }
         }
@@ -278,7 +281,7 @@
 
         // Needle: from the pivot at the bottom centre to the printed value.
         var nf = Math.max(-0.02, Math.min(1.03, needle));
-        var px = w / 2, py = h * 0.93;
+        var px = w / 2, py = h * (compact ? 0.90 : 0.93);
         var tip = pt(nf, R - 2);
         ctx.save();
         ctx.lineCap = 'round';

@@ -59,14 +59,19 @@ body.wz .ae-applet {
         grid-template-areas: "top top" "strip side" "info side" "scope side" "bottom bottom";
         gap: 8px; padding: 8px; box-sizing: border-box;
     }
-    body.wz.wz-side-hidden.ae-desktop #radio {
+}
+@media (min-width: 1000px) and (max-width: 1279px) {
+    body.wz.ae-desktop #radio, body.wz.ae-desktop.meter-needle #radio { grid-template-columns: minmax(0, 1fr) 265px; }
+}
+/* Side column hidden (the top bar's menu key): last and as specific as every
+   width's column rule above, so it wins at all of them (punch list 67). */
+@media (min-width: 1000px) {
+    body.wz.wz-side-hidden.ae-desktop #radio,
+    body.wz.wz-side-hidden.ae-desktop.meter-needle #radio {
         grid-template-columns: minmax(0, 1fr) 0;
         column-gap: 0;
     }
     body.wz.wz-side-hidden.ae-desktop #applets { display: none; }
-}
-@media (min-width: 1000px) and (max-width: 1279px) {
-    body.wz.ae-desktop #radio, body.wz.ae-desktop.meter-needle #radio { grid-template-columns: minmax(0, 1fr) 265px; }
 }
 @media (max-width: 999px) {
     body.wz.ae-desktop #radio,
@@ -103,6 +108,40 @@ body.wz #clock { order: 29; }
 body.wz #fullscreenBtn { order: 31; }
 body.wz #powerBtn { order: 32; }
 body.wz #pbBars, body.wz #filterText { display: none; }
+
+/* Punch list 62a / 65: nothing in the top bar shrinks or is cut with an
+   ellipsis. When it does not fit, wzFitTopBar() adds wz-f1, wz-f2, ... in
+   this order until it does (each level keeps the ones before it):
+   1 the CPU word, 2 the logo text, 3 the clock's seconds and UTC (JS),
+   4 REC as its dot and LOG as its icon, 5 the AUDIO word, 6 the user name
+   as an icon (name in the tooltip), 7 full-screen key and tighter chips,
+   8 the radio name (still in the tab title), 9 the CPU chip, 10 the logo
+   globe and tighter gaps, 11 on a phone the gear (the menu key opens FUNC
+   there, punch list 67), 12 on a phone the DISCONNECT key (also in FUNC). */
+body.wz #topBar > * { flex-shrink: 0; }
+body.wz #topBar > .flex-space { flex: 1 1 0; min-width: 0; }
+body.wz #rigTag { white-space: nowrap; }
+body.wz #topBar.wz-f1 #cpuChip .cpu-lbl { display: none; }
+body.wz #topBar.wz-f2 #wzLogo > span { display: none; }
+body.wz #topBar.wz-f2 #wzLogo { margin-right: 2px; }
+body.wz #topBar.wz-f4 #recBtn .rec-idle { font-size: 0; }
+body.wz #topBar.wz-f4 #recBtn .rec-idle::before { font-size: 13px; content: '\25CF'; }
+body.wz #topBar.wz-f4 #recBtn, body.wz #topBar.wz-f4 #qsoLogBtn { padding: 0 9px; gap: 0; }
+body.wz #topBar.wz-f4 #qsoLogBtn { font-size: 0; }
+body.wz #topBar.wz-f4 #qsoLogBtn::before { font-size: 14px; }
+body.wz #topBar.wz-f5 #wzAudioChip .wz-audio-txt { display: none; }
+body.wz #topBar.wz-f5 #wzAudioChip { padding: 0 8px; }
+body.wz #topBar.wz-f6 #userBtn { font-size: 0; }
+body.wz #topBar.wz-f6 #userBtn::before { content: '\1F464'; font-size: 14px; filter: grayscale(1) brightness(1.6); }
+body.wz #topBar.wz-f7 #fullscreenBtn { display: none; }
+body.wz #topBar.wz-f7 { gap: 5px; }
+body.wz #topBar.wz-f7 #modeBtn, body.wz #topBar.wz-f7 #txIndicator { padding: 0 9px; }
+body.wz #topBar.wz-f8 #rigTag, body.wz #topBar.wz-f8 #connDot { display: none; }
+body.wz #topBar.wz-f9 #cpuChip { display: none; }
+body.wz #topBar.wz-f10 #wzLogo { display: none !important; }   /* .wz-only is !important */
+body.wz #topBar.wz-f10, body.wz.ae-phone #topBar.wz-f10 { gap: 3px; padding: 0 5px; }
+body.wz.ae-phone #topBar.wz-f11 #wzGearBtn { display: none !important; }
+body.wz.ae-phone #topBar.wz-f12 #discBtn:not(.confirm) { display: none; }
 
 body.wz #wzMenuBtn, body.wz #wzGearBtn {
     align-items: center; justify-content: center; cursor: pointer;
@@ -343,12 +382,15 @@ body.wz.ae-phone #radio { gap: 6px; padding: 6px; box-sizing: border-box; }
 body.wz.ae-phone #meterFreqRow { background: none; border: 0; padding: 0; gap: 6px; }
 body.wz.ae-phone #freqSection { padding: 8px 10px; }
 body.wz.ae-phone #meterSection { padding: 0; overflow: hidden; }
-body.wz.ae-phone.meter-wizard #meterCanvas { height: 110px; display: block; }
+body.wz.ae-phone.meter-wizard #meterCanvas { height: 96px; display: block; }   /* compact face, punch list 62c */
 body.wz.ae-phone #wzLogo > span { font-size: 18px; }
 body.wz.ae-phone #wzLogo svg { width: 20px; height: 20px; }
 body.wz.ae-phone #wzAudioChip .wz-audio-txt, body.wz.ae-phone #cpuChip, body.wz.ae-phone #wzMhz,
 body.wz.ae-phone #wzLogo > span, body.wz.ae-phone #rigTag, body.wz.ae-phone #connDot { display: none !important; }
 body.wz.ae-phone #topBar { gap: 6px; padding: 0 8px; }
+/* Punch list 62b: the AMP readout sits left of the scope's "+NN dB" level
+   labels (drawn right-aligned 6 px from the edge, ~40 px wide), not on them. */
+body.wz.ae-phone #ampIndicator { right: 50px; }
 body.wz.ae-phone #meterSection, body.wz.ae-phone #meterCanvas { width: 100%; }
 body.wz.ae-phone #slicePills { flex-direction: column; align-items: stretch; gap: 8px; }
 body.wz.ae-phone .wz-vfo-row { flex-wrap: wrap; gap: 8px; }
@@ -357,7 +399,6 @@ body.wz.ae-phone .wz-key { height: 36px; }
 /* narrower desktops: the top bar sheds its least useful text first */
 @media (max-width: 1199px) {
     body.wz.ae-desktop .wz-cpu-bar { display: none; }
-    body.wz.ae-desktop #rigTag { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 }
 @media (max-width: 999px) {
     body.wz.ae-desktop #wzLogo > span, body.wz.ae-desktop #cpuChip { display: none !important; }
@@ -367,7 +408,12 @@ body.wz.ae-phone .wz-key { height: 36px; }
 /* The side column keeps RX / AMP / TX in view: the amplifier applet shows its
    readings and OPERATE / TUNE; band, antennas and the tuner line are in its
    panel (a tap on the readings opens it), as on the mock-up. */
-body.wz .ae-amp-tiles, body.wz .ae-amp-tuner { display: none; }
+body.wz .ae-amp-tiles { display: none; }
+/* Punch list 66a: the tuner stays in view as one compact line - its chip
+   (ATU IN / BYP / TUNING / ...) and L / C; the network and the tuned
+   frequency are in the AMP panel. */
+body.wz .ae-amp-tuner { flex-wrap: nowrap; align-items: center; white-space: nowrap; overflow: hidden; }
+body.wz .ae-amp-tuner .ae-amp-tp-net, body.wz .ae-amp-tuner .ae-amp-tp-at { display: none; }
 body.wz .amp-ctl-rows .amp-ctl-row + .amp-ctl-row { display: none; }
 body.wz .amp-ctl-row { gap: 8px; }
 body.wz #applets { scrollbar-width: thin; scrollbar-color: rgba(78, 166, 255, 0.4) transparent; }

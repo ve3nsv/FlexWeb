@@ -2475,7 +2475,11 @@ body.digi-open #bottomBar { grid-row: 5; }
 <link rel="stylesheet" href="aether.css" id="aetherCss">
 <!-- Wizard skin (wizard-look branch): on top of the AetherSDR layout. -->
 <link rel="stylesheet" href="wizard.css" id="wizardCss">
-<style>.wz-only { display: none; }</style>
+<style>.wz-only { display: none; }
+/* Punch list 64: the AetherSDR side column, slice pills and zoom keys are
+   shown only by aether.css's layouts; CLASSIC disables that stylesheet, so
+   they are hidden here or they spill under the bottom bar unstyled. */
+#slicePills, #applets, #aeZoom, #aeDrawerBtn { display: none; }</style>
 <script>
 // FUNC > LOOK: WIZARD (default), AETHER or CLASSIC, per browser; set before
 // first paint, so there is no flash of another look.
@@ -6983,8 +6987,9 @@ function aeFitBottomBar(bar) {
     if (over()) bar.classList.add('ae-tight');
     // Narrow windows (punch list 33): then the band keys, from the right,
     // with BAND… standing in for them.
-    if (!over() || !more) return;
-    more.style.display = '';
+    // The wizard look has no BAND… key: its "BAND:" key opens every band.
+    if (!over() || (!more && !wzLook)) return;
+    if (more) more.style.display = '';
     var bands = Array.prototype.filter.call(bar.querySelectorAll('.ae-band'),
         function (el) { return !el.classList.contains('ae-band-more'); });
     for (var j = bands.length - 1; j >= 0 && over(); j--)
@@ -7072,6 +7077,7 @@ function setLook(look) {
     if (typeof resizeCanvases === 'function') resizeCanvases();
 }
 function lookName() { return aeClassic ? 'classic' : wzLook ? 'wizard' : 'aether'; }
+var funcLookOpen = false;   // FUNC > LOOK showing its three choices
 
 // The applet drawer on a narrow desktop layout (under 1000 px, aether.css):
 // PANELS opens / closes it, Escape or a press on the scope closes it, and
@@ -7333,14 +7339,78 @@ function wzApplyLook() {
     var pl = pv && pv.parentNode.querySelector('.gain-label');
     if (pl) pl.textContent = on ? 'RF POWER' : 'PWR';
     if (typeof updateVfoDisplay === 'function') updateVfoDisplay();
-    updateClock();
+    wzFitSoon();
 }
+// Punch list 62a / 65: fit the top bar by width (levels in wizard.css), never
+// by squeezing or an ellipsis. Re-run when its content or the window changes.
+var WZ_FIT_LEVELS = 12;
+function wzFitTopBar() {
+    var bar = document.getElementById('topBar');
+    if (!bar) return;
+    var on = wzLook && !aeClassic;
+    for (var i = 1; i <= WZ_FIT_LEVELS; i++) bar.classList.remove('wz-f' + i);
+    updateClock();
+    if (on) {
+        for (var lvl = 1; lvl <= WZ_FIT_LEVELS && bar.scrollWidth > bar.clientWidth + 1; lvl++) {
+            bar.classList.add('wz-f' + lvl);
+            if (lvl === 3) updateClock();
+        }
+    }
+    if (wzFitObs) wzFitObs.takeRecords();   // our own changes are not a reason to refit
+}
+var wzFitObs = null, wzFitQueued = false;
+function wzFitSoon() {
+    if (wzFitQueued) return;
+    wzFitQueued = true;
+    requestAnimationFrame(function () { wzFitQueued = false; wzFitTopBar(); });
+}
+(function () {
+    var bar = document.getElementById('topBar');
+    if (!bar || typeof MutationObserver === 'undefined') return;
+    wzFitObs = new MutationObserver(function (recs) {
+        // The clock's own tick is not a content change worth a refit.
+        for (var i = 0; i < recs.length; i++) {
+            var t = recs[i].target, el = t.nodeType === 1 ? t : t.parentNode;
+            if (recs[i].type === 'attributes' && t === bar) continue;
+            if (el && el.id === 'clock') continue;
+            wzFitSoon(); return;
+        }
+    });
+    wzFitObs.observe(bar, { childList: true, characterData: true, subtree: true, attributes: true,
+                            attributeFilter: ['hidden', 'class', 'style'] });
+    window.addEventListener('resize', wzFitSoon);
+})();
+
+// Punch list 65: a key or name too wide for its box shows a shorter form
+// (variants, longest first), then a smaller font - never an ellipsis.
+function wzFitText(el, variants) {
+    if (!el) return;
+    el.style.fontSize = '';
+    for (var i = 0; i < variants.length; i++) {
+        el.textContent = variants[i];
+        if (el.scrollWidth <= el.clientWidth + 1) return;
+    }
+    var px = parseFloat(getComputedStyle(el).fontSize) || 12;
+    while (px > 8 && el.scrollWidth > el.clientWidth + 1) { px -= 0.5; el.style.fontSize = px + 'px'; }
+}
+function wzFitSide() {
+    if (!(wzLook && !aeClassic)) return;
+    document.querySelectorAll('[data-fit]').forEach(function (el) {
+        try { wzFitText(el, JSON.parse(el.dataset.fit)); } catch (e) {}
+    });
+}
+
 function wzToggleSide() {
+    // A phone has no side column: the key opens the FUNC menu there (punch list 67).
+    if (aePhone) { togglePanel('func'); return; }
     if (aeDrawerMode()) { toggleAeDrawer(); return; }
     wzSideHidden = !wzSideHidden;
     try { localStorage.setItem('wfWzSide', wzSideHidden ? 'hidden' : 'shown'); } catch (e) {}
     wzApplyLook();
-    if (typeof resizeCanvases === 'function') resizeCanvases();
+    if (typeof resizeCanvases === 'function') {
+        resizeCanvases();
+        requestAnimationFrame(resizeCanvases);   // after the grid has re-laid out
+    }
 }
 
 // AUDIO chip: OFF until the browser plays the radio's audio; then GOOD with
@@ -7486,6 +7556,7 @@ function aeTick() {
         wzLook, isSplit, currentVfo, vfoBFreq > 0]);
     if (sig === aeLastSig) return;
     aeLastSig = sig;
+    requestAnimationFrame(wzFitSide);   // after the rebuild below (punch list 65)
     var pills = document.getElementById('slicePills');
     if (pills && wzLook) { wzVfoControls(pills); pills = null; }
     else if (pills && pills.wzBuilt) pills.wzBuilt = false;
@@ -7594,7 +7665,10 @@ function renderApplets() {
     rx.appendChild(dsp);
     var fe = document.createElement('div'); fe.className = 'ae-grid ae-grid-2';
     var pa = getPreampAttState();
-    fe.appendChild(aeBtn('P.AMP/ATT ' + pa.label, pa.active, function() { cyclePreampAtt(); }));
+    var paBtn = aeBtn('P.AMP/ATT ' + pa.label, pa.active, function() { cyclePreampAtt(); });
+    var paShort = pa.label.replace(/ dB$/, '');
+    paBtn.dataset.fit = JSON.stringify(['P.AMP/ATT ' + pa.label, 'P.AMP ' + pa.label, 'P.AMP ' + paShort, paShort]);
+    fe.appendChild(paBtn);
     if (flexDsp && flexDsp.rxAntList && flexDsp.rxAntList.length) {
         fe.appendChild(aeBtn('ANT ' + (flexDsp.rxAnt || '?'), currentPanel === 'flexant', function() { togglePanel('flexant'); }));
     } else if (availableAntennas.length >= 2) {
@@ -7721,6 +7795,7 @@ function renderApplets() {
         ah.innerHTML = '';
         var nm = document.createElement('span'); nm.className = 'ae-amp-name';
         nm.textContent = wzLook ? 'RF-KIT AMPLIFIER' : (a.device || 'AMP'); nm.title = a.device || 'Amplifier';
+        if (wzLook) nm.dataset.fit = JSON.stringify(['RF-KIT AMPLIFIER', 'RF-KIT AMP', 'AMP']);
         ah.appendChild(nm);
         var right = document.createElement('span');
         right.className = 'ae-amp-head';
@@ -7802,12 +7877,13 @@ function renderApplets() {
             pill.textContent = ts.text;
             pill.title = ts.title;
             tn.appendChild(pill);
-            var parts = [['NET', a.tunerSetup || '—', ''],
-                         ['L', a.tunerL || '—', ''],
-                         ['C', a.tunerC || '—', ''],
-                         ['@', a.tunerFreq || '—', '']];
+            var parts = [['NET', a.tunerSetup || '—', '', 'net'],
+                         ['L', a.tunerL || '—', '', 'l'],
+                         ['C', a.tunerC || '—', '', 'c'],
+                         ['@', a.tunerFreq || '—', '', 'at']];
             parts.forEach(function(p) {
                 var c = document.createElement('span');
+                c.className = 'ae-amp-tp-' + p[3];
                 c.textContent = p[0] + ' ';
                 var b = document.createElement('b'); b.textContent = p[1];
                 if (p[2]) b.className = p[2];
@@ -7852,15 +7928,21 @@ function aeDesktopButtons(isCW) {
     if (typeof window.toggleSstvPanel === 'function')
         out.push({ label: 'SSTV', cls: 'ae-wide', active: sstvOn, action: function() { window.toggleSstvPanel(); } });
     // A Flex: TUNE is the tune carrier (as in SmartSDR); the ATU is in the TX applet.
-    // The wizard look has TUNE in TX CONTROLS, beside MOX and the ATU.
-    if (wzLook) { /* in TX CONTROLS */ }
-    else if (flexDsp && flexDsp.tune !== undefined)
-        out.push({ label: 'TUNE', cls: 'ae-wide' + (flexDsp.tune ? ' ae-tuning' : ''), active: !!flexDsp.tune, action: toggleTuneCarrier, press: true });
-    else if (hasTuner) out.push({ label: 'TUNE', cls: 'ae-wide', active: tunerState === 2, action: handleTunerPress });
+    // The wizard look puts it right beside MOX (punch list 63; TX CONTROLS has one too).
+    if (!wzLook) out.push.apply(out, aeTuneKey());
     out.push({ label: 'FUNC', cls: 'ae-wide', active: currentPanel === 'func', action: function() { setPanel(currentPanel === 'func' ? 'default' : 'func'); } });
+    if (wzLook) out.push.apply(out, aeTuneKey());
     out.push({ label: isCW ? 'KEY' : (pttLatchMode && isTransmitting ? 'MOX \u25cf TX' : 'MOX'), txActive: isTransmitting, cls: (isCW ? 'key-btn' : 'ptt-btn') + ' ae-mox',
                disabled: currentPanel !== 'default', action: currentPanel !== 'default' ? null : (isCW ? toggleCWBar : function() { handlePTTPress(); }) });
     return out;
+}
+
+// The bottom bar's TUNE: the Flex tune carrier, else the rig's ATU; [] for neither.
+function aeTuneKey() {
+    if (flexDsp && flexDsp.tune !== undefined)
+        return [{ label: 'TUNE', cls: 'ae-wide' + (flexDsp.tune ? ' ae-tuning' : ''), active: !!flexDsp.tune, action: toggleTuneCarrier, press: true }];
+    if (hasTuner) return [{ label: 'TUNE', cls: 'ae-wide', active: tunerState === 2, action: handleTunerPress }];
+    return [];
 }
 
 // Phone: RX / TX / EQ / AMP tiles over MODE / BAND / FUNC / PTT.
@@ -7884,13 +7966,14 @@ function aePhoneButtons(isCW) {
     out.push({ label: 'MODE', active: currentPanel === 'mode', action: function() { togglePanel('mode'); } });
     out.push({ label: 'BAND', active: currentPanel === 'band', action: function() { togglePanel('band'); } });
     out.push({ label: 'FUNC', active: currentPanel === 'func', action: function() { togglePanel('func'); } });
+    if (wzLook) aeTuneKey().forEach(function (k) { k.cls = (k.cls || '').replace('ae-wide', '').trim(); out.push(k); });   // punch list 63
     out.push({ label: isCW ? 'KEY' : 'PTT', txActive: isTransmitting, cls: isCW ? 'key-btn' : 'ptt-btn',
                disabled: currentPanel !== 'default', action: currentPanel !== 'default' ? null : (isCW ? toggleCWBar : function() { handlePTTPress(); }) });
     return out;
 }
 
 (function () {
-    function relayout() { clearTimeout(relayout.t); relayout.t = setTimeout(aeLayout, 120); }
+    function relayout() { clearTimeout(relayout.t); relayout.t = setTimeout(function () { aeLayout(); wzFitSide(); }, 120); }
     window.addEventListener('resize', relayout);
     window.addEventListener('orientationchange', relayout);
     setInterval(aeTick, 300);
@@ -8196,11 +8279,21 @@ function renderFuncOverlay() {
         ub.title = 'Web users and access requests';
         grid.appendChild(ub);
     }
-    grid.appendChild(makeFuncBtn('LOOK', lookName().toUpperCase(), aeClassic, function() {
-        var cur = lookName();
-        setLook(cur === 'wizard' ? 'aether' : cur === 'aether' ? 'classic' : 'wizard');
-        renderFuncOverlay();
-    }));
+    // LOOK: a tap shows the three looks to choose from (punch list 64; a
+    // cycle was easy to step past), the current one lit.
+    if (!funcLookOpen) {
+        grid.appendChild(makeFuncBtn('LOOK', lookName().toUpperCase(), false, function() {
+            funcLookOpen = true; renderFuncOverlay();
+        }));
+    } else {
+        ['wizard', 'aether', 'classic'].forEach(function (lk) {
+            grid.appendChild(makeFuncBtn('LOOK', lk.toUpperCase(), lookName() === lk, function() {
+                funcLookOpen = false;
+                if (lookName() !== lk) setLook(lk);
+                renderFuncOverlay();
+            }));
+        });
+    }
     var dg = makeFuncBtn('DRAG', scopeDragStyle().toUpperCase(), false, function() {
         toggleScopeDrag();
         renderFuncOverlay();
@@ -8547,6 +8640,7 @@ function ampControlRows(a, lock) {
     var opKnown = up && a.operate !== undefined;
     op.className = 'amp-ctl ' + (opKnown ? (a.operate ? 'op-on' : 'op-standby') : '');
     op.textContent = opKnown ? (a.operate ? 'OPERATE' : 'STANDBY') : '\u2014';
+    if (opKnown) op.dataset.fit = JSON.stringify(a.operate ? ['OPERATE', 'OPER'] : ['STANDBY', 'STBY']);
     op.disabled = !opKnown || !!lock;
     op.title = lock || (!up ? 'Amplifier offline' : !opKnown ? 'Amplifier state unknown'
              : a.operate ? 'In OPERATE: tap for STANDBY' : 'In STANDBY: tap for OPERATE');
@@ -13110,7 +13204,9 @@ function updateClock() {
     var now = new Date();
     var t = String(now.getUTCHours()).padStart(2, '0') + ':' +
         String(now.getUTCMinutes()).padStart(2, '0');
-    if (wzLook && !aeClassic) t += ':' + String(now.getUTCSeconds()).padStart(2, '0') + ' UTC';
+    var tb = document.getElementById('topBar');
+    if (wzLook && !aeClassic && !(tb && tb.classList.contains('wz-f3')))
+        t += ':' + String(now.getUTCSeconds()).padStart(2, '0') + ' UTC';
     var el = document.getElementById('clock');
     if (el.textContent !== t) el.textContent = t;
     if (typeof wzAudioChip === 'function') wzAudioChip();
