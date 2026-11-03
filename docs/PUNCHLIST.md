@@ -284,6 +284,25 @@ Status: implemented for build 60.
 
 From here on builds go by their GitHub Actions run number.
 
+Next build (2026-11-03): item 61 done. The 2 s "no answer" is per request
+(no bytes on the one in flight); the request still runs to its 15 s, and
+that timeout now takes the link OFFLINE (noanswer) at once - it used to take
+three of them (45 s and more). A wake with no answer still does not drop the
+link (item 46). Tested by test_amp_silence_shown_early_offline_at_timeout.
+Actions #98 failed that test: a request aborted at the 15 s timeout gets a
+zero-byte downloadProgress from Qt, which was counted as "answering again"
+just before the failure was judged, so the old three-strike rule applied.
+Only new bytes count now (checked against a stub amp: OFFLINE at 15 s; the
+unfixed build stayed connected through repeated 15 s failures).
+Item 66b done (both branches): /data every 0.75 s in receive (was 1.5 s),
+once in five TX polls (was never), and next after OPERATE dropping to
+STANDBY by itself or FWD collapsing while keyed; the page renders a fault
+change at once. Measured on a stub: a fault on the air is read in ~130 ms,
+in receive within 0.75 s. test_amp_fault_shows_fast_in_tx_and_rx.
+Item 64's CLASSIC fix (the side panels / PANELS key hidden) applies here too.
+59 (NR2) and 60 (RN2) wait for their sources: this session cannot reach
+AetherSDR / WDSP / Xiph on GitHub.
+
 Next wizard-look build (2026-11-03): items 62, 63, 64, 65, 66a and 67 done.
 62a / 65 are one mechanism: the top bar sheds text by levels until it fits
 (CPU word, logo text, clock seconds, REC / LOG as icons, AUDIO word, user
@@ -1438,6 +1457,41 @@ TUNE state after a mock radio reconnect matches the radio.
     The page's NNR line says when Premium was stepped down. Not covered by
     CI (needs a slow NNR): the ladder and pass-through; check in the log
     ("Flex: NNR ... load N % of real time").
+
+59. NR2, spectral noise reduction (user, 2026-10-29; small-medium). WDSP's
+    emnr.c (Ephraim-Malah MMSE log-spectral amplitude, Warren Pratt NR0V),
+    vendored next to resources/wdsp-nnr under the same licence. Runs on
+    flexRxDsp like NNR; any rate; a fraction of NNR Premium's CPU, ~10-20 ms
+    delay. Check first: fftw_shim.c covers the FFT calls emnr.c makes
+    (real-to-complex / complex-to-real), else extend it.
+    Page: NR2 beside NNR as in AetherSDR, one of NNR / NR2 / RN2 at a time,
+    its controls where AetherSDR has them. Consider NR2 as a cheaper step
+    of the item 57 ladder (after Standard, before pass-through).
+    Tests: NR2 on lowers a noise-only stub's level; switching NNR -> NR2 ->
+    off leaves no gap or click; the log line gives its load.
+60. RN2, RNNoise (user, 2026-10-29; small-medium). Xiph RNNoise (BSD), the
+    recurrent-network voice denoiser. 48 kHz only, 480-sample (10 ms)
+    frames: resample the Flex audio up and back if it is not 48 kHz
+    (resampler already in tree); ~10 ms delay; light on CPU. Runs on
+    flexRxDsp; same page placement and one-at-a-time rule as 59; same
+    load line and tests. Could also be a ladder step for item 57.
+61. Amp off shows late (user, 2026-10-29; small). Since item 46 (#85) a
+    request is given 15 s of silence before it is abandoned (was 4 s), so
+    the PgTg-style slow amp is not dropped early; the cost is that an amp
+    switched off or unplugged reads as online, with frozen numbers, for up
+    to 15 s before OFFLINE. Keep the 15 s patience for the request, but
+    tell the page sooner:
+    a. RfkitConnection: silence on the request in flight for 2 s while
+       polling (no bytes) -> signal "not answering" (with how long); any
+       byte or reply -> answering again. The request is not abandoned.
+    b. Page: AMP key and panel show "AMP - no answer N s" in amber at once,
+       counting, with readings greyed (not zero); OFFLINE in red with the
+       reason when the request does fail. While the amp is waking from its
+       sleep timer (wake_up takes ~5 s) it says "waking" instead.
+    c. TX gating unchanged (the amp's own state decides); the page just
+       stops showing stale numbers as live.
+    Tests: stub that stops answering mid-poll -> "no answer" within 2.5 s,
+    OFFLINE (reason noanswer) at 15 s; answering again clears it.
 
 62. Wizard look on a phone (user, 2026-10-31, screenshot on #97; small;
     wizard-look branch). Numbered after 59-61 on aether-look.

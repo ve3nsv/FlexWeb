@@ -794,6 +794,9 @@ private:
     int ampRxPollMs_ = 250, ampTxPollMs_ = 25;
     bool ampAwakeWanted_ = false;
     bool ampWaking_ = false;
+    // Punch list 61: when the amp stopped answering the request in flight
+    // (ms since epoch; 0 = answering). Sent as noAnswerMs while connected.
+    qint64 ampSilentSinceMs_ = 0;
     bool ampTxRig_ = false, ampTxAir_ = false;
     bool ampKeyedPublished_ = false;   // the `keyed` last sent to the pages
     void updateAmpAwake(bool ampJustConnected = false);

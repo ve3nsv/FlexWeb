@@ -50,6 +50,10 @@ class StubAmp:
         self.wake_delay = 0.0  # a sleeping RF2K-S answers the wake after ~5 s
         self.broken_pipes = 0
         self.refuse_operate = False   # answer PUT /operate-mode with 409, like a disabled amp
+        self.answering = threading.Event()   # cleared: GETs get no answer, like an amp switched off
+        self.answering.set()
+        self.data_status = None   # overrides /data "status" (the amp's fault text)
+        self.operate = None       # overrides /operate-mode (OPERATE / STANDBY)
         stub = self
 
         class H(BaseHTTPRequestHandler):
@@ -66,7 +70,16 @@ class StubAmp:
 
             def do_GET(self):
                 stub.gets.append((time.monotonic(), self.path))
-                self._reply(*ROUTES.get("GET " + self.path, (404, {"status": "error"})))
+                stub.answering.wait(60)
+                code, obj = ROUTES.get("GET " + self.path, (404, {"status": "error"}))
+                if self.path == "/data" and stub.data_status is not None:
+                    obj = dict(obj, status=stub.data_status)
+                if self.path == "/operate-mode" and stub.operate is not None:
+                    obj = {"operate_mode": stub.operate}
+                try:
+                    self._reply(code, obj)
+                except (BrokenPipeError, ConnectionResetError):
+                    pass   # wfweb gave up on the silent amp
 
             def do_PUT(self):
                 n = int(self.headers.get("Content-Length") or 0)
@@ -358,5 +371,97 @@ def test_amp_offline_reason(bench):
         m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") is False
                          and m.get("offlineReason"), timeout=15)
         assert m and m["offlineReason"] == "refused", m
+    finally:
+        sock.close()
+
+
+def test_amp_silence_shown_early_offline_at_timeout(bench):
+    """Punch list 61: an amp that stops answering mid-poll reads "no answer"
+    on the page within 2.5 s (noAnswerMs, still connected - the request is
+    not abandoned), clears when it answers again, and goes OFFLINE with
+    reason noanswer when the 15 s request timeout runs out."""
+    env, radio, amp, procs = bench
+    ini_proc, port = _start(env, radio, amp)
+    procs.append(ini_proc)
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st
+    r = _Reader(sock, buf)
+    try:
+        assert _amp_ready(r)
+        time.sleep(1.0)   # the wake (3 s after connect) answered: only polls from here
+
+        # a short silence: shown, then cleared
+        amp.answering.clear()
+        t0 = time.monotonic()
+        m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("noAnswerMs"), timeout=5)
+        assert m and m["connected"] is True, m
+        assert time.monotonic() - t0 < 2.5 + 0.5, time.monotonic() - t0   # 2 s, plus a poll interval
+        amp.answering.set()
+        m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") and "noAnswerMs" not in m,
+                         timeout=5)
+        assert m, "answering again did not clear the no-answer state"
+
+        # the amp goes away: no answer within 2.5 s, OFFLINE (noanswer) at the 15 s timeout
+        amp.answering.clear()
+        t1 = time.monotonic()
+        assert _drain_until(r, lambda m: m.get("type") == "amp" and m.get("noAnswerMs"), timeout=5)
+        m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") is False, timeout=20)
+        took = time.monotonic() - t1
+        assert m and m.get("offlineReason") == "noanswer", m
+        assert 14.0 <= took <= 17.5, took
+    finally:
+        amp.answering.set()
+        sock.close()
+
+
+def test_amp_fault_shows_fast_in_tx_and_rx(bench):
+    """Punch list 66b: the amp's fault text (/data status) reaches the page
+    within 500 ms while transmitting (it was not read at all during TX) and
+    within 1 s in receive (was up to 1.5 s); OPERATE dropping to STANDBY by
+    itself reads /data next, ahead of the schedule."""
+    env, radio, amp, procs = bench
+    amp.data_status = ""
+    amp.operate = "OPERATE"
+    proc, port = _start(env, radio, amp)
+    procs.append(proc)
+    st, sock, buf = _ws(port, None)   # login off: this browser may transmit
+    assert " 101" in st
+    r = _Reader(sock, buf)
+    try:
+        assert _amp_ready(r)
+        assert _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") and m.get("ampError") == "",
+                            timeout=5)
+
+        # a fault on the air
+        _ws_send(sock, {"cmd": "setPTT", "value": True})
+        assert _drain_until(r, lambda m: m.get("type") == "amp" and m.get("keyed") is True, timeout=5)
+        time.sleep(0.5)
+        t0 = time.monotonic()
+        amp.data_status = "High SWR"
+        m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("ampError") == "High SWR", timeout=3)
+        took = time.monotonic() - t0
+        assert m, "the fault did not reach the page while transmitting"
+        assert took < 0.5, took
+        _ws_send(sock, {"cmd": "setPTT", "value": False})
+        amp.data_status = ""
+        assert _drain_until(r, lambda m: m.get("type") == "amp" and m.get("ampError") == "", timeout=5)
+        time.sleep(4.0)   # past the 3 s fast hold after unkey: the receive schedule
+
+        # a fault in receive
+        t1 = time.monotonic()
+        amp.data_status = "Overheating"
+        m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("ampError") == "Overheating", timeout=3)
+        took = time.monotonic() - t1
+        assert m and took < 1.0, took
+        amp.data_status = ""
+        assert _drain_until(r, lambda m: m.get("type") == "amp" and m.get("ampError") == "", timeout=5)
+
+        # the amp drops to STANDBY by itself: /data is the very next read
+        t2 = time.monotonic()
+        amp.operate = "STANDBY"
+        assert _drain_until(r, lambda m: m.get("type") == "amp" and m.get("operate") is False, timeout=5)
+        gets = [p for t, p in amp.gets_since(t2)]
+        i = gets.index("/operate-mode")
+        assert gets[i + 1:i + 2] == ["/data"], gets
     finally:
         sock.close()

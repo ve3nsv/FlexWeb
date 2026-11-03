@@ -117,6 +117,11 @@ signals:
     // Punch list 50: an operator command the amplifier (or this class, before
     // sending) turned down. what: OPERATE / STANDBY / TUNE / ANTENNA / RESET.
     void commandRefused(const QString& what, const QString& reason);
+    // Punch list 61: the request in flight has had no bytes for kSilenceMs
+    // (answering false, silentMs = how long), or bytes / a reply came again
+    // (answering true). The request is not abandoned: kRequestTimeoutMs
+    // still decides that. Only while connected.
+    void answering(bool ok, int silentMs);
 
 private:
     struct Request {
@@ -196,6 +201,7 @@ private:
     // amp would answer into closed connections).
     qint64 m_pollPausedUntilMs{0};
     qint64 m_sentAtMs{0};
+    qint64 m_lastByteMs{0};  // the request was sent or bytes last moved
 
     // One GET per tick, only when nothing is queued or in flight, from a
     // receive or a transmit schedule (see poll()). A slow amplifier lowers the
@@ -206,6 +212,14 @@ private:
     // instead of QNetworkRequest::setTransferTimeout, whose abort logged
     // "QIODevice::read (QNetworkReplyHttpImpl): device not open" (punch list 55).
     QTimer m_idleTimer;
+    // Punch list 61: no bytes for 2 s on the request in flight - tell the
+    // page at once that the amp is not answering, long before the 15 s
+    // above gives up on the request.
+    QTimer m_silenceTimer;
+    static constexpr int kSilenceMs = 2000;
+    bool m_silent{false};
+    void setSilent(bool silent);
+    void bytesMoved();
     Failure m_lastFailure{Failure::None};
     static QString commandLabel(const Request& request);
     int m_rxPollMs{250};  // ~3.7 GETs/s (was 12)
@@ -223,6 +237,12 @@ private:
     qint64 m_lastInterfaceMs{0};
 
     bool m_tuneProbePending{false};  // a wake() is outstanding
+    // Punch list 66b: a sign of a trip was seen (OPERATE -> STANDBY that the
+    // operator did not ask for, FWD collapsing while keyed): /data is read
+    // at the next tick, ahead of the schedule.
+    bool m_dataNext{false};
+    bool m_standbyAsked{false};
+    static constexpr int kTripFromW = 5;
     // A START is outstanding (queued or in flight). The tuner readback that
     // would disable the button can be a second old, so this keeps a double
     // click from sending START twice. It is a send guard, not displayed state.
