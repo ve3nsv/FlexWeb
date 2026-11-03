@@ -365,6 +365,10 @@ def test_aether_scope(flex):
 
         dsp("panBandwidth", 50_000)
         assert _wait(lambda: f"display pan set {PAN} bandwidth=0.050000" in radio.commands, timeout=5)
+        # The SPAN panel's keys set it too while free pan is on (the scope then
+        # reports FIXED; the page once greyed them out): index 3 = +-50 kHz.
+        _ws_send(sock, {"cmd": "setSpan", "value": 3})
+        assert _wait(lambda: f"display pan set {PAN} bandwidth=0.100000" in radio.commands, timeout=5), radio.commands[-4:]
 
         dsp("filterLo", 300)
         assert _wait(lambda: any(c.startswith("filt 0 300 ") for c in radio.commands), timeout=5)

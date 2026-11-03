@@ -6306,6 +6306,7 @@ var isFlexRig = false;
 function setDigiDriveCaps(manufacturer) {
     var flex = manufacturer === 'FlexRadio';
     isFlexRig = flex;
+    if (typeof updateScopeModeUi === 'function') updateScopeModeUi();   // the SPAN row's rule depends on it
     // On a Flex the RF slider is the slice's AGC threshold and USB MIC is
     // the level of this browser's microphone into the radio: say so.
     var rl = document.getElementById('rfGainLabel'), ml = document.getElementById('micGainLabel');
@@ -11592,7 +11593,10 @@ function updateScopeModeUi() {
     // us write its edges); SCROLL-F and a FIXED we can't set leave it inert.
     var hr = document.getElementById('wfHistRow'), sr = document.getElementById('spanRow');
     if (hr) hr.classList.toggle('disabled', scopeMode !== 0);
-    if (sr) sr.classList.toggle('disabled', (scopeMode === 1 && !scopeFixedEdges) || scopeMode === 3);
+    // A Flex sets its span in any mode: with free pan on it reports FIXED
+    // (fixed glass), but the span keys still set the panadapter's width
+    // (setSpan -> display pan set bandwidth), as the - / + zoom keys do.
+    if (sr) sr.classList.toggle('disabled', !isFlexRig && ((scopeMode === 1 && !scopeFixedEdges) || scopeMode === 3));
 }
 // On fixed glass the marker sits at the VFO, so it has to move on every
 // tune, not only when the next sweep lands.
