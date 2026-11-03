@@ -7634,6 +7634,7 @@ void webServer::configureRfkit(const QString &target)
 {
     using namespace AetherSDR;
     rfkitTarget_ = target.trimmed();
+    ampSilentSinceMs_ = 0;
     if (rfkit_) {
         rfkit_->disconnect();
         rfkit_->deleteLater();
@@ -7675,7 +7676,20 @@ void webServer::configureRfkit(const QString &target)
         if (!ok) qCInfo(logWebServer) << "RF-KIT amplifier: wake request got no answer";
         publishAmp();
     });
+    connect(rfkit_, &RfkitConnection::answering, this, [this](bool ok, int silentMs) {
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (!ok) {
+            ampSilentSinceMs_ = now - silentMs;
+            qCInfo(logWebServer) << "RF-KIT amplifier: no answer for" << silentMs / 1000.0 << "s - shown on the page";
+        } else {
+            if (!ampSilentSinceMs_) return;
+            qCInfo(logWebServer) << "RF-KIT amplifier: silence ended after" << (now - ampSilentSinceMs_) << "ms";
+            ampSilentSinceMs_ = 0;
+        }
+        publishAmp();
+    });
     connect(rfkit_, &RfkitConnection::disconnected, this, [this]() {
+        ampSilentSinceMs_ = 0;
         ampJson_ = QJsonObject();
         publishAmp();
     });
@@ -7699,6 +7713,7 @@ void webServer::configureRfkit(const QString &target)
         ampJson_["error"] = why;
         ampJson_["offlineReason"] = key;
         ampFault_ = false;
+        ampSilentSinceMs_ = 0;
         sendJsonToAll(ampJson_);
     });
     connect(rfkit_, &RfkitConnection::commandRefused, this, [this](const QString &what, const QString &reason) {
@@ -7881,6 +7896,8 @@ void webServer::publishAmp()
         o["waking"] = ampWaking_;
         // Punch list 44: the page's peak follows the over (the radio keyed).
         o["keyed"] = ampTxRig_ || ampTxAir_;
+        if (ampSilentSinceMs_)
+            o["noAnswerMs"] = double(QDateTime::currentMSecsSinceEpoch() - ampSilentSinceMs_);
     }
     sendJsonToAll(o);
 }

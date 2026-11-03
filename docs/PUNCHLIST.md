@@ -284,6 +284,14 @@ Status: implemented for build 60.
 
 From here on builds go by their GitHub Actions run number.
 
+Next build (2026-11-03): item 61 done. The 2 s "no answer" is per request
+(no bytes on the one in flight); the request still runs to its 15 s, and
+that timeout now takes the link OFFLINE (noanswer) at once - it used to take
+three of them (45 s and more). A wake with no answer still does not drop the
+link (item 46). Tested by test_amp_silence_shown_early_offline_at_timeout.
+59 (NR2) and 60 (RN2) wait for their sources: this session cannot reach
+AetherSDR / WDSP / Xiph on GitHub.
+
 Next build (2026-10-29): items 48-55 done, with these differences from the
 plan. 51 / 52a: flexCommander's thread stays the radio's command link
 (moving the TCP / SmartLink TLS socket to another thread was the larger

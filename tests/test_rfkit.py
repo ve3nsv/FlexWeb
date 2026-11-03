@@ -50,6 +50,8 @@ class StubAmp:
         self.wake_delay = 0.0  # a sleeping RF2K-S answers the wake after ~5 s
         self.broken_pipes = 0
         self.refuse_operate = False   # answer PUT /operate-mode with 409, like a disabled amp
+        self.answering = threading.Event()   # cleared: GETs get no answer, like an amp switched off
+        self.answering.set()
         stub = self
 
         class H(BaseHTTPRequestHandler):
@@ -66,7 +68,11 @@ class StubAmp:
 
             def do_GET(self):
                 stub.gets.append((time.monotonic(), self.path))
-                self._reply(*ROUTES.get("GET " + self.path, (404, {"status": "error"})))
+                stub.answering.wait(60)
+                try:
+                    self._reply(*ROUTES.get("GET " + self.path, (404, {"status": "error"})))
+                except (BrokenPipeError, ConnectionResetError):
+                    pass   # wfweb gave up on the silent amp
 
             def do_PUT(self):
                 n = int(self.headers.get("Content-Length") or 0)
@@ -359,4 +365,43 @@ def test_amp_offline_reason(bench):
                          and m.get("offlineReason"), timeout=15)
         assert m and m["offlineReason"] == "refused", m
     finally:
+        sock.close()
+
+
+def test_amp_silence_shown_early_offline_at_timeout(bench):
+    """Punch list 61: an amp that stops answering mid-poll reads "no answer"
+    on the page within 2.5 s (noAnswerMs, still connected - the request is
+    not abandoned), clears when it answers again, and goes OFFLINE with
+    reason noanswer when the 15 s request timeout runs out."""
+    env, radio, amp, procs = bench
+    ini_proc, port = _start(env, radio, amp)
+    procs.append(ini_proc)
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st
+    r = _Reader(sock, buf)
+    try:
+        assert _amp_ready(r)
+        time.sleep(1.0)   # the wake (3 s after connect) answered: only polls from here
+
+        # a short silence: shown, then cleared
+        amp.answering.clear()
+        t0 = time.monotonic()
+        m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("noAnswerMs"), timeout=5)
+        assert m and m["connected"] is True, m
+        assert time.monotonic() - t0 < 2.5 + 0.5, time.monotonic() - t0   # 2 s, plus a poll interval
+        amp.answering.set()
+        m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") and "noAnswerMs" not in m,
+                         timeout=5)
+        assert m, "answering again did not clear the no-answer state"
+
+        # the amp goes away: no answer within 2.5 s, OFFLINE (noanswer) at the 15 s timeout
+        amp.answering.clear()
+        t1 = time.monotonic()
+        assert _drain_until(r, lambda m: m.get("type") == "amp" and m.get("noAnswerMs"), timeout=5)
+        m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") is False, timeout=20)
+        took = time.monotonic() - t1
+        assert m and m.get("offlineReason") == "noanswer", m
+        assert 14.0 <= took <= 17.5, took
+    finally:
+        amp.answering.set()
         sock.close()

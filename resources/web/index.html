@@ -1734,6 +1734,13 @@ body.digi-open #bottomBar { grid-row: 5; }
 .ae-tuner-chip.on { background: #1f7a3a; color: #e8fff0; }
 .ae-tuner-chip.off { background: #8c1f1f; color: #ffe8e8; }
 .ae-tuner-chip.tuning { background: #a86f00; color: #fff6e0; }
+/* Punch list 61: the amp has stopped answering - amber, counting; its last
+   readings stay on screen greyed, never zeroed. */
+.ae-tuner-chip.stale { background: #a86f00; color: #fff6e0; }
+#ampIndicator.stale { color: #ffb84d; }
+#ampOverlay .amp-head .amp-stale { color: #ffb84d; }
+body.amp-noanswer .ae-amp, body.amp-noanswer #ampBody .amp-bar,
+body.amp-noanswer #ampBody .amp-tile { opacity: 0.45; filter: grayscale(1); }
 .amp-tuner-ind { cursor: default; }
 .amp-tuner-ind.on { background: #1f7a3a !important; border-color: #2ecc55 !important; color: #fff !important; }
 .amp-tuner-ind.off { background: #6e1a1a !important; border-color: #e53935 !important; color: #fff !important; }
@@ -4102,6 +4109,8 @@ function handleMessage(msg) {
             break;
         case 'amp':
             ampState = msg;
+            ampNoAnswerAt = msg.connected && msg.noAnswerMs ? Date.now() - msg.noAnswerMs : 0;
+            document.body.classList.toggle('amp-noanswer', !!ampNoAnswerAt);
             ampPeakFeed(msg);
             ampTunePending = false;
             renderAmpIndicator();
@@ -7501,9 +7510,12 @@ function renderApplets() {
         var right = document.createElement('span');
         right.className = 'ae-amp-head';
         var st = document.createElement('span');
-        st.className = 'ae-tuner-chip ' + (up ? 'on' : 'off');
-        st.textContent = up ? 'CONNECTED' : 'OFFLINE';
-        st.title = up ? 'Connected to ' + (a.target || 'the amplifier') : ampOfflineText(a);
+        st.className = 'ae-tuner-chip ' + (up ? (ampNoAnswerAt ? 'stale' : 'on') : 'off');
+        if (up && ampNoAnswerAt && a.waking) st.textContent = 'WAKING';
+        else if (up && ampNoAnswerAt) st.innerHTML = 'NO ANSWER ' + ampSilenceHtml();
+        else st.textContent = up ? 'CONNECTED' : 'OFFLINE';
+        st.title = up ? (ampNoAnswerAt ? 'The amplifier has stopped answering; the readings shown are its last ones'
+                                       : 'Connected to ' + (a.target || 'the amplifier')) : ampOfflineText(a);
         right.appendChild(st);
         ah.appendChild(right);
         amp.appendChild(ah);
@@ -7637,7 +7649,8 @@ function aePhoneButtons(isCW) {
                cls: 'ae-tile', active: currentPanel === 'eq', action: function() { togglePanel('eq'); } });
     if (ampConfigured) {
         var a = ampState || {};
-        out.push({ label: 'AMP', sub: !a.connected ? 'OFFLINE' : (a.operate ? 'OPR ' : 'STBY ') + (a.fwd || 0) + ' W',
+        out.push({ label: 'AMP', sub: !a.connected ? 'OFFLINE' : ampNoAnswerAt ? (a.waking ? 'WAKING' : 'NO ANSWER')
+                                      : (a.operate ? 'OPR ' : 'STBY ') + (a.fwd || 0) + ' W',
                    cls: 'ae-tile', active: currentPanel === 'amp', action: function() { togglePanel('amp'); } });
     }
     if (flexMemList !== null)
@@ -8021,6 +8034,15 @@ function renderFuncOverlay() {
 // never latch locally: the panel repaints from the amplifier's own reply.
 var ampConfigured = false;
 var ampState = null;
+// Punch list 61: when the amp stopped answering (Date.now() base; 0 = answering).
+var ampNoAnswerAt = 0;
+function ampSilentSecs() { return ampNoAnswerAt ? Math.floor((Date.now() - ampNoAnswerAt) / 1000) : 0; }
+function ampSilenceHtml() { return '<span data-live="ampSilence">' + ampSilentSecs() + ' s</span>'; }
+setInterval(function () {
+    if (!ampNoAnswerAt) return;
+    var t = ampSilentSecs() + ' s';
+    document.querySelectorAll('[data-live="ampSilence"]').forEach(function (el) { if (el.textContent !== t) el.textContent = t; });
+}, 500);
 
 function ampEsc(t) {
     return String(t === undefined || t === null ? '' : t).replace(/[&<>"]/g, function (c) {
@@ -8033,13 +8055,14 @@ function ampEsc(t) {
 // applets and panels for them swallowed clicks (TUNE that would not turn
 // off) and spent the browser's CPU. They are written in place instead
 // (ampLiveUpdate); FWD / REF bars and numbers by the peak painter.
-var AMP_LIVE_KEYS = { fwd: 1, ref: 1, swr: 1, temp: 1, volts: 1, amps: 1 };
+var AMP_LIVE_KEYS = { fwd: 1, ref: 1, swr: 1, temp: 1, volts: 1, amps: 1, noAnswerMs: 1 };
 function ampStructSig(a) {
     if (!a) return null;
     var o = {};
     for (var k in a) if (!AMP_LIVE_KEYS[k]) o[k] = a[k];
     o.carrier = a.fwd >= 1;   // REF / SWR show values only with a carrier
     o.hot = a.temp >= 60;     // the TEMP tile's warning colour
+    o.silent = !!a.noAnswerMs; // the count itself is written in place (ampSilence)
     return o;
 }
 function ampLiveUpdate() {
@@ -8099,13 +8122,18 @@ function renderAmpIndicator() {
     if (!el) return;
     if (!ampConfigured) { el.style.display = 'none'; return; }
     el.style.display = '';
-    el.classList.remove('operate', 'fault');
+    el.classList.remove('operate', 'fault', 'stale');
     if (!ampState || !ampState.connected) {
         el.textContent = ampOfflineShort(ampState); el.title = ampOfflineText(ampState); el.classList.add('fault'); return;
     }
     el.title = 'RF-KIT amplifier';
     // Punch list 42: the server has just sent the wake request.
     if (ampState.waking) { el.textContent = 'AMP WAKING'; return; }
+    if (ampNoAnswerAt) {
+        el.innerHTML = 'AMP NO ANSWER ' + ampSilenceHtml(); el.classList.add('stale');
+        el.title = 'The amplifier has stopped answering; the readings shown are its last ones';
+        return;
+    }
     var fwd = ampState.fwd !== undefined ? ' ' + ampState.fwd + ' W' : '';
     el.textContent = 'AMP ' + (ampState.operate ? 'OPR' : 'STBY') + fwd;
     if (ampState.ampError) el.classList.add('fault');
@@ -8402,7 +8430,8 @@ function renderAmpOverlay() {
     var up = !!a.connected;
     var lock = up ? ampLockReason() : '';
     var html = '<div class="amp-head"><b>' + ampEsc(a.device || 'RF-KIT') + '</b><span>' +
-        (up ? 'connected ' : 'offline ') + ampEsc(a.target || '') + '</span></div>';
+        (up && ampNoAnswerAt ? '<span class="amp-stale">' + (a.waking ? 'waking ' : 'no answer ' + ampSilenceHtml() + ' ') + '</span>'
+            : up ? 'connected ' : 'offline ') + ampEsc(a.target || '') + '</span></div>';
     if (up && a.ampError) html += '<div class="amp-error-banner" title="' + ampEsc(AMP_ERROR_HELP) + '">Error: ' + ampEsc(a.ampError) + '</div>';
     if (!up && (a.error || a.offlineReason)) html += '<div class="amp-head"><span style="color:#e33">' + ampEsc(ampOfflineText(a)) + '</span></div>';
 
