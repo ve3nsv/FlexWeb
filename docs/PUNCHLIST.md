@@ -1424,3 +1424,38 @@ TUNE state after a mock radio reconnect matches the radio.
     CI (needs a slow NNR): the ladder and pass-through; check in the log
     ("Flex: NNR ... load N % of real time").
 
+59. NR2, spectral noise reduction (user, 2026-10-29; small-medium). WDSP's
+    emnr.c (Ephraim-Malah MMSE log-spectral amplitude, Warren Pratt NR0V),
+    vendored next to resources/wdsp-nnr under the same licence. Runs on
+    flexRxDsp like NNR; any rate; a fraction of NNR Premium's CPU, ~10-20 ms
+    delay. Check first: fftw_shim.c covers the FFT calls emnr.c makes
+    (real-to-complex / complex-to-real), else extend it.
+    Page: NR2 beside NNR as in AetherSDR, one of NNR / NR2 / RN2 at a time,
+    its controls where AetherSDR has them. Consider NR2 as a cheaper step
+    of the item 57 ladder (after Standard, before pass-through).
+    Tests: NR2 on lowers a noise-only stub's level; switching NNR -> NR2 ->
+    off leaves no gap or click; the log line gives its load.
+60. RN2, RNNoise (user, 2026-10-29; small-medium). Xiph RNNoise (BSD), the
+    recurrent-network voice denoiser. 48 kHz only, 480-sample (10 ms)
+    frames: resample the Flex audio up and back if it is not 48 kHz
+    (resampler already in tree); ~10 ms delay; light on CPU. Runs on
+    flexRxDsp; same page placement and one-at-a-time rule as 59; same
+    load line and tests. Could also be a ladder step for item 57.
+61. Amp off shows late (user, 2026-10-29; small). Since item 46 (#85) a
+    request is given 15 s of silence before it is abandoned (was 4 s), so
+    the PgTg-style slow amp is not dropped early; the cost is that an amp
+    switched off or unplugged reads as online, with frozen numbers, for up
+    to 15 s before OFFLINE. Keep the 15 s patience for the request, but
+    tell the page sooner:
+    a. RfkitConnection: silence on the request in flight for 2 s while
+       polling (no bytes) -> signal "not answering" (with how long); any
+       byte or reply -> answering again. The request is not abandoned.
+    b. Page: AMP key and panel show "AMP - no answer N s" in amber at once,
+       counting, with readings greyed (not zero); OFFLINE in red with the
+       reason when the request does fail. While the amp is waking from its
+       sleep timer (wake_up takes ~5 s) it says "waking" instead.
+    c. TX gating unchanged (the amp's own state decides); the page just
+       stops showing stale numbers as live.
+    Tests: stub that stops answering mid-poll -> "no answer" within 2.5 s,
+    OFFLINE (reason noanswer) at 15 s; answering again clears it.
+
