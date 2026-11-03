@@ -468,8 +468,14 @@ def test_amp_fault_shows_fast_in_tx_and_rx(bench):
         t2 = time.monotonic()
         amp.operate = "STANDBY"
         assert _drain_until(r, lambda m: m.get("type") == "amp" and m.get("operate") is False, timeout=5)
-        gets = [p for t, p in amp.gets_since(t2)]
+        # The page hears of STANDBY at the moment the follow-up read is queued:
+        # wait for the stub to receive the next request before looking at it.
+        def after_operate():
+            gets = [p for t, p in amp.gets_since(t2)]
+            return gets if "/operate-mode" in gets and gets.index("/operate-mode") + 1 < len(gets) else None
+        gets = _wait(after_operate, timeout=3) and after_operate()
+        assert gets, [p for t, p in amp.gets_since(t2)]
         i = gets.index("/operate-mode")
-        assert gets[i + 1:i + 2] == ["/data"], gets
+        assert gets[i + 1] == "/data", gets
     finally:
         sock.close()
