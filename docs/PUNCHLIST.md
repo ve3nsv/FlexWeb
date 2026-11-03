@@ -1424,3 +1424,79 @@ TUNE state after a mock radio reconnect matches the radio.
     CI (needs a slow NNR): the ladder and pass-through; check in the log
     ("Flex: NNR ... load N % of real time").
 
+62. Wizard look on a phone (user, 2026-10-31, screenshot on #97; small;
+    wizard-look branch). Numbered after 59-61 on aether-look.
+    a. The top bar runs off the right edge: LOG is cut, the gear, clock and
+       power keys are off screen. On a phone: REC as the red dot only, LOG
+       as its icon, clock HH:MM without seconds / UTC, the people chip
+       compact; everything must fit at 390 px.
+    b. The scope's "AMP STBY 0 W" readout sits on the +40 dB label: move it
+       below the dB labels (or left of them).
+    c. The S-meter panel leaves an empty band at the bottom (the S and the
+       pivot hang under the arc): shorter face on a phone, arc and pivot
+       closer, the room given to the waterfall.
+    Check: render at 390 x 844 and 360 x 780 with the amp configured,
+    nothing clipped or overlapping; the wizard still appears past S9.
+63. TUNE beside MOX (user, 2026-10-31; small; wizard-look branch). The
+    wizard look moved TUNE from the bottom bar into TX CONTROLS; put it
+    back in the bottom bar immediately left of MOX (desktop) and left of
+    PTT on the phone bar, same key as TX CONTROLS' (tune carrier on a Flex,
+    acts on the press via txPressBind, red while tuning). TX CONTROLS keeps
+    its TUNE too. Check: both keys show the same state; at 1320 px the bar
+    still fits FUNC and MOX (the fit drops mode keys first).
+64. LOOK: CLASSIC shows the side panels unstyled (user, 2026-10-31,
+    screenshot; small; affects aether-look too). #applets, #slicePills and
+    #aeZoom are hidden only by aether.css, which CLASSIC disables, so RX /
+    TX / MEMORIES (with the memory list) spill under the bottom bar as bare
+    headings. Hide them in index.html's own <style> (aether.css shows them
+    in its layouts). Also: the LOOK key's cycle (WIZARD > AETHER > CLASSIC)
+    is easy to step past; show the three as a choice instead of a cycle.
+    Check: CLASSIC at 1320 x 620 and on a phone shows no applet content;
+    AETHER and WIZARD unchanged.
+65. Wizard look: labels cut off at ~1000 px wide (user, 2026-10-31,
+    screenshot; small; wizard-look branch). Top bar: the radio name shows
+    "Fl", the user chip "v..."; side column: "RF-KIT AMPLI...", amp
+    "STAND...", "P.AMP/ATT +32...". Fix by width, not by ellipsis: the top
+    bar drops the CPU word and the logo text before the radio name; the
+    amp header becomes "RF-KIT AMP" when narrow; STANDBY / OPERATE and
+    P.AMP/ATT keys use a smaller font or a short form ("STBY", "P.AMP
+    +32") when the key is too narrow. Check: 1000, 1100, 1320, 1920 px
+    with a real-length rig name, user name and P.AMP +32 dB: no ellipsis
+    on any key or name.
+66. Amplifier panel: tuner state missing, alarms show late (user,
+    2026-10-31; small-medium; wizard-look, b also aether-look).
+    a. Tuner state: the wizard look hides the tuner line (.ae-amp-tuner,
+       my compaction for item 62's mock-up fit). Bring it back as one
+       compact line under the readings: the tuner chip (ON / BYPASS /
+       TUNING / tuned-elsewhere) plus L / C, the rest of the tuner detail in
+       the AMP panel.
+    b. Alarm latency: the amp's fault (High SWR, Overheating, ...) comes
+       from /data, read every 1.5 s in receive and NOT AT ALL while
+       transmitting (the TX schedule is /power x4 + /tuner), and the
+       interface error only every 10 s. A fault on the air is therefore
+       shown only after unkey. Fix:
+       - TX schedule: /power, /power, /data, /power, /tuner (fault within
+         ~250 ms at 50 ms ticks; FWD still 3 in 5).
+       - RX schedule: /data every 0.75 s instead of 1.5 s.
+       - Any sign of a trip - OPERATE dropping to STANDBY on its own, or
+         FWD collapsing to 0 while the radio is still keyed - reads /data
+         next, ahead of the schedule.
+       - The page shows the fault the moment the message arrives: the
+         error banner and RESET in the applet, AMP panel and bottom bar /
+         phone tile, not on the next 300 ms aeTick.
+    Tests (test_rfkit.py stub): a fault raised mid-TX reaches the page as
+    ampError within 500 ms; a fault in RX within 1 s; OPERATE -> STANDBY by
+    the amp triggers an immediate /data read. Wizard look: tuner chip
+    visible in the applet.
+67. ☰ (hide the side column) leaves an empty gap instead of widening the
+    scope (user, 2026-10-31, screenshot at ~1000 px; small; wizard-look).
+    Cause: in the 1000-1279 px media query the rule
+    "body.wz.ae-desktop.meter-needle #radio { grid-template-columns: ... 265px }"
+    has the same specificity as the side-hidden rule and comes later, so
+    the column keeps its 265 px (empty, since #applets is hidden). Fix: one
+    side-hidden rule that wins at every width (include .meter-needle, put
+    it last), and resizeCanvases after the change. On a phone ☰ does
+    nothing (no side column): make it open the FUNC menu there.
+    Check: 1000, 1100, 1320, 1920 px, side hidden: scope, VFO and meter
+    panels reach the right edge; shown again: column back.
+
