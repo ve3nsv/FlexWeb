@@ -279,7 +279,12 @@ def test_amp_wake_keep_awake_and_poll_schedule(bench, tmp_path):
         time.sleep(2.0)
         fast = len(amp.gets_since(t1, "/power"))
         assert fast >= 12, fast            # ~26/s nominal at 25 ms; was 4/s
-        assert not amp.gets_since(t1, "/data"), "receive-only reads continued during TX"
+        # Punch list 66b: /data (the fault text) once in five TX polls, /power
+        # three in five; the other receive-only reads wait for receive.
+        data = len(amp.gets_since(t1, "/data"))
+        assert 0 < data <= fast / 2, (data, fast)
+        for path in ("/operate-mode", "/antennas", "/operational-interface"):
+            assert not amp.gets_since(t1, path), "receive-only read " + path + " during TX"
         _ws_send(a, {"cmd": "setPTT", "value": False})
         assert _drain_until(ra, lambda m: m.get("type") == "amp" and m.get("keyed") is False, timeout=5)
         # back in receive after the 3 s hold
@@ -405,10 +410,13 @@ def test_amp_silence_shown_early_offline_at_timeout(bench):
         amp.answering.clear()
         t1 = time.monotonic()
         assert _drain_until(r, lambda m: m.get("type") == "amp" and m.get("noAnswerMs"), timeout=5)
-        m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") is False, timeout=20)
+        m = _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") is False
+                         and m.get("offlineReason"), timeout=25)
         took = time.monotonic() - t1
         assert m and m.get("offlineReason") == "noanswer", m
-        assert 14.0 <= took <= 17.5, took
+        # 15 s of no answer on one request; after the short silence above,
+        # polling waits as long as that slow answer took (~2-3 s) first.
+        assert 14.0 <= took <= 19.5, took
     finally:
         amp.answering.set()
         sock.close()
@@ -428,9 +436,9 @@ def test_amp_fault_shows_fast_in_tx_and_rx(bench):
     assert " 101" in st
     r = _Reader(sock, buf)
     try:
-        assert _amp_ready(r)
-        assert _drain_until(r, lambda m: m.get("type") == "amp" and m.get("connected") and m.get("ampError") == "",
-                            timeout=5)
+        ready = _amp_ready(r)
+        assert ready
+        # (amp messages go out on a change only; the stub starts fault-free)
 
         # a fault on the air
         _ws_send(sock, {"cmd": "setPTT", "value": True})
