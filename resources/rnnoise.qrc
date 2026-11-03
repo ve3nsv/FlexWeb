@@ -1,0 +1,9 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+<!-- RN2 (RNNoise) model, loaded by src/rxnr.cpp. Built with CONFIG +=
+     resources_big (wfweb.pro): through ordinary rcc the 14.7 MB would become
+     ~75 MB of C++ source. Regenerate with tools/make-rnnoise-weights.sh. -->
+<qresource prefix="/rnnoise">
+    <file alias="weights.bin">rnnoise/weights.bin</file>
+</qresource>
+</RCC>
