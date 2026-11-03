@@ -757,8 +757,12 @@ jobs:
       - name: Build codec2 (FreeDV) via MSYS2 MinGW
         shell: C:\msys64\usr\bin\bash.exe -l {0}
         run: |
-          pacman -S --noconfirm --needed mingw-w64-x86_64-cmake mingw-w64-x86_64-gcc mingw-w64-x86_64-make mingw-w64-x86_64-tools
+          # No gendef: MSYS2 renamed / dropped mingw-w64-x86_64-tools-git, and a
+          # missing package makes pacman install nothing at all. The linker
+          # writes the .def for the MSVC import lib itself (--output-def).
+          pacman -S --noconfirm --needed mingw-w64-x86_64-cmake mingw-w64-x86_64-gcc mingw-w64-x86_64-make
           export PATH="/mingw64/bin:$PATH"
+          DEF="$(cygpath -m "$GITHUB_WORKSPACE")/libcodec2.def"
           CODEC2="$(cygpath "$GITHUB_WORKSPACE")/codec2"
           cd "$CODEC2"
           mkdir -p build_mingw && cd build_mingw
@@ -768,8 +772,10 @@ jobs:
             -DUNITTEST=OFF \
             -DCMAKE_C_COMPILER=/mingw64/bin/gcc.exe \
             -DCMAKE_MAKE_PROGRAM=/mingw64/bin/mingw32-make.exe \
+            -DCMAKE_SHARED_LINKER_FLAGS="-Wl,--output-def,$DEF" \
             ..
           /mingw64/bin/mingw32-make -j$(nproc) codec2
+          test -s "$DEF" || { echo "the linker wrote no $DEF"; exit 1; }
 
       - name: Install codec2 into vcpkg prefix
         shell: pwsh
@@ -779,9 +785,9 @@ jobs:
           # DLL for runtime
           Copy-Item "codec2\build_mingw\src\libcodec2.dll" "$vcpkg\bin\" -Force
 
-          # Generate MSVC import lib from MinGW DLL
-          & C:\msys64\mingw64\bin\gendef.exe codec2\build_mingw\src\libcodec2.dll
-          lib /def:libcodec2.def /out:"$vcpkg\lib\codec2.lib" /machine:x64
+          # MSVC import lib from the .def the MinGW linker wrote with the DLL
+          # (the .def has no LIBRARY line: name the DLL, or lib names it codec2.dll)
+          lib /def:libcodec2.def /name:libcodec2.dll /out:"$vcpkg\lib\codec2.lib" /machine:x64
 
           # Headers
           New-Item -ItemType Directory -Force -Path "$vcpkg\include\codec2" | Out-Null
