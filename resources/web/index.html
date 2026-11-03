@@ -2480,6 +2480,12 @@ body.amp-noanswer #ampBody .amp-tile { opacity: 0.45; filter: grayscale(1); }
 <link rel="stylesheet" href="sstv-panel.css">
 <!-- AetherSDR-style skin: restyles only, loaded last so it wins. -->
 <link rel="stylesheet" href="aether.css" id="aetherCss">
+<style>
+/* Punch list 64: the AetherSDR side column, slice pills, zoom and PANELS keys
+   are shown only by aether.css's layouts; CLASSIC disables that stylesheet,
+   so they are hidden here or they spill under the bottom bar unstyled. */
+#slicePills, #applets, #aeZoom, #aeDrawerBtn { display: none; }
+</style>
 <script>
 // FUNC > LOOK: CLASSIC turns the AetherSDR skin and layout off for this
 // browser (set before first paint, so there is no flash of the other look).
@@ -4108,6 +4114,10 @@ function handleMessage(msg) {
             renderCpuChip();
             break;
         case 'amp':
+            // Punch list 66b: a fault (or its end) shows the moment it arrives
+            // - the applet's banner and RESET, the phone tile - not on the
+            // next aeTick.
+            var ampFaultChanged = (ampState && ampState.ampError || '') !== (msg.ampError || '');
             ampState = msg;
             ampNoAnswerAt = msg.connected && msg.noAnswerMs ? Date.now() - msg.noAnswerMs : 0;
             document.body.classList.toggle('amp-noanswer', !!ampNoAnswerAt);
@@ -4123,6 +4133,7 @@ function handleMessage(msg) {
                 if (fst !== ampFuncLastSt) { ampFuncLastSt = fst; renderFuncOverlay(); }
             }
             ampLiveUpdate();
+            if (ampFaultChanged) aeTick();
             break;
         case 'guestMode':
             setGuestTune(!!msg.tune);
@@ -7650,7 +7661,7 @@ function aePhoneButtons(isCW) {
     if (ampConfigured) {
         var a = ampState || {};
         out.push({ label: 'AMP', sub: !a.connected ? 'OFFLINE' : ampNoAnswerAt ? (a.waking ? 'WAKING' : 'NO ANSWER')
-                                      : (a.operate ? 'OPR ' : 'STBY ') + (a.fwd || 0) + ' W',
+                                      : a.ampError ? 'FAULT' : (a.operate ? 'OPR ' : 'STBY ') + (a.fwd || 0) + ' W',
                    cls: 'ae-tile', active: currentPanel === 'amp', action: function() { togglePanel('amp'); } });
     }
     if (flexMemList !== null)

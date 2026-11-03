@@ -237,6 +237,12 @@ private:
     qint64 m_lastInterfaceMs{0};
 
     bool m_tuneProbePending{false};  // a wake() is outstanding
+    // Punch list 66b: a sign of a trip was seen (OPERATE -> STANDBY that the
+    // operator did not ask for, FWD collapsing while keyed): /data is read
+    // at the next tick, ahead of the schedule.
+    bool m_dataNext{false};
+    bool m_standbyAsked{false};
+    static constexpr int kTripFromW = 5;
     // A START is outstanding (queued or in flight). The tuner readback that
     // would disable the button can be a second old, so this keeps a double
     // click from sending START twice. It is a send guard, not displayed state.

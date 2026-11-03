@@ -289,6 +289,17 @@ Next build (2026-11-03): item 61 done. The 2 s "no answer" is per request
 that timeout now takes the link OFFLINE (noanswer) at once - it used to take
 three of them (45 s and more). A wake with no answer still does not drop the
 link (item 46). Tested by test_amp_silence_shown_early_offline_at_timeout.
+Actions #98 failed that test: a request aborted at the 15 s timeout gets a
+zero-byte downloadProgress from Qt, which was counted as "answering again"
+just before the failure was judged, so the old three-strike rule applied.
+Only new bytes count now (checked against a stub amp: OFFLINE at 15 s; the
+unfixed build stayed connected through repeated 15 s failures).
+Item 66b done (both branches): /data every 0.75 s in receive (was 1.5 s),
+once in five TX polls (was never), and next after OPERATE dropping to
+STANDBY by itself or FWD collapsing while keyed; the page renders a fault
+change at once. Measured on a stub: a fault on the air is read in ~130 ms,
+in receive within 0.75 s. test_amp_fault_shows_fast_in_tx_and_rx.
+Item 64's CLASSIC fix (the side panels / PANELS key hidden) applies here too.
 59 (NR2) and 60 (RN2) wait for their sources: this session cannot reach
 AetherSDR / WDSP / Xiph on GitHub.
 

@@ -36,16 +36,19 @@ qint64 nowMs()
 // temperature, volts and amps), the antenna list every 3 s. An empty slot
 // reads /operational-interface when it is 10 s old, else sends nothing.
 // About 3.7 GETs/s against 12 before (PgTG's RF-KIT plugin: ~5).
+// /data (the amp's fault text: High SWR, Overheating, ...) every third slot,
+// 0.75 s at the 250 ms receive tick (punch list 66b; was 1.5 s).
 const char* const kRxSchedule[] = {
-    Rfkit::kPathPower, Rfkit::kPathTuner, Rfkit::kPathOperateMode, Rfkit::kPathData,
-    Rfkit::kPathTuner, Rfkit::kPathOperateMode, Rfkit::kPathPower, Rfkit::kPathTuner,
+    Rfkit::kPathData, Rfkit::kPathPower, Rfkit::kPathTuner, Rfkit::kPathData,
+    Rfkit::kPathOperateMode, Rfkit::kPathPower, Rfkit::kPathData, Rfkit::kPathTuner,
     Rfkit::kPathOperateMode, Rfkit::kPathData, Rfkit::kPathAntennas, nullptr,
 };
-// Transmit schedule, one GET per 50 ms tick at most: /power four times in
-// five (FWD on voice peaks), /tuner once (a tune in progress). Everything else
-// waits until the radio is back in receive.
+// Transmit schedule, one GET per tick: /power three times in five (FWD on
+// voice peaks), /data once (a fault on the air shows within ~5 ticks instead
+// of after unkey, punch list 66b), /tuner once (a tune in progress).
+// Everything else waits until the radio is back in receive.
 const char* const kTxSchedule[] = {
-    Rfkit::kPathPower, Rfkit::kPathPower, Rfkit::kPathPower, Rfkit::kPathPower, Rfkit::kPathTuner,
+    Rfkit::kPathPower, Rfkit::kPathPower, Rfkit::kPathData, Rfkit::kPathPower, Rfkit::kPathTuner,
 };
 
 }  // namespace
@@ -234,6 +237,8 @@ void RfkitConnection::resetSession()
     m_lastInterfaceMs = 0;
     m_tuneProbePending = false;
     m_tuneStartPending = false;
+    m_dataNext = false;
+    m_standbyAsked = false;
 }
 
 void RfkitConnection::enqueue(const Request& request, bool front)
@@ -299,7 +304,13 @@ void RfkitConnection::pump()
     // timeout only aborts a transfer that goes silent for its interval; this
     // bounds the size.
     connect(reply, &QNetworkReply::downloadProgress, reply, [this, reply, epoch](qint64 received, qint64) {
-        if (epoch == m_epoch && reply == m_reply) bytesMoved();  // not idle, answering
+        // Only new bytes are an answer: Qt also reports progress with nothing
+        // received (an abort emits (0, 0)), which must not end a silence.
+        const qint64 before = reply->property("rfkitRx").toLongLong();
+        if (received > before) {
+            reply->setProperty("rfkitRx", received);
+            if (epoch == m_epoch && reply == m_reply) bytesMoved();  // not idle, answering
+        }
         if (received > Rfkit::kMaxBodyBytes) {
             reply->setProperty("rfkitOversize", true);
             reply->abort();
@@ -489,6 +500,11 @@ bool RfkitConnection::applyReply(const Request& request, const QByteArray& body)
         const auto v = Rfkit::parsePower(body);
         if (!v) { return malformed(); }
         if (m_transmitting) ++m_overPowerReads;
+        // Punch list 66b: FWD collapsing to nothing while the radio is still
+        // keyed is how a trip looks from /power - read /data next.
+        if (m_transmitting && m_status.power && m_status.power->forward.value >= kTripFromW
+            && v->forward.value < 1)
+            m_dataNext = true;
         m_status.power = *v;
     } else if (p == QLatin1String(Rfkit::kPathData)) {
         const auto v = Rfkit::parseData(body);
@@ -501,6 +517,12 @@ bool RfkitConnection::applyReply(const Request& request, const QByteArray& body)
     } else if (p == QLatin1String(Rfkit::kPathOperateMode)) {
         const auto v = Rfkit::parseOperateMode(body);
         if (!v) { return malformed(); }
+        // Punch list 66b: OPERATE dropping to STANDBY that nobody asked for
+        // (a fault, or the amp's sleep timer) - read /data next.
+        if (m_status.operate && *m_status.operate == Rfkit::OperateMode::Operate
+            && *v == Rfkit::OperateMode::Standby && !m_standbyAsked)
+            m_dataNext = true;
+        m_standbyAsked = false;
         m_status.operate = *v;
     } else if (p == QLatin1String(Rfkit::kPathInterface)) {
         const auto v = Rfkit::parseInterface(body);
@@ -690,6 +712,12 @@ void RfkitConnection::poll()
     if (nowMs() < m_pollPausedUntilMs) {
         return;  // the amp was slow or failed: let it catch up
     }
+    if (m_dataNext) {
+        // A sign of a trip: read the fault text now, ahead of the schedule.
+        m_dataNext = false;
+        enqueue(Request{Request::Method::Get, path(Rfkit::kPathData), {}, false, false, false});
+        return;
+    }
     const bool fast = fastMode();
     const int n = fast ? int(std::size(kTxSchedule)) : int(std::size(kRxSchedule));
     const char* literal = (fast ? kTxSchedule : kRxSchedule)[m_slowPollIndex % n];
@@ -719,6 +747,7 @@ void RfkitConnection::setOperate(bool operate)
     request.path = path(Rfkit::kPathOperateMode);
     request.body = Rfkit::buildOperateModeBody(operate ? Rfkit::OperateMode::Operate
                                                        : Rfkit::OperateMode::Standby);
+    m_standbyAsked = !operate;
     enqueue(request, true);
 }
 
