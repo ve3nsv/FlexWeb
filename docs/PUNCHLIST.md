@@ -1525,6 +1525,18 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+72. IC-7300 over RS-BA1: TUNE works, voice TX silent (user, 2026-11-05;
+    small; diagnosis open). USB MOD level 50 %. FlexWeb sets DATA OFF MOD
+    to USB on MIC (no LAN input on a 7300; RS-BA1's Remote Utility feeds
+    the rig's USB codec). icomUdpHandler disabled TX audio without a word
+    when the server offered no TX sample rates; it now logs either "LAN:
+    <radio> offers no transmit audio ..." or the RX / TX rates and codecs
+    in use. Next: the user's log of one MIC press + one over - "Set DATA
+    MOD OFF to USB for web mic", "LAN mic TX - first PCM frame", and the
+    new audio line - decides between browser, FlexWeb and the RS-BA1 PC
+    (Remote Utility TX audio device = the 7300's USB Audio CODEC, user
+    rights).
+
 71. RS-BA1 with two radios never connects (user log, 2026-11-05, 1.0.110;
     small). Over Tailscale (100.74.78.87) the server answered, logged in
     and listed "IC-7300 Man Cave" and "IC-9700 12252", then nothing: with
