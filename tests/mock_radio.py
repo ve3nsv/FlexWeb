@@ -110,6 +110,10 @@ class MockIcomRadio(CivRadioBase):
         self._ctrl_seq: int = 1
         self._civ_seq: int = 1
 
+        # TX audio the client sent on the audio port: one entry per packet,
+        # (monotonic time, PCM payload bytes) - test_lan_tx_audio.py
+        self.tx_audio: list[tuple[float, bytes]] = []
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -178,6 +182,28 @@ class MockIcomRadio(CivRadioBase):
         elif label == "civ":
             self._civ_client_id = sender_id
             self._handle_civ(data, addr, ptype, sender_id, proto)
+        elif label == "audio":
+            self._handle_audio(data, addr, ptype, sender_id, proto)
+
+    # ------------------------------------------------------------------
+    # Audio port: the handshake, and TX audio recorded for the tests
+    # ------------------------------------------------------------------
+
+    def _handle_audio(self, data, addr, ptype, sender_id, proto):
+        n = len(data)
+        if n == _HEADER_SIZE and ptype == _PT_ARE_YOU_THERE:
+            proto.send(self._ctrl_pkt(_PT_I_AM_HERE, 0, sender_id), addr)
+            return
+        if n == _HEADER_SIZE and ptype == _PT_ARE_YOU_READY:
+            proto.send(self._ctrl_pkt(_PT_ARE_YOU_READY, 0, sender_id), addr)
+            return
+        if n == _PING_SIZE and ptype == _PT_PING and data[0x10] == 0x00:
+            proto.send(self._ping_reply(data, sender_id), addr)
+            return
+        # audio_packet: 0x18-byte header, big-endian datalen at 0x16
+        if ptype == _PT_DATA and n > 0x18 and struct.unpack_from(">H", data, 0x16)[0] == n - 0x18:
+            import time as _time
+            self.tx_audio.append((_time.monotonic(), bytes(data[0x18:])))
 
     # ------------------------------------------------------------------
     # Control port

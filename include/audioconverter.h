@@ -71,6 +71,9 @@ struct audioSetup {
     quint16 blockSize = 20; // Each 'block' of audio is 20ms long by default.
     quint8 guid[GUIDLEN];
     void* tci = Q_NULLPTR;
+    // TX audio comes from outside (the browser via the web server), not from
+    // a local capture device: icomUdpAudio then opens no input of its own.
+    bool externalTx = false;
 };
 
 class audioConverter : public QObject

@@ -840,6 +840,12 @@ void servermain::setDefPrefs()
     txSetup.isinput = true;
     rxSetup.latency = 150;
     txSetup.latency = 150;
+    // The browser is the transmit audio source for a LAN rig. A local
+    // capture as well (wfview's desktop path) sent the PC's default input -
+    // a silent virtual cable on the operator's PC - interleaved with the
+    // browser's audio on the same stream: the rig keyed with no voice
+    // (IC-7300 over RS-BA1, punch list 72). Rig server mode (-S) keeps it.
+    txSetup.externalTx = !cliOverrides.noWeb;
 
     udpDefPrefs.ipAddress = QString("");
     udpDefPrefs.controlLANPort = 50001;

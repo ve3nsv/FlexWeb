@@ -380,6 +380,20 @@ void icomUdpHandler::dataReceived()
                                 txSetup.sampleRate=0;
                                 txSetup.codec = 0;
                             }
+                            // Say what the server offered: a server that offers no
+                            // transmit audio keys the rig (TUNE works) with no
+                            // modulation, and that used to leave nothing in the log.
+                            if (txSampleRates < 2)
+                                qWarning(logUdp()).noquote() << QString("LAN: \"%1\" offers no transmit audio (TX sample rates 0x%2) - "
+                                                                        "the rig keys but carries no voice; on an RS-BA1 server check "
+                                                                        "Remote Utility's TX audio device and the user's rights")
+                                    .arg(devName).arg(txSampleRates, 4, 16, QChar('0'));
+                            else
+                                qInfo(logUdp()).noquote() << QString("LAN: \"%1\" audio - RX %2 Hz codec %3, TX %4 Hz codec %5 "
+                                                                     "(offered RX 0x%6, TX 0x%7)")
+                                    .arg(devName).arg(rxSetup.sampleRate).arg(rxSetup.codec)
+                                    .arg(txSetup.sampleRate).arg(txSetup.codec)
+                                    .arg(rxSampleRates, 4, 16, QChar('0')).arg(txSampleRates, 4, 16, QChar('0'));
                             streamOpened = true;
                         }
                         if (audio == Q_NULLPTR) {
