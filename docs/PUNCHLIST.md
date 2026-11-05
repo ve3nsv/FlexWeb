@@ -507,6 +507,12 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
    - Scope source selector: radio (CAT) / SDR / none; settings in the
      launcher (device or host:port, gain, ppm, bias-T, HF mode).
    - Build the input as a "scope source" interface so item 5 plugs in.
+   - User's setup (2026-11-05): RTL-SDR Blog V4, plugged into the Windows
+     server PC - so the built-in librtlsdr path first (rtl-sdr-blog fork,
+     built in the Windows CI job, libusb from vcpkg; WinUSB via Zadig once,
+     said in the launcher and the docs). HF on the V4 is its built-in
+     upconverter, switched by the fork below ~28.8 MHz - no direct-sampling
+     setting needed for it. rtl_tcp remains the second input.
 5. Airspy and SDRplay as scope sources (user, 2026-10-22), after item 4 on
    the same interface:
    - Local: SoapySDR (Boost licence) with its device modules - Airspy R2 /
