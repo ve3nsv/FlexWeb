@@ -20,18 +20,11 @@ jobs:
   build-linux-ubuntu2404:
     strategy:
       fail-fast: false
+      # A manual run builds Windows and this job's amd64 leg (the tests)
+      # unless "all" is chosen; a release tag builds everything. (An
+      # expression in `exclude` made GitHub drop the whole job, run #111.)
       matrix:
-        include:
-          - os: ubuntu-24.04
-            arch: x86_64
-            deb_arch: amd64
-          - os: ubuntu-24.04-arm
-            arch: arm64
-            deb_arch: arm64
-        # A manual run builds Windows and this job's amd64 leg (the tests)
-        # unless "all" is chosen; a release tag builds everything.
-        exclude:
-          - deb_arch: ${{ (github.event_name != 'workflow_dispatch' || inputs.platforms == 'all') && 'none' || 'arm64' }}
+        include: ${{ fromJSON((github.event_name != 'workflow_dispatch' || inputs.platforms == 'all') && '[{"os":"ubuntu-24.04","arch":"x86_64","deb_arch":"amd64"},{"os":"ubuntu-24.04-arm","arch":"arm64","deb_arch":"arm64"}]' || '[{"os":"ubuntu-24.04","arch":"x86_64","deb_arch":"amd64"}]') }}
 
     name: Ubuntu 24.04 (${{ matrix.deb_arch }})
     runs-on: ${{ matrix.os }}
