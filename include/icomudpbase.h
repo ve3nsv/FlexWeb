@@ -39,6 +39,7 @@ struct udpPreferences {
 	quint8 waterfallFormat;
 	bool halfDuplex;
     bool adminLogin;
+    QString radioName;   // a server with several radios: which one ([LAN] Radio / --lan-radio)
 };
 
 struct networkAudioLevels {

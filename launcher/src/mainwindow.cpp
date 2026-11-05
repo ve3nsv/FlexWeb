@@ -178,6 +178,10 @@ void MainWindow::buildUi()
     m_lanUserEdit = new QLineEdit(m_rigGroup);
     m_lanPassEdit = new QLineEdit(m_rigGroup);
     m_lanPassEdit->setEchoMode(QLineEdit::Password);
+    m_lanRadioEdit = new QLineEdit(m_rigGroup);
+    m_lanRadioEdit->setPlaceholderText("first");
+    m_lanRadioEdit->setToolTip("A server with several radios (an RS-BA1 or wfview server with an IC-7300 and an IC-9700): "
+                               "part of the radio's name, or its number from 1. Empty uses the first; the log lists them.");
     m_noAutoConnectCheck = new QCheckBox("Don't connect to the rig at start (use Reconnect in the web UI)", m_rigGroup);
 
     auto *serialLabel = new QLabel("Serial port", m_rigGroup);
@@ -187,6 +191,7 @@ void MainWindow::buildUi()
     auto *hostLabel = new QLabel("Address", m_rigGroup);
     auto *userLabel = new QLabel("User name", m_rigGroup);
     auto *passLabel = new QLabel("Password", m_rigGroup);
+    auto *lanRadioLabel = new QLabel("Radio", m_rigGroup);
 
     int row = 0;
     rig->addWidget(m_usbRadio, row, 0);
@@ -207,6 +212,9 @@ void MainWindow::buildUi()
     rig->addWidget(m_lanUserEdit, row, 4);
     rig->addWidget(passLabel, row, 5);
     rig->addWidget(m_lanPassEdit, row, 6);
+    ++row;
+    rig->addWidget(lanRadioLabel, row, 1);
+    rig->addWidget(m_lanRadioEdit, row, 2);
     ++row;
     rig->addWidget(m_noAutoConnectCheck, row, 1, 1, 6);
 
@@ -276,7 +284,7 @@ void MainWindow::buildUi()
     m_usbWidgets = {serialLabel, m_serialCombo, manufacturerLabel, m_manufacturerCombo,
                     civLabel, m_civEdit, audioLabel, m_audioCombo};
     m_lanWidgets = {hostLabel, m_lanHostEdit, userLabel, m_lanUserEdit,
-                    passLabel, m_lanPassEdit, m_noAutoConnectCheck};
+                    passLabel, m_lanPassEdit, lanRadioLabel, m_lanRadioEdit, m_noAutoConnectCheck};
     m_flexWidgets = {flexHostLabel, m_flexHostEdit};
     m_flexAudioWidgets = {flexAudioLabel, m_flexAudioCombo};
     m_smartWidgets = {smartLabel, m_smartRadioCombo};
@@ -575,6 +583,7 @@ void MainWindow::applyConfigToForm()
     m_lanHostEdit->setText(m_cfg.lanHost);
     m_lanUserEdit->setText(m_cfg.lanUser);
     m_lanPassEdit->setText(m_cfg.lanPassword);
+    m_lanRadioEdit->setText(m_cfg.lanRadio);
     m_noAutoConnectCheck->setChecked(m_cfg.noAutoConnect);
     m_portSpin->setValue(m_cfg.webPort);
     m_nameEdit->setText(m_cfg.nameTag);
@@ -618,6 +627,7 @@ void MainWindow::applyFormToConfig()
     m_cfg.lanHost = m_lanHostEdit->text().trimmed();
     m_cfg.lanUser = m_lanUserEdit->text();
     m_cfg.lanPassword = m_lanPassEdit->text();
+    m_cfg.lanRadio = m_lanRadioEdit->text();
     m_cfg.noAutoConnect = m_noAutoConnectCheck->isChecked();
     m_cfg.webPort = m_portSpin->value();
     m_cfg.nameTag = m_nameEdit->text().trimmed();

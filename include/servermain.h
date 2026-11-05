@@ -55,6 +55,7 @@ struct cmdLineOverrides {
     int audioPort = 0;
     QString lanUser;
     QString lanPass;
+    QString lanRadio;
     // [Radio] overrides
     int civAddr = -1;
     int manufacturer = -1;

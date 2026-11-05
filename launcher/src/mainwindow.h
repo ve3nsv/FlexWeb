@@ -139,6 +139,7 @@ private:
     RefreshingComboBox *m_audioCombo = nullptr;
     QLineEdit *m_lanHostEdit = nullptr;
     QLineEdit *m_lanUserEdit = nullptr;
+    QLineEdit *m_lanRadioEdit = nullptr;
     QLineEdit *m_lanPassEdit = nullptr;
     QCheckBox *m_noAutoConnectCheck = nullptr;
     QList<QWidget *> m_usbWidgets;

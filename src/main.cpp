@@ -392,6 +392,8 @@ int main(int argc, char *argv[])
         "  --lan-audio <port>      LAN audio port (default 50003)\n"
         "  --lan-user <user>       LAN username\n"
         "  --lan-pass <pass>       LAN password\n"
+        "  --lan-radio <name>      Which radio on a server that has several (RS-BA1 /\n"
+        "                          wfview server); part of its name, or its number from 1\n"
         "  --civ <addr>            CI-V address, hex or decimal (e.g. 0x94 or 148 for IC-7300)\n"
         "  --serial-port <path>    Serial port device (e.g. /dev/ttyUSB0)\n"
         "  --audio-system <id>     Audio system (0=Qt, 1=PortAudio, 2=RtAudio)\n"
@@ -759,6 +761,11 @@ int main(int argc, char *argv[])
         {
             if (argc > c + 1) { overrides.lanUser = argv[++c]; }
             else { std::cout << "Error: --lan-user requires username\n"; return -1; }
+        }
+        else if (currentArg == "--lan-radio")
+        {
+            if (argc > c + 1) { overrides.lanRadio = argv[++c]; }
+            else { std::cout << "Error: --lan-radio requires a radio name\n"; return -1; }
         }
         else if (currentArg == "--lan-pass")
         {

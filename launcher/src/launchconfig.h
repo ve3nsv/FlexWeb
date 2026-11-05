@@ -35,6 +35,7 @@ struct LaunchConfig {
     QString lanHost;
     QString lanUser;
     QString lanPassword;
+    QString lanRadio;      // a server with several radios: part of a name or its number
     bool noAutoConnect = false;  // --no-autoconnect (LAN only)
 
     // FlexRadio

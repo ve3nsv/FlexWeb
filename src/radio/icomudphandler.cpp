@@ -9,6 +9,7 @@
 
 icomUdpHandler::icomUdpHandler(udpPreferences prefs, audioSetup rx, audioSetup tx) :
     lanHost(prefs.ipAddress),
+    wantRadio(prefs.radioName.trimmed()),
     controlPort(prefs.controlLANPort),
     civPort(0),
     audioPort(0),
@@ -461,6 +462,7 @@ void icomUdpHandler::dataReceived()
                 qInfo(logUdp()) << "Got Connection status for:" << in->name << "Busy:" << in->busy << "Computer" << in->computer << "IP" << ip.toString();
 
                 // First we need to find this radio in our capabilities packet, there aren't many so just step through
+                int thisRadio = -1;
                 for (quint8 f = 0; f < radios.size(); f++)
                 {
 
@@ -480,11 +482,28 @@ void icomUdpHandler::dataReceived()
 
                         qDebug(logUdp()) << "Is the user an admin? " << admin;
                         emit setRadioUsage(f, admin, in->busy, QString(in->computer), ip.toString());
+                        thisRadio = f;
                         qDebug(logUdp()) << "Set radio usage num:" << f << in->name << "Busy:" << in->busy << "Computer" << in->computer << "IP" << ip.toString();
                     }
                 }
 
-                if (!streamOpened && radios.size()==1) {
+                // A server with several radios (RS-BA1 with an IC-7300 and an
+                // IC-9700): wfview asked in a window, which this headless
+                // server does not have, so it waited for ever. The radio is
+                // chosen here - by [LAN] Radio / --lan-radio, else the first.
+                if (!streamOpened && !radioChosen && radios.size() > 1 && thisRadio >= 0
+                    && thisRadio == pickRadio()) {
+                    radioChosen = true;
+                    if (in->busy && in->ipaddress != 0x00 && strcmp(in->computer, compName.toLocal8Bit())) {
+                        status.message = devName + " in use by: " + in->computer + " (" + ip.toString() + ")";
+                        qWarning(logUdp()).noquote() << QString("LAN: \"%1\" is in use by %2 (%3)")
+                            .arg(QString(radios[thisRadio].name), QString(in->computer), ip.toString());
+                        sendControl(false, 0x00, in->seq);
+                    } else {
+                        setCurrentRadio(quint8(thisRadio));
+                    }
+                }
+                else if (!streamOpened && radios.size()==1) {
 
                     qDebug(logUdp()) << "Single radio available, can I connect to it?";
 
@@ -542,6 +561,20 @@ void icomUdpHandler::dataReceived()
                 }
 
                 emit requestRadioSelection(radios);
+                if (radios.size() > 1) {
+                    QStringList names;
+                    for (int i = 0; i < radios.size(); ++i)
+                        names << QString("%1 \"%2\"").arg(i + 1).arg(QString(radios[i].name));
+                    const int pick = pickRadio();
+                    if (pick < 0)
+                        qWarning(logUdp()).noquote() << QString("LAN: the server has %1 radios (%2) and none matches \"%3\" "
+                                                                "- set [LAN] Radio / --lan-radio to part of a name or its number")
+                            .arg(radios.size()).arg(names.join(", "), wantRadio);
+                    else
+                        qInfo(logUdp()).noquote() << QString("LAN: the server has %1 radios (%2) - using %3%4")
+                            .arg(radios.size()).arg(names.join(", ")).arg(pick + 1)
+                            .arg(wantRadio.isEmpty() ? QString(" (the first; choose with [LAN] Radio / --lan-radio)") : QString());
+                }
 
                 break;
             }
@@ -554,6 +587,21 @@ void icomUdpHandler::dataReceived()
     return;
 }
 
+
+// The radio to use on a server with several: [LAN] Radio / --lan-radio as a
+// number from 1 or part of a name (case-insensitive), else the first; -1 when
+// a name was given and none matches (never a radio the operator did not mean).
+int icomUdpHandler::pickRadio() const
+{
+    if (radios.isEmpty()) return -1;
+    if (wantRadio.isEmpty()) return 0;
+    bool isNum = false;
+    const int n = wantRadio.toInt(&isNum);
+    if (isNum) return (n >= 1 && n <= radios.size()) ? n - 1 : -1;
+    for (int i = 0; i < radios.size(); ++i)
+        if (QString(radios[i].name).contains(wantRadio, Qt::CaseInsensitive)) return i;
+    return -1;
+}
 
 void icomUdpHandler::setCurrentRadio(quint8 radio) {
 

@@ -1525,6 +1525,20 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+71. RS-BA1 with two radios never connects (user log, 2026-11-05, 1.0.110;
+    small). Over Tailscale (100.74.78.87) the server answered, logged in
+    and listed "IC-7300 Man Cave" and "IC-9700 12252", then nothing: with
+    more than one radio wfview opened a selection window
+    (requestRadioSelection), which the headless server does not have, so
+    no stream was requested and the CI-V ID query repeated for ever.
+    Done: icomUdpHandler picks the radio - [LAN] Radio / --lan-radio /
+    launcher "Radio" field (number from 1 or part of the name, case-
+    insensitive; a name that matches none connects to none and says so),
+    else the first; the log lists the radios and which is used; a busy
+    radio is reported "in use by". Untested against a real RS-BA1 server
+    (no two-radio mock); the next log should show "LAN: the server has 2
+    radios ... - using 1" then "Got Radio 0".
+
 70. NR ladder misfires on the operator's PC (1.0.110 log, 2026-11-05;
     small). NNR Standard averages 43 % of real time there, Premium 280 %.
     a. After every over NNR resumed and stepped up to Premium in the same

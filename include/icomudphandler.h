@@ -92,6 +92,9 @@ private:
 	bool radioInUse = false;
 
 	QString lanHost;        // as given, for the log
+	QString wantRadio;      // [LAN] Radio / --lan-radio
+	bool radioChosen = false;
+	int pickRadio() const;
 	quint16 controlPort;
 	quint16 civPort;
 	quint16 audioPort;
