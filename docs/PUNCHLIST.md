@@ -1525,6 +1525,46 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+73. One server, several radios, chosen on the page (user, 2026-11-05;
+    medium). The operator has a FLEX-6400 (LAN / SmartLink), and an
+    IC-7300 and an IC-9700 on one RS-BA1 server (Tailscale). Today one
+    server = one radio; three servers work but cost 3x the CPU and their
+    login cookies clash (one cookie per host, not per port).
+    a. Radio profiles in the settings file: name, transport (Flex LAN /
+       SmartLink / Icom LAN / USB) with its address, user, password, LAN
+       radio (item 71), and per-profile extras - the amplifier (b), audio
+       device, CI-V address. The launcher edits the list; the CLI flags
+       still make a one-profile list as today.
+    b. The RF2K-S belongs to the Flex profile only: polled, woken and
+       shown (FUNC > AMP, the side-column amp section, top-bar AMP chip,
+       scope readout) only while that profile is the active radio. Today
+       --rfkit applies to whatever rig is connected - the 7300 log showed
+       the amp polled and "keyed" on every 7300 over.
+    c. Page: a RADIO menu (top bar / FUNC) listing the profiles, the active
+       one marked; picking one unkeys first (PTT, TUNE, digi TX stopped),
+       releases the rig (as --on-demand does) and connects the chosen one;
+       every browser follows, with a "switched to <radio> by <user>" line.
+       Guests cannot switch. Refused while another user is transmitting.
+    d. Per-profile state: NR choice, scope settings, band memory, last
+       frequency / mode come back with the radio; the logbook is shared,
+       each QSO keeps its own rig.
+    e. Same RS-BA1 server, other radio (7300 <-> 9700): one UDP session,
+       setCurrentRadio, no new login.
+    f. No radio connected until a browser is (user, 2026-11-05): the server
+       starts with no rig session at all - no Flex client, no RS-BA1
+       login, no amp polling. The first (non-guest) browser connects the
+       last radio used (remembered in the settings; the first profile on a
+       fresh install), or the page shows the RADIO menu if there is none.
+       The last browser leaving releases the rig after the --on-demand
+       grace (default 30 s), as today; a guest alone never connects one.
+       So the RADIO menu only switches while someone is on.
+    Tests: mock Flex + mock Icom LAN (two radios) in one server; switch
+    Flex -> 7300 -> 9700 -> Flex: no command reaches the old rig after the
+    switch, PTT never left keyed, amp messages only while the Flex is on,
+    the page's rigInfo follows.
+    Interim (no code): launch the 7300 / 9700 with the launcher's
+    amplifier field empty, so the amp is not polled for them.
+
 72. IC-7300 over RS-BA1: TUNE works, voice TX silent (user, 2026-11-05;
     small; diagnosis open). USB MOD level 50 %. FlexWeb sets DATA OFF MOD
     to USB on MIC (no LAN input on a 7300; RS-BA1's Remote Utility feeds
