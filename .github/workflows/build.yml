@@ -4,6 +4,12 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      platforms:
+        description: "windows = Windows + Ubuntu 24.04 amd64 (runs the tests); all = every platform"
+        type: choice
+        options: [windows, all]
+        default: windows
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -22,6 +28,10 @@ jobs:
           - os: ubuntu-24.04-arm
             arch: arm64
             deb_arch: arm64
+        # A manual run builds Windows and this job's amd64 leg (the tests)
+        # unless "all" is chosen; a release tag builds everything.
+        exclude:
+          - deb_arch: ${{ (github.event_name != 'workflow_dispatch' || inputs.platforms == 'all') && 'none' || 'arm64' }}
 
     name: Ubuntu 24.04 (${{ matrix.deb_arch }})
     runs-on: ${{ matrix.os }}
@@ -146,6 +156,7 @@ jobs:
           retention-days: 30
 
   build-linux-debian12:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' }}
     strategy:
       fail-fast: false
       matrix:
@@ -284,6 +295,7 @@ jobs:
           retention-days: 30
 
   build-linux-debian13:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' }}
     strategy:
       fail-fast: false
       matrix:
@@ -422,6 +434,7 @@ jobs:
           retention-days: 30
 
   build-linux-appimage:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' }}
     strategy:
       fail-fast: false
       matrix:
@@ -599,6 +612,7 @@ jobs:
           retention-days: 30
 
   build-macos:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' }}
     name: macOS (Apple Silicon)
     runs-on: macos-15
 
@@ -898,14 +912,16 @@ jobs:
     # this one as a failure, not as cancelled, so macOS is not required:
     # every other build (they run the same tests) must have passed, and the
     # Mac download stays on its last good version when there is no new one
-    # (overwrite only replaces the files given).
+    # (overwrite only replaces the files given). A Windows-only manual run
+    # (the default) skips the other platforms: their downloads stay on the
+    # last build that made them.
     if: >-
       always() &&
       (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') &&
       needs.build-linux-ubuntu2404.result == 'success' &&
-      needs.build-linux-debian12.result == 'success' &&
-      needs.build-linux-debian13.result == 'success' &&
-      needs.build-linux-appimage.result == 'success' &&
+      (needs.build-linux-debian12.result == 'success' || needs.build-linux-debian12.result == 'skipped') &&
+      (needs.build-linux-debian13.result == 'success' || needs.build-linux-debian13.result == 'skipped') &&
+      (needs.build-linux-appimage.result == 'success' || needs.build-linux-appimage.result == 'skipped') &&
       needs.build-windows.result == 'success'
     permissions:
       contents: write
