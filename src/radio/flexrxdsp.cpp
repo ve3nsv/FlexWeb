@@ -30,6 +30,7 @@ void flexRxDsp::applySettings(const Settings& s)
         stepUpWaitMs = kStepUpWaitMs;
         nr2Fallback = false;
         fallbackWaitMs = kStepUpWaitMs;
+        premiumLoad = 0.0;
     }
     chain.applyConfig(cfg);
     chain.setNnrStepDown(steppedDown);
@@ -49,6 +50,8 @@ void flexRxDsp::pause()
     rawLine.clear();
     bypass = false;
     lastActive = false;
+    loadEma = 0.0;                                     // measure afresh after the gap
+    runningSinceMs = QDateTime::currentMSecsSinceEpoch();
 }
 
 // The input delayed by the filter's latency, so raw and processed audio line
@@ -107,14 +110,24 @@ void flexRxDsp::process(QVector<float> samples, int rate, bool nnrWanted, qint64
             steppedDown = true;
             stepDownAtMs = now;
             const int load = int(std::lround(100.0 * loadEma));
+            premiumLoad = qMax(premiumLoad, loadEma);
             chain.setNnrStepDown(true);
             loadEma = 0.0;
-            qWarning(logRig()).noquote() << QString("Flex: NNR Premium too slow on this PC (%1 % of real time) - "
-                                                    "using Standard; Premium again in %2 s if there is room")
-                                                .arg(load).arg(stepUpWaitMs / 1000);
+            if (premiumLoad >= 1.0)
+                qWarning(logRig()).noquote() << QString("Flex: NNR Premium needs %1 % of real time on this PC - "
+                                                        "staying on Standard (choose Premium again to retry)").arg(load);
+            else
+                qWarning(logRig()).noquote() << QString("Flex: NNR Premium too slow on this PC (%1 % of real time) - "
+                                                        "using Standard; Premium again in %2 s if there is room")
+                                                    .arg(load).arg(stepUpWaitMs / 1000);
         }
         // ... and goes back up after a stable wait with room to spare.
+        // Not when Premium was measured slower than real time (it cannot run
+        // here), and not on the first blocks after a start or a TX gap, whose
+        // load says nothing yet (it stepped up at once after every over and
+        // put the audio behind, 1.0.110 on the operator's PC).
         if (nnr && steppedDown && cfg.model == 1 && now - stepDownAtMs >= stepUpWaitMs
+            && premiumLoad < 1.0 && now - runningSinceMs > 10000
             && loadEma > 0.0 && loadEma < kStepUpLoad && behind < kCaughtUpMs) {
             steppedDown = false;
             stepUpAtMs = now;
@@ -122,10 +135,12 @@ void flexRxDsp::process(QVector<float> samples, int rate, bool nnrWanted, qint64
             loadEma = 0.0;
             qInfo(logRig()) << "Flex: NNR back to Premium";
         }
-        // 2. Standard that cannot keep up either: NR2 takes over (a few
-        //    seconds of measuring first - the first blocks are slow).
+        // 2. Standard that cannot keep up either: NR2 takes over. Only when
+        //    the audio really falls behind - a load spike alone is not it
+        //    (Standard averaging 43 % handed over on a burst, 1.0.110) - and
+        //    not on the first blocks after a start or a TX gap.
         if (nnr && chain.nnrModelInUse() == 0 && now - runningSinceMs > 3000
-            && (loadEma > 0.85 || (behind > kBehindMs && loadEma > kStepDownLoad))) {
+            && behind > kBehindMs && loadEma > kStepDownLoad) {
             if (fallbackEndAtMs && now - fallbackEndAtMs < 120000)
                 fallbackWaitMs = qMin(fallbackWaitMs * 2, kStepUpWaitMaxMs);
             else if (fallbackEndAtMs && now - fallbackEndAtMs > 600000)
@@ -159,6 +174,7 @@ void flexRxDsp::process(QVector<float> samples, int rate, bool nnrWanted, qint64
             if (behind < kCaughtUpMs) {
                 bypass = false;
                 chain.reset();       // stale state: runs unheard for its latency, then fades in
+                runningSinceMs = now;
                 qInfo(logRig()).noquote() << QString("Flex: %1 caught up").arg(rxNr::name(kind));
             }
             samples = raw;
