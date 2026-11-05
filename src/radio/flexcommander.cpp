@@ -1161,15 +1161,7 @@ void flexCommander::nnrApply()
 {
     // The filter lives on the RX DSP thread (punch list 52): post the settings.
     if (!rxDsp) return;
-    flexRxDsp::Settings st;
-    st.strength = nnrCfg.strength;
-    st.model = nnrCfg.model;
-    st.alpha = nnrCfg.alpha;
-    st.knee = nnrCfg.knee;
-    st.tau = nnrCfg.tau;
-    st.maxGain = nnrCfg.maxGain;
-    st.attack = nnrCfg.attack;
-    st.release = nnrCfg.release;
+    const rxNrConfig st = nnrCfg;
     QMetaObject::invokeMethod(rxDsp, [w = rxDsp, st]() { w->applySettings(st); }, Qt::QueuedConnection);
 }
 
@@ -1218,53 +1210,13 @@ void flexCommander::stopRxDsp()
     rxDspThread = nullptr;
 }
 
-static QSettings* nnrStore()
-{
-    const QString dir = qEnvironmentVariable("WFWEB_CONFIG_DIR");
-    return dir.isEmpty() ? new QSettings("wfweb", "nnr") : new QSettings(dir + "/nnr.ini", QSettings::IniFormat);
-}
+void flexCommander::nnrLoad() { nnrCfg.load(); }
 
-void flexCommander::nnrLoad()
-{
-    std::unique_ptr<QSettings> s(nnrStore());
-    nnrCfg.on = s->value("on", 0).toInt();
-    nnrCfg.strength = s->value("strength", 38).toInt();
-    nnrCfg.model = s->value("model", 0).toInt();
-    nnrCfg.alpha = s->value("alpha", 100).toInt();
-    nnrCfg.knee = s->value("knee", 100).toInt();
-    nnrCfg.tau = s->value("tau", 200).toInt();
-    nnrCfg.maxGain = s->value("maxGain", 120).toInt();
-    nnrCfg.attack = s->value("attack", 0).toInt();
-    nnrCfg.release = s->value("release", 0).toInt();
-}
-
-void flexCommander::nnrSave()
-{
-    std::unique_ptr<QSettings> s(nnrStore());
-    s->setValue("on", nnrCfg.on);
-    s->setValue("strength", nnrCfg.strength);
-    s->setValue("model", nnrCfg.model);
-    s->setValue("alpha", nnrCfg.alpha);
-    s->setValue("knee", nnrCfg.knee);
-    s->setValue("tau", nnrCfg.tau);
-    s->setValue("maxGain", nnrCfg.maxGain);
-    s->setValue("attack", nnrCfg.attack);
-    s->setValue("release", nnrCfg.release);
-}
+void flexCommander::nnrSave() { nnrCfg.save(); }
 
 bool flexCommander::setNnr(const QString& key, int value)
 {
-    if (key == "nnr") nnrCfg.on = value ? 1 : 0;
-    else if (key == "nnrStrength") nnrCfg.strength = qBound(0, value, 100);
-    else if (key == "nnrModel") nnrCfg.model = qBound(0, value, 1);
-    else if (key == "nnrAlpha") nnrCfg.alpha = qBound(0, value, 400);
-    else if (key == "nnrKnee") nnrCfg.knee = qBound(0, value, 400);
-    else if (key == "nnrTau") nnrCfg.tau = qBound(5, value, 3000);
-    else if (key == "nnrMaxGain") nnrCfg.maxGain = qBound(0, value, 240);
-    else if (key == "nnrAttack") nnrCfg.attack = qBound(0, value, 500);
-    else if (key == "nnrRelease") nnrCfg.release = qBound(0, value, 500);
-    else if (key == "nnrReset") { const int on = nnrCfg.on, model = nnrCfg.model; nnrCfg = nnrSettings(); nnrCfg.on = on; nnrCfg.model = model; }
-    else return false;
+    if (!nnrCfg.set(key, value)) return false;
     nnrApply();
     nnrSave();
     publishDsp();
@@ -1809,7 +1761,7 @@ void flexCommander::handleRxAudio(const QByteArray& d, const vitaPacket& p)
     // hands the block over, in order, stamped so an overloaded NNR passes
     // audio through instead of falling behind.
     const bool nnrWanted = nnrCfg.on && nnrModeOk() && !transmitting && !nnrHold
-                           && nnrFilter::rateSupported(int(outRate));
+                           && rxNr::rateOk(nnrCfg.kind, int(outRate));
     ensureRxDsp();
     out.resize(int(outLen));
     const qint64 queuedAt = QDateTime::currentMSecsSinceEpoch();
@@ -2911,16 +2863,8 @@ void flexCommander::publishDsp()
             st["panFree"] = panFree;
             for (auto it = extra.constBegin(); it != extra.constEnd(); ++it)
                 st[it.key()] = it.value();
-            st["nnr"] = nnrCfg.on;
-            st["nnrStrength"] = nnrCfg.strength;
-            st["nnrModel"] = nnrCfg.model;
+            nnrCfg.toJson(st);
             st["nnrModelInUse"] = nnrDelayMs > 0 ? nnrModelInUse : nnrCfg.model;
-            st["nnrAlpha"] = nnrCfg.alpha;
-            st["nnrKnee"] = nnrCfg.knee;
-            st["nnrTau"] = nnrCfg.tau;
-            st["nnrMaxGain"] = nnrCfg.maxGain;
-            st["nnrAttack"] = nnrCfg.attack;
-            st["nnrRelease"] = nnrCfg.release;
             st["nnrActive"] = nnrWasActive;
             st["nnrDelayMs"] = nnrDelayMs;
             st["nnrStepDown"] = nnrSteppedDown;

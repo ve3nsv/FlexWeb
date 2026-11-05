@@ -1,19 +1,20 @@
 #pragma once
 
-// NNR for every radio (punch list 19d): the same neural noise reduction the
-// Flex runs in flexCommander::handleRxAudio, applied by webServer to the RX
-// audio of any other radio (USB sound card or LAN) before it goes to the
-// browsers. Settings are shared with the Flex (QSettings "wfweb" / "nnr", or
-// nnr.ini under WFWEB_CONFIG_DIR) and use the page's flexDsp keys (nnr,
-// nnrStrength, ...), so the same NNR panel drives both.
+// Receive noise reduction for every radio other than the Flex (punch list
+// 19d, 59): NNR or NR2, as the Flex runs them on flexRxDsp, applied by
+// webServer to the RX audio of any other radio (USB sound card or LAN) before
+// it goes to the browsers. Settings are shared with the Flex (rxNrConfig:
+// QSettings "wfweb" / "nnr", or nnr.ini under WFWEB_CONFIG_DIR) and use the
+// page's keys (nnr, nrKind, nnrStrength, nr2..., ...), so the same panel
+// drives both. Switching on, off or between kinds goes through rxNrChain
+// (no gap, no click).
 //
 // Pure Qt5Core.
 
 #include <QJsonObject>
 #include <QString>
-#include <memory>
 
-class nnrFilter;
+#include "rxnr.h"
 
 class nnrStage
 {
@@ -21,27 +22,20 @@ public:
     nnrStage();
     ~nnrStage();
 
-    // A page setting (flexDsp key "nnr*"); true when it was one.
+    // A page key; false if it is not one of ours.
     bool set(const QString& key, int value);
 
-    // In place on mono int16 PCM at `rate`. `allowed`: a voice mode and not
-    // transmitting. Returns true when the active state changed (the page's
-    // NNR status needs a refresh).
+    // 16-bit mono PCM in place. `allowed`: voice mode and not transmitting.
+    // Returns true when the reducer went on or off (the page is told).
     bool process(QByteArray& pcm, int rate, bool allowed);
 
     bool on() const { return cfg.on != 0; }
     bool active() const { return wasActive; }
     float gain() const;
-    // The flexDsp-style fields the page's NNR panel reads.
     QJsonObject state() const;
 
 private:
-    struct settings { int on = 0, strength = 38, model = 0, alpha = 100, knee = 100, tau = 200,
-                      maxGain = 120, attack = 0, release = 0; } cfg;
-    std::unique_ptr<nnrFilter> f;
-    int modelInUse = 0;
+    rxNrConfig cfg;
+    rxNrChain chain;
     bool wasActive = false;
-    void apply();
-    void load();
-    void save();
 };

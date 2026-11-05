@@ -256,6 +256,7 @@ body.ae-desktop #applets {
 .ae-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .ae-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .ae-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ae-grid-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .ae-key {
     min-height: 28px; padding: 4px 2px; border-radius: 3px; cursor: pointer;
     background: var(--ae-ground); border: 1px solid var(--ae-panel-hi); color: var(--ae-text);

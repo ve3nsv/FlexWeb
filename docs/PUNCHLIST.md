@@ -1469,6 +1469,21 @@ TUNE state after a mock radio reconnect matches the radio.
     of the item 57 ladder (after Standard, before pass-through).
     Tests: NR2 on lowers a noise-only stub's level; switching NNR -> NR2 ->
     off leaves no gap or click; the log line gives its load.
+    Done (2026-11-05): ported from AetherSDR's SpectralNR (its C++ port of
+    emnr.c) rather than emnr.c itself, with its own radix-2 FFT, so no
+    fftw_shim change. Delay is one FFT frame, 43 ms at any rate (1024 at
+    24 kHz, scaled), not the 10-20 ms first estimated. include/rxnr.h is
+    the shared reducer interface (rxDenoiser), settings (rxNrConfig, still
+    QSettings "wfweb"/"nnr", new keys nrKind + nr2*) and rxNrChain, which
+    switches gap-free: the new reducer warms up unheard, one block is
+    crossfaded, off fades into the plain audio, and a reducer switched off
+    (TX, CW) is parked and comes back with its noise estimate. flexRxDsp
+    and nnrStage (non-Flex rigs) both run the chain. Page: the NR overlay
+    has NNR / NR2 (one at a time, the lit one turns it off) and AetherSDR's
+    NR2 controls; RX applet NNR + NR2 keys. Not yet a step of the item 57
+    ladder (NR2 is selected, not fallen back to). Tests:
+    tests/test_rxnr.py (noise down ~28 dB, speech kept, switching has no
+    gap or click, parked reuse), tests/test_flex.py test_nr2.
 60. RN2, RNNoise (user, 2026-10-29; small-medium). Xiph RNNoise (BSD), the
     recurrent-network voice denoiser. 48 kHz only, 480-sample (10 ms)
     frames: resample the Flex audio up and back if it is not 48 kHz
@@ -1506,6 +1521,8 @@ TUNE state after a mock radio reconnect matches the radio.
        closer, the room given to the waterfall.
     Check: render at 390 x 844 and 360 x 780 with the amp configured,
     nothing clipped or overlapping; the wizard still appears past S9.
+    Confirmed on the phone (user, 2026-11-05, 1.0.105): c looks right; the
+    wizard did not appear because the signal was S7, below S9.
 63. TUNE beside MOX (user, 2026-10-31; small; wizard-look branch). The
     wizard look moved TUNE from the bottom bar into TX CONTROLS; put it
     back in the bottom bar immediately left of MOX (desktop) and left of
@@ -1568,4 +1585,22 @@ TUNE state after a mock radio reconnect matches the radio.
     nothing (no side column): make it open the FUNC menu there.
     Check: 1000, 1100, 1320, 1920 px, side hidden: scope, VFO and meter
     panels reach the right edge; shown again: column back.
+
+68. FT8 TX audio ignores the receive audio controls (user, 2026-11-05;
+    small; both branches). While FT8 / FT4 transmits (also JS8 and SSTV:
+    every streamDigiAudio caller) the page plays its own copy of the
+    generated tones as a local monitor at a fixed level (monGain 0.025,
+    straight to the speakers from digiTxCtx), so VOL, MUTE and AF do not
+    change or silence it. Make it follow them like the receive audio:
+    a. Level = the fixed base x rxVolumeGain() (VOL squared, 0 when MUTE)
+       x the rig's AF level (afGain / AF slider, as the receive audio is
+       scaled by it), so it sounds at the same relative level as RX.
+    b. Live: a VOL / MUTE / AF change during the over adjusts the playing
+       monitor at once (keep the gain node, setTargetAtTime as
+       setRxVolume does), not only the next over.
+    c. MUTE silences it; VOL 0 / AF 0 too. The transmitted audio itself is
+       untouched (the monitor is a local copy only).
+    Tests: a page check that the monitor gain follows VOL, MUTE and AF
+    before and during a digi TX (the fake AudioContext pattern of
+    tests/cw_keyer_sim.mjs).
 

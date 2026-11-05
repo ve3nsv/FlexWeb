@@ -21,6 +21,7 @@
 
 #include "rigcommander.h"
 #include "flexprotocol.h"
+#include "rxnr.h"
 
 #include <QTcpSocket>
 #include <QSslSocket>
@@ -325,11 +326,9 @@ private:
     // Radio settings the page shows as they are (levels, CW, tune, limits,
     // XIT, WNB, TNF): page key -> value, published in flexDsp.
     QMap<QString, int> extra;
-    // NNR (neural noise reduction) on the RX audio; settings kept in
-    // QSettings("wfweb", "nnr"). Fixed-point for the page: alpha x100,
-    // knee x10, tau x100, max gain x10, attack / release in ms.
-    struct nnrSettings { int on = 0, strength = 38, model = 0, alpha = 100, knee = 100, tau = 200,
-                         maxGain = 120, attack = 0, release = 0; } nnrCfg;
+    // Receive noise reduction (NNR / NR2, rxnr.h) on the RX audio; settings
+    // kept in QSettings("wfweb", "nnr"), shared with nnrStage.
+    rxNrConfig nnrCfg;
     // The filter runs on rxDsp's own thread (punch list 52, flexrxdsp.h);
     // these mirror what it reports (nnrState).
     int nnrModelInUse = 0;

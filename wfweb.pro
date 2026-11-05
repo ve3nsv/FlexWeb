@@ -370,6 +370,8 @@ SOURCES += \
     src/radio/flexrxdsp.cpp \
     src/nnrfilter.cpp \
     src/nnrstage.cpp \
+    src/rxnr.cpp \
+    src/dsp/spectralnr.cpp \
     src/radio/smartlinkclient.cpp \
     src/webauth.cpp \
     src/calllookup.cpp \
@@ -459,6 +461,8 @@ HEADERS  += \
     include/flexrxdsp.h \
     include/nnrfilter.h \
     include/nnrstage.h \
+    include/rxnr.h \
+    include/dsp/spectralnr.h \
     include/smartlinkclient.h \
     include/webauth.h \
     include/calllookup.h \

@@ -28,16 +28,13 @@
 #include <memory>
 
 #include "audioconverter.h"
-#include "nnrfilter.h"
+#include "rxnr.h"
 
 class flexRxDsp : public QObject
 {
     Q_OBJECT
 public:
-    struct Settings {
-        int strength = 38, model = 0, alpha = 100, knee = 100, tau = 200,
-            maxGain = 120, attack = 0, release = 0;
-    };
+    using Settings = rxNrConfig;
     explicit flexRxDsp(const QByteArray& guid, QObject* parent = nullptr);
     ~flexRxDsp() override;
 
@@ -68,15 +65,14 @@ signals:
     void nnrFailed(int rate);
 
 private:
-    void applyToFilter();
-    void setModelInUse(int model);
     QVector<float> delayedRaw(const QVector<float>& in);
     void logLoad(qint64 now);
 
     QByteArray guid;
     Settings cfg;
-    std::unique_ptr<nnrFilter> filter;
-    int modelInUse = 0;
+    rxNrChain chain;          // NNR / NR2, switched without a gap (rxnr.h)
+    int lastKind = -1;
+    bool failReported = false;
     qint64 gainAt = 0;
     bool lastActive = false;
     int lastModel = -1, lastDelay = -1;
@@ -95,9 +91,6 @@ private:
 
     // Bypass with a latency-aligned raw path and crossfades.
     bool bypass = false;
-    int warmupLeft = 0;          // samples NNR runs unheard after a bypass
-    bool fadeToNnr = false;      // next processed block fades raw -> NNR
-    bool rewarm = false;         // NNR was paused: warm up unheard before it is heard
     QVector<float> rawLine;      // the last `delay` samples of input
 };
 
