@@ -7415,41 +7415,67 @@ function wzApplyLook() {
 // Punch list 62a / 65: fit the top bar by width (levels in wizard.css), never
 // by squeezing or an ellipsis. Re-run when its content or the window changes.
 var WZ_FIT_LEVELS = 12;
-function wzFitTopBar() {
+function wzFitTopBar(shrinkOnly) {
+    // Sheds text by levels (wz-f1..) until the bar fits. A live value
+    // (amp FWD, CPU, the TX label) changing width may only shed more
+    // (shrinkOnly): re-growing on every reading made labels pop in and out
+    // on the air and cost a dozen reflows per message. A full refit (resize,
+    // a key shown or hidden, a second without new readings) gives levels back.
     var bar = document.getElementById('topBar');
     if (!bar) return;
     var on = wzLook && !aeClassic;
-    for (var i = 1; i <= WZ_FIT_LEVELS; i++) bar.classList.remove('wz-f' + i);
-    updateClock();
-    if (on) {
-        for (var lvl = 1; lvl <= WZ_FIT_LEVELS && bar.scrollWidth > bar.clientWidth + 1; lvl++) {
-            bar.classList.add('wz-f' + lvl);
-            if (lvl === 3) updateClock();
+    var cur = 0;
+    for (var i = 1; i <= WZ_FIT_LEVELS; i++) if (bar.classList.contains('wz-f' + i)) cur = i;
+    var over = function () { return bar.scrollWidth > bar.clientWidth + 1; };
+    if (!on) {
+        for (var j = 1; j <= cur; j++) bar.classList.remove('wz-f' + j);
+    } else if (shrinkOnly) {
+        for (var k = cur + 1; k <= WZ_FIT_LEVELS && over(); k++) {
+            bar.classList.add('wz-f' + k);
+            if (k === 3) updateClock();
         }
+    } else {
+        for (var m = 1; m <= cur; m++) bar.classList.remove('wz-f' + m);
+        updateClock();
+        var lvl = 0;
+        while (lvl < WZ_FIT_LEVELS && over()) { lvl++; bar.classList.add('wz-f' + lvl); if (lvl === 3) updateClock(); }
     }
     if (wzFitObs) wzFitObs.takeRecords();   // our own changes are not a reason to refit
 }
-var wzFitObs = null, wzFitQueued = false;
-function wzFitSoon() {
-    if (wzFitQueued) return;
-    wzFitQueued = true;
-    requestAnimationFrame(function () { wzFitQueued = false; wzFitTopBar(); });
+var wzFitObs = null, wzFitQueued = 0, wzFitFullTimer = 0;
+function wzFitSoon(shrinkOnly) {
+    // 2 = full refit wanted, 1 = shrink only; the strongest request wins.
+    var want = shrinkOnly ? 1 : 2;
+    if (wzFitQueued >= want) return;
+    var first = !wzFitQueued;
+    wzFitQueued = want;
+    if (first) requestAnimationFrame(function () { var w = wzFitQueued; wzFitQueued = 0; wzFitTopBar(w === 1); });
 }
 (function () {
     var bar = document.getElementById('topBar');
     if (!bar || typeof MutationObserver === 'undefined') return;
     wzFitObs = new MutationObserver(function (recs) {
-        // The clock's own tick is not a content change worth a refit.
+        var live = false;
         for (var i = 0; i < recs.length; i++) {
             var t = recs[i].target, el = t.nodeType === 1 ? t : t.parentNode;
             if (recs[i].type === 'attributes' && t === bar) continue;
-            if (el && el.id === 'clock') continue;
-            wzFitSoon(); return;
+            if (el && el.id === 'clock') continue;     // the clock's own tick
+            if (recs[i].type === 'attributes') {
+                // a key shown / hidden / restyled - not a class removed and put back
+                if (t.getAttribute(recs[i].attributeName) === recs[i].oldValue) continue;
+                wzFitSoon(false); return;
+            }
+            live = true;                                // text: a reading changed
         }
+        if (!live) return;
+        wzFitSoon(true);
+        // give a level back once the readings have been quiet for a second
+        clearTimeout(wzFitFullTimer);
+        wzFitFullTimer = setTimeout(function () { wzFitSoon(false); }, 1000);
     });
     wzFitObs.observe(bar, { childList: true, characterData: true, subtree: true, attributes: true,
-                            attributeFilter: ['hidden', 'class', 'style'] });
-    window.addEventListener('resize', wzFitSoon);
+                            attributeOldValue: true, attributeFilter: ['hidden', 'class', 'style'] });
+    window.addEventListener('resize', function () { wzFitSoon(false); });
 })();
 
 // Punch list 65: a key or name too wide for its box shows a shorter form
