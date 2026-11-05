@@ -1177,10 +1177,11 @@ void flexCommander::ensureRxDsp()
     // Emitted on the worker's thread; the receivers (web server) get them queued.
     connect(rxDsp, &flexRxDsp::audio, this, &flexCommander::haveAudioData, Qt::DirectConnection);
     connect(rxDsp, &flexRxDsp::nnrGain, this, &flexCommander::flexNnrGain, Qt::DirectConnection);
-    connect(rxDsp, &flexRxDsp::nnrState, this, [this](bool active, int model, int delayMs, bool steppedDown) {
+    connect(rxDsp, &flexRxDsp::nnrState, this, [this](bool active, int model, int delayMs, bool steppedDown, bool onNr2) {
         nnrModelInUse = model;
         nnrDelayMs = delayMs;
         nnrSteppedDown = steppedDown;
+        nnrOnNr2 = onNr2;
         if (nnrWasActive != active) {
             nnrWasActive = active;
             if (!active) emit flexNnrGain(1.0f, false);
@@ -2868,6 +2869,7 @@ void flexCommander::publishDsp()
             st["nnrActive"] = nnrWasActive;
             st["nnrDelayMs"] = nnrDelayMs;
             st["nnrStepDown"] = nnrSteppedDown;
+            st["nnrOnNr2"] = nnrOnNr2;
             QJsonArray tl;
             for (const QJsonObject& t : tnfs) tl.append(t);
             st["tnfs"] = tl;
@@ -3099,7 +3101,7 @@ void flexCommander::flexMemoryCommand(QString action, int id, QJsonObject fields
     // a blank field is the radio's default already and is not sent; on an
     // edit, blank clears it with a single space (0x7F).
     auto setFields = [this, text, fields](int mem, bool creating) {
-        for (const QString key : {QStringLiteral("name"), QStringLiteral("group")}) {
+        for (const QString& key : {QStringLiteral("name"), QStringLiteral("group")}) {
             if (!fields.contains(key)) continue;
             QString v = text(fields.value(key).toString());
             if (v.isEmpty()) {

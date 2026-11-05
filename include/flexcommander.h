@@ -334,6 +334,7 @@ private:
     int nnrModelInUse = 0;
     int nnrDelayMs = 0;
     bool nnrSteppedDown = false;    // Premium stepped down to Standard for load (punch list 57)
+    bool nnrOnNr2 = false;          // NNR handed over to NR2 for load (punch list 59)
     bool nnrWasActive = false;
     QThread* rxDspThread = nullptr;
     flexRxDsp* rxDsp = nullptr;

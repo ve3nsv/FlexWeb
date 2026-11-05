@@ -17,7 +17,10 @@
 //   1. Premium that cannot keep up (measured load, not a scheduling hiccup)
 //      steps down to Standard - NNR stays on - and steps back up after a
 //      stable minute (the wait doubles after a quick relapse, up to 10 min).
-//   2. Only past kBypassMs behind does audio pass through unprocessed, with
+//   2. Standard that still cannot keep up hands over to NR2 (WDSP spectral,
+//      a fraction of the CPU; crossfaded by rxNrChain) and NNR is tried
+//      again after the same doubling wait (punch list 59).
+//   3. Only past kBypassMs behind does audio pass through unprocessed, with
 //      the raw path delayed by the filter's own latency and a crossfade in
 //      and out, so it is neither a jump in time nor a click.
 // Every 10 s the log gives NNR's load (CPU time per second of audio).
@@ -60,7 +63,7 @@ signals:
     void nnrGain(float gain, bool active);
     // NNR running or not, the model actually in use, its delay, and whether
     // Premium was stepped down to Standard for load; sent on change.
-    void nnrState(bool active, int modelInUse, int delayMs, bool steppedDown);
+    void nnrState(bool active, int modelInUse, int delayMs, bool steppedDown, bool onNr2);
     // The filter could not start at this rate: flexCommander turns NNR off.
     void nnrFailed(int rate);
 
@@ -76,7 +79,7 @@ private:
     qint64 gainAt = 0;
     bool lastActive = false;
     int lastModel = -1, lastDelay = -1;
-    bool lastStepped = false;
+    bool lastStepped = false, lastNr2 = false;
 
     // Load: CPU time of filter->process over the audio it covered.
     double loadEma = 0.0;
@@ -88,6 +91,11 @@ private:
     bool steppedDown = false;
     qint64 stepDownAtMs = 0, stepUpAtMs = 0;
     qint64 stepUpWaitMs = kStepUpWaitMs;
+    // Rung 2: NNR handed over to NR2 for load.
+    bool nr2Fallback = false;
+    qint64 fallbackAtMs = 0, fallbackEndAtMs = 0;
+    qint64 fallbackWaitMs = kStepUpWaitMs;
+    qint64 runningSinceMs = 0;   // this kind / rate started (the load needs a few seconds)
 
     // Bypass with a latency-aligned raw path and crossfades.
     bool bypass = false;

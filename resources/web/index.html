@@ -5345,7 +5345,7 @@ function initSliderTracking() {
             document.getElementById(name + 'Val').textContent = toPercent(val, 255);
             var fill = document.getElementById(name.replace(/([A-Z])/g, function(m) { return m; }) + 'Fill');
             if (fill) fill.style.width = (val / 255 * 100) + '%';
-            if (name === 'afGain') throttledSend('afGain', 'setAfGain', val);
+            if (name === 'afGain') { throttledSend('afGain', 'setAfGain', val); digiMonUpdate(); }
             else if (name === 'rfGain') { throttledSend('rfGain', 'setRfGain', val); updateRfGainIndicator(val); }
             else if (name === 'rfPower') throttledSend('rfPower', 'setRfPower', val);
             else if (name === 'squelch') throttledSend('squelch', 'setSquelch', val);
@@ -5446,6 +5446,7 @@ function updateSlider(name, val) {
     var slider = document.getElementById(name + 'Slider');
     var valSpan = document.getElementById(name + 'Val');
     if (slider) slider.value = val;
+    if (name === 'afGain') digiMonUpdate();
     // Filter window values have their own displays (and the FIL tile in the
     // FUNC grid carries the width).
     if (name === 'filterWidth') {
@@ -6348,6 +6349,7 @@ function renderNnrOverlay() {
     m.innerHTML = '<span class="nnr-k">METHOD</span> <b>' + (d.nnr
         ? (kind === 1
             ? 'NR2 \u00b7 ' + ['Linear', 'Log', 'Gamma', 'Trained'][d.nr2Method || 0] + ' / ' + ['OSMS', 'MMSE', 'NSTAT'][d.nr2Npe || 0]
+            : d.nnrOnNr2 ? 'NR2 for now \u00b7 NNR too slow on the server, back when there is room'
             : 'NNR \u00b7 ' + (d.nnrModelInUse ? 'Premium' : 'Standard')
               + (d.nnrStepDown ? ' (Premium too slow on the server, back when there is room)' : '')
               + ' \u00b7 floor ' + d.nnrStrength)
@@ -8354,7 +8356,7 @@ function renderFuncOverlay() {
     var nnrF = nnrObj();
     if (nnrF && nnrF.nnr !== undefined)
         grid.appendChild(makeFuncBtn('NR', !nnrF.nnr ? 'OFF' : nrKindOf(nnrF) === 1 ? 'NR2'
-            : 'NNR ' + (nnrF.nnrModel ? 'PREM' : 'STD'), !!nnrF.nnr, function() { togglePanel('nnr'); }));
+            : nnrF.nnrOnNr2 ? 'NNR\u2192NR2' : 'NNR ' + (nnrF.nnrModel ? 'PREM' : 'STD'), !!nnrF.nnr, function() { togglePanel('nnr'); }));
 
     // FIL opens the FILTER window (FIL1/2/3, width, twin PBT, shape) the way
     // DUP and TONE open theirs; the tile carries the passband it's set to.
@@ -11035,6 +11037,28 @@ var rxVolume = (function() {
 // next tap brings back the same level. Not saved: a reload is never silent.
 var rxMuted = false;
 function rxVolumeGain() { if (rxMuted) return 0; var f = rxVolume / 100; return f * f; }
+// Punch list 68: the local monitor of digital TX audio (FT8 / FT4, JS8,
+// SSTV, TUNE tone) follows VOL, MUTE and AF like the receive audio. 0.025 at
+// AF 50 % and VOL 100 %, the level it always had; its gain nodes are kept so
+// a change during the over applies at once. The transmitted audio is not
+// touched.
+var digiMonGains = [];
+function digiMonLevel() {
+    var af = document.getElementById('afGainSlider');
+    var a = af ? (parseInt(af.value, 10) || 0) / 255 : 0.5;
+    return 0.05 * a * rxVolumeGain();
+}
+function digiMonGainNode(ctx) {
+    var g = ctx.createGain();
+    g.gain.value = digiMonLevel();
+    digiMonGains.push(g);
+    return g;
+}
+function digiMonRelease(g) { var i = digiMonGains.indexOf(g); if (i >= 0) digiMonGains.splice(i, 1); }
+function digiMonUpdate() {
+    var v = digiMonLevel();
+    digiMonGains.forEach(function (g) { try { g.gain.setTargetAtTime(v, g.context.currentTime, 0.01); } catch (e) {} });
+}
 function setRxMuted(on) {
     rxMuted = !!on;
     setRxVolume(rxVolume, false);
@@ -11043,6 +11067,7 @@ function setRxVolume(pct, save) {
     rxVolume = Math.max(0, Math.min(100, Math.round(pct) || 0));
     if (audioGainNode && audioCtx) audioGainNode.gain.setTargetAtTime(rxVolumeGain(), audioCtx.currentTime, 0.01);
     if (window.cwSidetone) cwSidetone.gainChanged();
+    digiMonUpdate();
     var text = rxVolume ? rxVolume + '%' : 'MUTE';
     document.querySelectorAll('.rx-mute-btn').forEach(function(b) { b.classList.toggle('on', rxMuted); b.textContent = rxMuted ? 'MUTED' : 'MUTE'; });
     document.querySelectorAll('.rx-vol-slider').forEach(function(s) { if (parseInt(s.value, 10) !== rxVolume) s.value = rxVolume; });
@@ -16003,6 +16028,7 @@ function stopDigiTune() {
     if (digiTuneNode) {
         digiTuneNode.port.postMessage('stop');
         digiTuneNode.disconnect();
+        if (digiTuneNode._monGain) digiMonRelease(digiTuneNode._monGain);
         digiTuneNode = null;
     }
     send({ cmd: 'setPTT', value: false });
@@ -16106,13 +16132,14 @@ function startDigiTune(overrideFreq) {
         });
         // Sidetone: route through a low-volume gain node to speakers
         // (same level as regular FT8/FT4 TX monitor)
-        var monGain = txCtx.createGain();
-        monGain.gain.value = 0.025;
+        var monGain = digiMonGainNode(txCtx);
+        node._monGain = monGain;
         node.connect(monGain);
         monGain.connect(txCtx.destination);
         node.port.onmessage = function(e) {
             if (!digiTuneActive) {
                 node.disconnect();
+                digiMonRelease(monGain);
                 return;
             }
             sendTuneChunk(e.data);
@@ -16188,12 +16215,12 @@ function streamDigiAudio(samples12k, onDone, onFirstChunk) {
             monBuf.copyToChannel(samples12k, 0);
             monSrc = txCtx.createBufferSource();
             monSrc.buffer = monBuf;
-            var monGain = txCtx.createGain();
-            monGain.gain.value = 0.025;
+            var monGain = digiMonGainNode(txCtx);
             monSrc.connect(monGain);
             monGain.connect(txCtx.destination);
             digiMonitorSrc = monSrc;
             monSrc.onended = function () {
+                digiMonRelease(monGain);
                 if (digiMonitorSrc === monSrc) digiMonitorSrc = null;
             };
             // Started with PTT (sendInt16Chunk), not with the first audio
@@ -16206,6 +16233,7 @@ function streamDigiAudio(samples12k, onDone, onFirstChunk) {
     function stopSidetone() {
         if (!monSrc) return;
         try { monSrc.stop(); } catch (e) {}
+        if (monGain) digiMonRelease(monGain);   // also when it never started (no onended)
         if (digiMonitorSrc === monSrc) digiMonitorSrc = null;
         monSrc = null;
     }
