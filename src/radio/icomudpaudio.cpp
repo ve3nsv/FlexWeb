@@ -94,8 +94,8 @@ void icomUdpAudio::sendTxAudio()
 }
 
 void icomUdpAudio::receiveAudioData(audioPacket audio) {
-    // I really can't see how this could be possible but a quick sanity check!
-    if (txaudio == Q_NULLPTR) {
+    // No TX on this stream (the server offered none), or no source: drop.
+    if (!enableTx || (txaudio == Q_NULLPTR && !txSetup.externalTx)) {
         return;
     }
     if (audio.data.length() > 0) {
@@ -260,7 +260,10 @@ void icomUdpAudio::startAudio() {
     connect(pingTimer, &QTimer::timeout, this, &icomUdpBase::sendPing);
     pingTimer->start(PING_PERIOD); // send ping packets every 100ms
 
-    if (enableTx) {
+    if (enableTx && txSetup.externalTx) {
+        qInfo(logUdp()) << "icomUdpAudio: TX audio from the web server (no local capture device)";
+    }
+    else if (enableTx) {
         if (txSetup.type == qtAudio) {
             txaudio = new audioHandlerQtInput();
         }
