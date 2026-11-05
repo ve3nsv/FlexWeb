@@ -462,6 +462,7 @@ HEADERS  += \
     include/nnrfilter.h \
     include/nnrstage.h \
     include/rxnr.h \
+    include/lanhost.h \
     include/dsp/spectralnr.h \
     include/smartlinkclient.h \
     include/webauth.h \

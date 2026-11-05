@@ -3,6 +3,7 @@
 #include "commhandler.h"
 #include "rigidentities.h"
 #include "logcategories.h"
+#include "lanhost.h"
 #include "rigctld.h"
 #include <QNetworkInterface>
 #include <QHostInfo>
@@ -1036,6 +1037,25 @@ void servermain::loadSettings()
 
 }
 
+// The LAN address as typed (launcher field, settings file, --lan): a pasted
+// "--lan host", a URL or a trailing slash made it an "Invalid hostname".
+// A ":port" there is used as the control port unless one was given.
+void servermain::tidyLanHost()
+{
+    if (!prefs.enableLAN || udpPrefs.ipAddress.isEmpty()) return;
+    int port = 0;
+    QStringList changes;
+    const QString clean = cleanLanHost(udpPrefs.ipAddress, &port, &changes);
+    if (changes.isEmpty()) return;
+    qWarning(logSystem()).noquote() << QString("LAN address \"%1\" taken as \"%2\" (a host name or IP address only; %3 removed)")
+        .arg(udpPrefs.ipAddress, clean, changes.join(", "));
+    udpPrefs.ipAddress = clean;
+    if (port > 0 && port < 65536 && cliOverrides.controlPort <= 0) {
+        udpPrefs.controlLANPort = port;
+        qWarning(logSystem()).noquote() << QString("LAN control port %1 (from the address)").arg(port);
+    }
+}
+
 void servermain::applyCLIOverrides()
 {
     // --lan <ip> enables LAN mode and sets IP
@@ -1052,6 +1072,7 @@ void servermain::applyCLIOverrides()
         }
         udpPrefs.ipAddress = cliOverrides.lanIP;
     }
+    tidyLanHost();
 
     // LAN port overrides
     if (cliOverrides.controlPort > 0)

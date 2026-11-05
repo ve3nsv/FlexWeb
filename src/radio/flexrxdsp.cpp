@@ -22,12 +22,14 @@ flexRxDsp::~flexRxDsp() = default;
 
 void flexRxDsp::applySettings(const Settings& s)
 {
-    const bool modelChanged = s.model != cfg.model;
+    const bool modelChanged = s.model != cfg.model || s.kind != cfg.kind || s.on != cfg.on;
     cfg = s;
     if (modelChanged) {
-        // The operator chose a model: their choice, the ladder starts over.
+        // The operator chose a model or reducer: their choice, the ladder starts over.
         steppedDown = false;
         stepUpWaitMs = kStepUpWaitMs;
+        nr2Fallback = false;
+        fallbackWaitMs = kStepUpWaitMs;
     }
     chain.applyConfig(cfg);
     chain.setNnrStepDown(steppedDown);
@@ -87,7 +89,8 @@ void flexRxDsp::logLoad(qint64 now)
 void flexRxDsp::process(QVector<float> samples, int rate, bool nnrWanted, qint64 queuedAtMs, quint32 seq)
 {
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    const int kind = nnrWanted ? cfg.kind : -1;
+    const int kind = !nnrWanted ? -1
+                   : (cfg.kind == rxNrConfig::NNR && nr2Fallback) ? int(rxNrConfig::NR2) : cfg.kind;
     const qint64 behind = now - queuedAtMs;
     const double blockSec = samples.isEmpty() ? 0.0 : double(samples.size()) / rate;
 
@@ -119,7 +122,26 @@ void flexRxDsp::process(QVector<float> samples, int rate, bool nnrWanted, qint64
             loadEma = 0.0;
             qInfo(logRig()) << "Flex: NNR back to Premium";
         }
-        // 2. Far behind: pass through, aligned and crossfaded.
+        // 2. Standard that cannot keep up either: NR2 takes over (a few
+        //    seconds of measuring first - the first blocks are slow).
+        if (nnr && chain.nnrModelInUse() == 0 && now - runningSinceMs > 3000
+            && (loadEma > 0.85 || (behind > kBehindMs && loadEma > kStepDownLoad))) {
+            if (fallbackEndAtMs && now - fallbackEndAtMs < 120000)
+                fallbackWaitMs = qMin(fallbackWaitMs * 2, kStepUpWaitMaxMs);
+            else if (fallbackEndAtMs && now - fallbackEndAtMs > 600000)
+                fallbackWaitMs = kStepUpWaitMs;
+            nr2Fallback = true;
+            fallbackAtMs = now;
+            qWarning(logRig()).noquote() << QString("Flex: NNR Standard using %1 % of real time - NR2 takes over, "
+                                                    "NNR again in %2 s").arg(int(std::lround(100.0 * loadEma)))
+                                            .arg(fallbackWaitMs / 1000);
+        }
+        if (kind == rxNrConfig::NR2 && nr2Fallback && now - fallbackAtMs >= fallbackWaitMs && behind < kCaughtUpMs) {
+            nr2Fallback = false;
+            fallbackEndAtMs = now;
+            qInfo(logRig()) << "Flex: NR2 hands back to NNR";
+        }
+        // 3. Far behind: pass through, aligned and crossfaded.
         const QVector<float> raw = delayedRaw(samples);
         if (!bypass && behind > kBypassMs) {
             bypass = true;
@@ -165,6 +187,7 @@ void flexRxDsp::process(QVector<float> samples, int rate, bool nnrWanted, qint64
         rawLine.clear();
         bypass = false;
         loadEma = 0.0;
+        runningSinceMs = now;
         if (!chain.failed()) {
             failReported = false;
         } else if (!failReported) {         // once, until the request changes
@@ -184,12 +207,15 @@ void flexRxDsp::process(QVector<float> samples, int rate, bool nnrWanted, qint64
     const bool active = chain.current() != nullptr;
     const int delay = active ? chain.current()->delayMs() : 0;
     const int modelInUse = chain.nnrModelInUse();
-    if (active != lastActive || (active && (modelInUse != lastModel || delay != lastDelay || steppedDown != lastStepped))) {
+    const bool onNr2 = active && nr2Fallback && chain.kind() == rxNrConfig::NR2;
+    if (active != lastActive || (active && (modelInUse != lastModel || delay != lastDelay || steppedDown != lastStepped
+                                            || onNr2 != lastNr2))) {
         lastActive = active;
         lastModel = modelInUse;
         lastDelay = delay;
         lastStepped = steppedDown;
-        emit nnrState(active, modelInUse, delay, steppedDown);
+        lastNr2 = onNr2;
+        emit nnrState(active, modelInUse, delay, steppedDown, onNr2);
     }
 
     audioPacket pkt;

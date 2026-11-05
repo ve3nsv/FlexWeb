@@ -1466,7 +1466,10 @@ TUNE state after a mock radio reconnect matches the radio.
     and nnrStage (non-Flex rigs) both run the chain. Page: the NR overlay
     has NNR / NR2 (one at a time, the lit one turns it off) and AetherSDR's
     NR2 controls; RX applet NNR + NR2 keys. Not yet a step of the item 57
-    ladder (NR2 is selected, not fallen back to). Tests:
+    ladder (NR2 is selected, not fallen back to) - since added (2026-11-05,
+    user "Go for all"): Standard that still cannot keep up hands over to
+    NR2, crossfaded, NNR retried after the step-up wait; the page says
+    "NR2 for now". Tests:
     tests/test_rxnr.py (noise down ~28 dB, speech kept, switching has no
     gap or click, parked reuse), tests/test_flex.py test_nr2.
 60. RN2, RNNoise (user, 2026-10-29; small-medium). Xiph RNNoise (BSD), the
@@ -1510,4 +1513,19 @@ TUNE state after a mock radio reconnect matches the radio.
     Tests: a page check that the monitor gain follows VOL, MUTE and AF
     before and during a digi TX (the fake AudioContext pattern of
     tests/cw_keyer_sim.mjs).
+    Done (2026-11-05): digiMonGainNode / digiMonUpdate in index.html, level
+    0.05 x AF x VOL^2 (0.025 at AF 50 %, VOL 100 %, as before), MUTE / VOL /
+    AF changes reach the playing monitor; FT8 / FT4 / JS8 / SSTV stream and
+    TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
+    Server page only (the Standalone page keeps the fixed level).
+
+69. RS-BA1 / LAN address as typed (user, 2026-11-03 logs; small). The
+    address "--lan mancave1.hopto.org" (and "http://.../") failed as
+    "Invalid hostname" with no hint, and an address that did resolve but
+    got no reply (port forwarding) left the log silent.
+    Done (2026-11-05): include/lanhost.h cleanLanHost (servermain::
+    tidyLanHost logs what it removed; a ":port" becomes the control port
+    unless --lan-control is given), icomUdpHandler logs "LAN: no answer from
+    host:port (ip) after N s - check ..." at 5 / 15 / 30 s, then every 30 s.
+    tests/lanhost_test.cpp (test_cpp_units.py).
 

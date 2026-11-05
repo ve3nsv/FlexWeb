@@ -91,6 +91,7 @@ private:
 
 	bool radioInUse = false;
 
+	QString lanHost;        // as given, for the log
 	quint16 controlPort;
 	quint16 civPort;
 	quint16 audioPort;

@@ -2,9 +2,13 @@
 // This code is heavily based on "Kappanhang" by HA2NON, ES1AKOS and W6EL!
 
 #include "icomudphandler.h"
+
+#include <QElapsedTimer>
+#include <memory>
 #include "logcategories.h"
 
 icomUdpHandler::icomUdpHandler(udpPreferences prefs, audioSetup rx, audioSetup tx) :
+    lanHost(prefs.ipAddress),
     controlPort(prefs.controlLANPort),
     civPort(0),
     audioPort(0),
@@ -83,6 +87,25 @@ void icomUdpHandler::init()
 
     // Start sending are you there packets - will be stopped once "I am here" received
     areYouThereTimer->start(AREYOUTHERE_PERIOD);
+
+    // No "I am here": say so in the log (after 5 s, 15 s, 30 s, then every
+    // 30 s) with what to check, rather than staying silent - a closed port
+    // forward or firewall looks like nothing at all happening.
+    {
+        auto since = std::make_shared<QElapsedTimer>();
+        since->start();
+        auto next = std::make_shared<qint64>(5000);
+        connect(areYouThereTimer, &QTimer::timeout, this, [this, since, next]() {
+            const qint64 t = since->elapsed();
+            if (t < *next) return;
+            *next = *next < 15000 ? 15000 : *next + 15000 * (*next < 30000 ? 1 : 2);
+            qWarning(logUdp()).noquote() << QString("LAN: no answer from %1:%2 (%3) after %4 s - check the address, "
+                                                    "that UDP %2-%5 reaches the radio or RS-BA1 server (port forwarding, "
+                                                    "firewall), and that its remote access is enabled")
+                .arg(lanHost).arg(controlPort).arg(radioIP.toString()).arg(t / 1000)
+                .arg(controlPort + 2);
+        });
+    }
 }
 
 icomUdpHandler::~icomUdpHandler()

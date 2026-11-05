@@ -32,6 +32,8 @@ UNITS = {
     # Web login: PBKDF2 hashes, users, sessions, cookie parsing, lockout.
     "webauth": ["src/webauth.cpp"],
     # Callsign lookup for access requests: zip reader, ISED list, HamQTH / QRZ XML.
+    # The LAN rig address as typed: "--lan host", URLs, ports, slashes.
+    "lanhost": [],
     "calllookup": ["src/calllookupparse.cpp", "src/thirdparty/tinf/tinflate.c", "src/thirdparty/tinf/crc32.c"],
 }
 

@@ -243,6 +243,7 @@ private:
     QSettings *settings=Q_NULLPTR;
     void loadSettings();
     void applyCLIOverrides();
+    void tidyLanHost();
     void autoDetectSerialPort();
     cmdLineOverrides cliOverrides;
 
