@@ -91,6 +91,7 @@ private:
     bool steppedDown = false;
     qint64 stepDownAtMs = 0, stepUpAtMs = 0;
     qint64 stepUpWaitMs = kStepUpWaitMs;
+    double premiumLoad = 0.0;    // Premium's load when it stepped down (>= 1: cannot run here)
     // Rung 2: NNR handed over to NR2 for load.
     bool nr2Fallback = false;
     qint64 fallbackAtMs = 0, fallbackEndAtMs = 0;

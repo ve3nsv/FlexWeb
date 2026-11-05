@@ -522,6 +522,12 @@ enough on the radio; 18b's dBFS-only fallback (the FLEX-6400 reports dBm).
    - Scope source selector: radio (CAT) / SDR / none; settings in the
      launcher (device or host:port, gain, ppm, bias-T, HF mode).
    - Build the input as a "scope source" interface so item 5 plugs in.
+   - User's setup (2026-11-05): RTL-SDR Blog V4, plugged into the Windows
+     server PC - so the built-in librtlsdr path first (rtl-sdr-blog fork,
+     built in the Windows CI job, libusb from vcpkg; WinUSB via Zadig once,
+     said in the launcher and the docs). HF on the V4 is its built-in
+     upconverter, switched by the fork below ~28.8 MHz - no direct-sampling
+     setting needed for it. rtl_tcp remains the second input.
 5. Airspy and SDRplay as scope sources (user, 2026-10-22), after item 4 on
    the same interface:
    - Local: SoapySDR (Boost licence) with its device modules - Airspy R2 /
@@ -1611,6 +1617,35 @@ TUNE state after a mock radio reconnect matches the radio.
     AF changes reach the playing monitor; FT8 / FT4 / JS8 / SSTV stream and
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
+
+71. RS-BA1 with two radios never connects (user log, 2026-11-05, 1.0.110;
+    small). Over Tailscale (100.74.78.87) the server answered, logged in
+    and listed "IC-7300 Man Cave" and "IC-9700 12252", then nothing: with
+    more than one radio wfview opened a selection window
+    (requestRadioSelection), which the headless server does not have, so
+    no stream was requested and the CI-V ID query repeated for ever.
+    Done: icomUdpHandler picks the radio - [LAN] Radio / --lan-radio /
+    launcher "Radio" field (number from 1 or part of the name, case-
+    insensitive; a name that matches none connects to none and says so),
+    else the first; the log lists the radios and which is used; a busy
+    radio is reported "in use by". Untested against a real RS-BA1 server
+    (no two-radio mock); the next log should show "LAN: the server has 2
+    radios ... - using 1" then "Got Radio 0".
+
+70. NR ladder misfires on the operator's PC (1.0.110 log, 2026-11-05;
+    small). NNR Standard averages 43 % of real time there, Premium 280 %.
+    a. After every over NNR resumed and stepped up to Premium in the same
+       millisecond (the step-up read the first block's near-zero load), and
+       Premium at 280 % put the audio behind until it stepped down again
+       (15:52, 15:54, 15:59). Now: no step-up in the first 10 s after a
+       start or a TX gap (pause() restarts the clock), and none at all once
+       Premium was measured slower than real time ("choose Premium again to
+       retry").
+    b. The NR2 fallback fired on a load spike (EMA 86 %) with the audio not
+       behind. Now it needs the audio really behind (> 200 ms) as well.
+    No automated test (flexRxDsp needs the server's audio types); check the
+    next log: no "back to Premium" right after "NNR on", no "NR2 takes
+    over" unless the audio is passed through or behind.
 
 69. RS-BA1 / LAN address as typed (user, 2026-11-03 logs; small). The
     address "--lan mancave1.hopto.org" (and "http://.../") failed as

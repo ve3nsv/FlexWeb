@@ -1018,6 +1018,7 @@ void servermain::loadSettings()
         udpPrefs.audioLANPort = settings->value("AudioLANPort", udpDefPrefs.audioLANPort).toInt();
         udpPrefs.username = settings->value("Username", udpDefPrefs.username).toString();
         udpPrefs.password = settings->value("Password", udpDefPrefs.password).toString();
+        udpPrefs.radioName = settings->value("Radio", "").toString();
         rxSetup.sampleRate = settings->value("AudioRXSampleRate", 48000).toInt();
         txSetup.sampleRate = rxSetup.sampleRate;
         rxSetup.codec = settings->value("AudioRXCodec", 4).toInt();
@@ -1087,6 +1088,8 @@ void servermain::applyCLIOverrides()
         udpPrefs.username = cliOverrides.lanUser;
     if (!cliOverrides.lanPass.isEmpty())
         udpPrefs.password = cliOverrides.lanPass;
+    if (!cliOverrides.lanRadio.isEmpty())
+        udpPrefs.radioName = cliOverrides.lanRadio;
 
     // Radio overrides
     if (cliOverrides.civAddr >= 0) {
