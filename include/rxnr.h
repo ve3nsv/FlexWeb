@@ -22,6 +22,9 @@ public:
     virtual int rate() const = 0;
     virtual void process(QVector<float>& samples) = 0;
     virtual void reset() = 0;
+    // A gap in the same stream (TX, catching up): forget the audio in
+    // flight but keep what was learned about the band's noise.
+    virtual void resume() { reset(); }
     virtual float gain() const = 0;       // post / pre level of the last block, 0..1
     virtual int delayMs() const = 0;
 };
@@ -75,7 +78,7 @@ public:
     void applyConfig(const rxNrConfig& cfg) { cfgCache = cfg; if (cur) modelInUse = rxNr::apply(cur.get(), curKind, cfg, nnrModelWanted()); }
     // The NNR overload ladder (flexRxDsp) runs Standard in place of Premium.
     void setNnrStepDown(bool down) { stepDown = down; if (cur) modelInUse = rxNr::apply(cur.get(), curKind, cfgCache, nnrModelWanted()); }
-    void reset();                    // stream restart: state cleared, the next audio warms up unheard
+    void reset();                    // gap (TX, catching up): audio in flight dropped, noise estimate kept; the next audio warms up unheard
     rxDenoiser* current() const { return cur.get(); }
     int kind() const { return cur ? curKind : -1; }
     int nnrModelInUse() const { return modelInUse; }

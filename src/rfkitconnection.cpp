@@ -522,7 +522,9 @@ bool RfkitConnection::applyReply(const Request& request, const QByteArray& body)
         if (m_status.operate && *m_status.operate == Rfkit::OperateMode::Operate
             && *v == Rfkit::OperateMode::Standby && !m_standbyAsked)
             m_dataNext = true;
-        m_standbyAsked = false;
+        // the ask is met once STANDBY shows (a reading still saying OPERATE
+        // in between does not cancel it)
+        if (*v == Rfkit::OperateMode::Standby) m_standbyAsked = false;
         m_status.operate = *v;
     } else if (p == QLatin1String(Rfkit::kPathInterface)) {
         const auto v = Rfkit::parseInterface(body);

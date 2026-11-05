@@ -205,9 +205,40 @@ int main(int argc, char** argv)
         CHECK(chain.current() == first, "a new NR2 was built instead of the parked one");
     }
 
+    // After a TX gap NR2 keeps its noise estimate (AetherSDR #3821): once
+    // its one-second dry -> wet ramp is over it suppresses as before.
+    {
+        const int rate = 24000, blk = 480;
+        rxNrConfig cfg;
+        rxNrChain warm, cold;
+        const QVector<float> before = whiteNoise(rate * 4, 0.1f, 11), after = whiteNoise(rate * 3, 0.1f, 12);
+        for (int i = 0; i + blk <= before.size(); i += blk) {
+            QVector<float> x = before.mid(i, blk);
+            warm.run(x, rxNrConfig::NR2, rate, cfg);
+        }
+        warm.reset();                                   // TX
+        QVector<float> w, c;
+        for (int i = 0; i + blk <= after.size(); i += blk) {
+            QVector<float> x = after.mid(i, blk), y = x;
+            warm.run(x, rxNrConfig::NR2, rate, cfg);
+            cold.run(y, rxNrConfig::NR2, rate, cfg);
+            w += x; c += y;
+        }
+        // after the warm-up and SpectralNR's 1 s ramp
+        const int from = rate * 3 / 2, to = rate * 3;
+        const double rw = rmsOf(w, from, to), rc = rmsOf(c, from, to), ra = rmsOf(after, from, to);
+        std::printf("NR2 after a TX gap: %.4f (resumed) vs %.4f (cold), input %.4f\n", rw, rc, ra);
+        CHECK(rw < 0.5 * ra, "NR2 let the noise through after a TX gap: %.4f of %.4f", rw, ra);
+        CHECK(rw <= rc * 1.05, "NR2 resumed worse than a cold start: %.4f vs %.4f", rw, rc);
+    }
+
     // the settings round-trip and stay in range
     rxNrConfig c;
-    CHECK(c.set("nrKind", 7) && c.kind == 2, "nrKind not clamped: %d", c.kind);
+#ifdef WFWEB_RN2
+    CHECK(c.set("nrKind", 7) && c.kind == rxNrConfig::RN2, "nrKind not clamped: %d", c.kind);
+#else
+    CHECK(c.set("nrKind", 7) && c.kind == rxNrConfig::NR2, "nrKind allows RN2 without RN2 built: %d", c.kind);
+#endif
     CHECK(c.set("nr2Max", 999) && c.nr2Max == 200, "nr2Max not clamped: %d", c.nr2Max);
     CHECK(c.set("rn2Dry", -3) && c.rn2Dry == 0, "rn2Dry not clamped: %d", c.rn2Dry);
     CHECK(!c.set("nope", 1), "an unknown key was taken");

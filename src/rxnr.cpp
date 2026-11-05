@@ -20,6 +20,12 @@
 
 namespace {
 
+#ifdef WFWEB_RN2
+constexpr int kLastKind = rxNrConfig::RN2;
+#else
+constexpr int kLastKind = rxNrConfig::NR2;    // RN2 not in this build
+#endif
+
 QSettings* store()
 {
     const QString dir = qEnvironmentVariable("WFWEB_CONFIG_DIR");
@@ -61,10 +67,13 @@ public:
         const float before = rms(s);
         out.resize(s.size());
         nr->process(s.constData(), out.data(), s.size());
-        s = out;
+        std::copy(out.constBegin(), out.constEnd(), s.begin());   // no shared buffer, no realloc next block
         lastGain = gainOf(before, rms(s));
     }
     void reset() override { nr->reset(); lastGain = 1.0f; }
+    // SpectralNR's TX -> RX edge (AetherSDR #3821): a full reset on every
+    // over re-learns the noise and lets the band noise through after unkey.
+    void resume() override { nr->resetTransient(); lastGain = 1.0f; }
     float gain() const override { return lastGain; }
     int delayMs() const override { return int(std::lround(1000.0 * fft / sampleRate)); }
     AetherSDR::SpectralNR* spectral() { return nr.get(); }
@@ -217,7 +226,7 @@ void rxNrConfig::load()
 {
     std::unique_ptr<QSettings> s(store());
     on = s->value("on", 0).toInt();
-    kind = qBound(0, s->value("kind", 0).toInt(), 2);
+    kind = qBound(0, s->value("kind", 0).toInt(), kLastKind);
     strength = s->value("strength", 38).toInt();
     model = s->value("model", 0).toInt();
     alpha = s->value("alpha", 100).toInt();
@@ -279,7 +288,7 @@ bool rxNrConfig::set(const QString& key, int v)
 {
     const rxNrConfig d;
     if (key == "nnr") on = v ? 1 : 0;
-    else if (key == "nrKind") kind = qBound(0, v, 2);
+    else if (key == "nrKind") kind = qBound(0, v, kLastKind);
     else if (key == "nnrStrength") strength = qBound(0, v, 100);
     else if (key == "nnrModel") model = qBound(0, v, 1);
     else if (key == "nnrAlpha") alpha = qBound(0, v, 400);
@@ -407,10 +416,10 @@ int rxNr::apply(rxDenoiser* d, int kind, const rxNrConfig& c, int nnrModel)
 void rxNrChain::reset()
 {
     prev.reset();
-    if (parked) parked->reset();
+    if (parked) parked->resume();
     fadeOut = false;
     if (cur) {
-        cur->reset();
+        cur->resume();
         fromRaw = true;
         warmupLeft = cur->rate() * cur->delayMs() / 1000 + cur->rate() / 20;
     }
@@ -427,6 +436,7 @@ void rxNrChain::run(QVector<float>& s, int kind, int rate, const rxNrConfig& cfg
         if (want >= 0 && parked && parkedKind == want && parked->rate() == rate) {
             next = std::move(parked);
             parkedKind = -1;
+            next->resume();                 // its audio in flight is stale
         } else if (want >= 0) {
             next = rxNr::make(want, rate);
             if (!next) {
