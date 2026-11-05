@@ -3167,7 +3167,7 @@ try {
             <div id="flexAntBody" style="width:100%"></div>
         </div>
         <div id="nnrOverlay" class="overlay">
-            <div class="overlay-title">NEURAL NR</div>
+            <div class="overlay-title">NOISE REDUCTION</div>
             <div id="nnrBody" style="width:100%"></div>
         </div>
 
@@ -6186,14 +6186,26 @@ function nnrSend(key, value, now) {
     var fire = function () { send({ cmd: 'setNnr', key: key, value: value }); };
     if (now) fire(); else flexDspSendTimers[id] = setTimeout(fire, 80);
 }
-function toggleNnr() {
+// One receive noise reduction at a time (punch list 59): NNR (WDSP neural)
+// or NR2 (WDSP spectral, AetherSDR's SpectralNR); `nnr` switches the chosen
+// `nrKind` on or off. A key for the one that is on turns it off; the other
+// key switches over (the server crossfades, no gap).
+var NR_KINDS = ['NNR', 'NR2'];
+function nrKindOf(d) { return d && d.nrKind ? d.nrKind : 0; }
+function nrIsOn(d, kind) { return !!(d && d.nnr) && nrKindOf(d) === kind; }
+function nrSelect(kind) {
     var d = nnrObj();
     if (!d) return;
-    d.nnr = d.nnr ? 0 : 1;
-    nnrSend('nnr', d.nnr, true);
+    if (nrIsOn(d, kind)) {
+        d.nnr = 0; nnrSend('nnr', 0, true);
+    } else {
+        if (nrKindOf(d) !== kind) { d.nrKind = kind; nnrSend('nrKind', kind, true); }
+        if (!d.nnr) { d.nnr = 1; nnrSend('nnr', 1, true); }
+    }
     if (document.body.classList.contains('ae-desktop')) renderApplets();
     if (document.getElementById('nnrOverlay').classList.contains('visible')) renderNnrOverlay();
 }
+function toggleNnr() { nrSelect(nrKindOf(nnrObj())); }
 function onNnrGain(msg) {
     nnrGainHist.push(msg.active ? msg.gain : null);
     if (nnrGainHist.length > 150) nnrGainHist.shift();
@@ -6230,20 +6242,30 @@ function renderNnrOverlay() {
     wrap.className = 'flex-dsp';
     var grid = document.createElement('div');
     grid.className = 'overlay-grid';
-    grid.appendChild(makeFuncBtn('NNR', d.nnr ? 'ON' : 'OFF', !!d.nnr, toggleNnr));
-    ['STANDARD', 'PREMIUM'].forEach(function (name, m) {
-        grid.appendChild(makeFuncBtn(name, 'MODEL', d.nnrModel === m, function () {
-            d.nnrModel = m; nnrSend('nnrModel', m, true); renderNnrOverlay();
-        }));
+    var kind = nrKindOf(d);
+    NR_KINDS.forEach(function (name, k) {
+        grid.appendChild(makeFuncBtn(name, nrIsOn(d, k) ? 'ON' : 'OFF', nrIsOn(d, k), function () { nrSelect(k); }));
     });
-    grid.appendChild(makeFuncBtn('\u21BA', 'DEFAULTS', false, function () { nnrSend('nnrReset', 1, true); }));
+    if (kind === 0) {
+        ['STANDARD', 'PREMIUM'].forEach(function (name, m) {
+            grid.appendChild(makeFuncBtn(name, 'MODEL', d.nnrModel === m, function () {
+                d.nnrModel = m; nnrSend('nnrModel', m, true); renderNnrOverlay();
+            }));
+        });
+    }
+    grid.appendChild(makeFuncBtn('\u21BA', 'DEFAULTS', false, function () {
+        nnrSend(kind === 1 ? 'nr2Reset' : 'nnrReset', 1, true);
+    }));
     grid.appendChild(dspBackButton());
     wrap.appendChild(grid);
 
     var note = document.createElement('div');
     note.className = 'audio-dev-note';
-    note.textContent = 'Neural noise reduction trained on off-air HF noise (WDSP NNR, as in AetherSDR). Voice modes only: '
-        + 'it treats a steady carrier as noise and removes it. Runs on the server for everyone listening; Premium uses more of the server\'s CPU.';
+    note.textContent = kind === 1
+        ? 'Spectral noise reduction (WDSP NR2, the MMSE estimator AetherSDR uses): light on the server\'s CPU, about 40 ms of delay. '
+          + 'Voice modes only. It learns steady sounds as noise, a carrier included. NOISE FILL puts a little noise back between words.'
+        : 'Neural noise reduction trained on off-air HF noise (WDSP NNR, as in AetherSDR). Voice modes only: '
+          + 'it treats a steady carrier as noise and removes it. Runs on the server for everyone listening; Premium uses more of the server\'s CPU.';
     wrap.appendChild(note);
 
     function row(label, key, min, max, fmt) {
@@ -6260,12 +6282,44 @@ function renderNnrOverlay() {
         r.appendChild(name); r.appendChild(input); r.appendChild(val);
         wrap.appendChild(r);
     }
-    row('STRENGTH', 'nnrStrength', 0, 100, String);
-    var adv = document.createElement('div');
-    adv.className = 'nnr-adv-title';
-    adv.textContent = 'ADVANCED \u2014 WDSP LEAVES THESE UNDOCUMENTED';
-    wrap.appendChild(adv);
-    NNR_ADV.forEach(function (a) { row(a.label, a.key, a.min, a.max, a.fmt); });
+    function choice(label, key, names) {
+        var g = document.createElement('div');
+        g.className = 'overlay-grid';
+        names.forEach(function (n, v) {
+            g.appendChild(makeFuncBtn(n, label, (d[key] || 0) === v, function () {
+                d[key] = v; nnrSend(key, v, true); renderNnrOverlay();
+            }));
+        });
+        wrap.appendChild(g);
+    }
+    function onOff(label, key, sub) {
+        return makeFuncBtn(label, d[key] ? 'ON' : 'OFF', !!d[key], function () {
+            d[key] = d[key] ? 0 : 1; nnrSend(key, d[key], true); renderNnrOverlay();
+        });
+    }
+    var x100 = function (v) { return (v / 100).toFixed(2); };
+    if (kind === 1) {
+        // AetherSDR's NR2 tab (AetherDspWidget): the same controls and ranges.
+        choice('GAIN', 'nr2Method', ['LINEAR', 'LOG', 'GAMMA', 'TRAINED']);
+        choice('NOISE EST', 'nr2Npe', ['OSMS', 'MMSE', 'NSTAT']);
+        var tg = document.createElement('div');
+        tg.className = 'overlay-grid';
+        tg.appendChild(onOff('AE FILTER', 'nr2Ae'));
+        tg.appendChild(onOff('NOISE FILL', 'nr2Fill'));
+        wrap.appendChild(tg);
+        row('REDUCTION', 'nr2Max', 50, 200, x100);
+        row('NATURALNESS', 'nr2Floor', 0, 15, x100);
+        row('SMOOTHING', 'nr2Smooth', 50, 98, x100);
+        row('THRESHOLD', 'nr2Qspp', 5, 50, x100);
+        if (d.nr2Fill) row('FILL LEVEL', 'nr2FillLevel', 0, 100, x100);
+    } else {
+        row('STRENGTH', 'nnrStrength', 0, 100, String);
+        var adv = document.createElement('div');
+        adv.className = 'nnr-adv-title';
+        adv.textContent = 'ADVANCED \u2014 WDSP LEAVES THESE UNDOCUMENTED';
+        wrap.appendChild(adv);
+        NNR_ADV.forEach(function (a) { row(a.label, a.key, a.min, a.max, a.fmt); });
+    }
 
     var st = document.createElement('div');
     st.className = 'nnr-status';
@@ -6274,9 +6328,11 @@ function renderNnrOverlay() {
     st.appendChild(dot);
     var m = document.createElement('span');
     m.innerHTML = '<span class="nnr-k">METHOD</span> <b>' + (d.nnr
-        ? 'NNR \u00b7 ' + (d.nnrModelInUse ? 'Premium' : 'Standard')
-          + (d.nnrStepDown ? ' (Premium too slow on the server, back when there is room)' : '')
-          + ' \u00b7 floor ' + d.nnrStrength
+        ? (kind === 1
+            ? 'NR2 \u00b7 ' + ['Linear', 'Log', 'Gamma', 'Trained'][d.nr2Method || 0] + ' / ' + ['OSMS', 'MMSE', 'NSTAT'][d.nr2Npe || 0]
+            : 'NNR \u00b7 ' + (d.nnrModelInUse ? 'Premium' : 'Standard')
+              + (d.nnrStepDown ? ' (Premium too slow on the server, back when there is room)' : '')
+              + ' \u00b7 floor ' + d.nnrStrength)
           + (d.nnrActive ? (d.nnrDelayMs ? ' \u00b7 ' + d.nnrDelayMs + ' ms' : '') : ' \u00b7 waits for a voice mode')
         : 'off') + '</b>';
     st.appendChild(m);
@@ -7392,14 +7448,19 @@ function renderApplets() {
     rx.appendChild(fil);
     var nnrD = nnrObj();
     var hasNnr = !!(nnrD && nnrD.nnr !== undefined);
-    var dsp = document.createElement('div'); dsp.className = 'ae-grid ' + (hasNnr ? 'ae-grid-4' : 'ae-grid-3');
+    var dsp = document.createElement('div'); dsp.className = 'ae-grid ' + (hasNnr ? 'ae-grid-5' : 'ae-grid-3');
     dsp.appendChild(aeBtn('NB', nbOn, function() { send({ cmd: 'setNoiseBlanker', value: !nbOn }); }, 'ae-toggle'));
     dsp.appendChild(aeBtn('NR', nrOn, function() { send({ cmd: 'setNoiseReduction', value: !nrOn }); }, 'ae-toggle'));
     dsp.appendChild(aeBtn('ANF', anfOn, function() { send({ cmd: 'setAutoNotch', value: !anfOn }); }, 'ae-toggle'));
     if (hasNnr) {
-        var nb = aeBtn('NNR', !!nnrD.nnr, toggleNnr, 'ae-toggle' + (nnrD.nnr && !nnrD.nnrActive ? ' ae-dim' : ''));
-        nb.title = nnrD.nnr && !nnrD.nnrActive ? 'Neural NR: waits for a voice mode' : 'Neural noise reduction (DSP\u2026 > NNR for its settings)';
-        dsp.appendChild(nb);
+        // NNR and NR2, one at a time (punch list 59), as AetherSDR's DSP keys.
+        NR_KINDS.forEach(function (name, k) {
+            var on = nrIsOn(nnrD, k);
+            var nb = aeBtn(name, on, function () { nrSelect(k); }, 'ae-toggle' + (on && !nnrD.nnrActive ? ' ae-dim' : ''));
+            nb.title = on && !nnrD.nnrActive ? name + ': waits for a voice mode'
+                : (k === 1 ? 'Spectral noise reduction' : 'Neural noise reduction') + ' (FUNC > NR for its settings)';
+            dsp.appendChild(nb);
+        });
     }
     rx.appendChild(dsp);
     var fe = document.createElement('div'); fe.className = 'ae-grid ae-grid-2';
@@ -7952,8 +8013,8 @@ function renderFuncOverlay() {
     }
     var nnrF = nnrObj();
     if (nnrF && nnrF.nnr !== undefined)
-        grid.appendChild(makeFuncBtn('NNR', nnrF.nnr ? (nnrF.nnrModel ? 'PREMIUM' : 'STANDARD') : 'OFF', !!nnrF.nnr,
-            function() { togglePanel('nnr'); }));
+        grid.appendChild(makeFuncBtn('NR', !nnrF.nnr ? 'OFF' : nrKindOf(nnrF) === 1 ? 'NR2'
+            : 'NNR ' + (nnrF.nnrModel ? 'PREM' : 'STD'), !!nnrF.nnr, function() { togglePanel('nnr'); }));
 
     // FIL opens the FILTER window (FIL1/2/3, width, twin PBT, shape) the way
     // DUP and TONE open theirs; the tile carries the passband it's set to.

@@ -322,6 +322,51 @@ def test_nnr(flex):
         sock.close()
 
 
+def test_nr2(flex):
+    """NR2 (the WDSP spectral reducer, as AetherSDR's) on the Flex RX audio:
+    selecting it reports it active with its one-FFT-frame delay, a TX pauses
+    it and an unkey brings it back, switching to NNR and off works."""
+    radio, rest = flex
+    from test_web_login import _Reader, _ws, _ws_send
+    port = int(rest.split(":")[2].split("/")[0]) - 1
+    st, sock, buf = _ws(port, None)
+    assert " 101" in st, st
+    reader = _Reader(sock, buf)
+
+    def wait_state(pred, timeout):
+        for text in reader.frames(timeout):
+            m = json.loads(text)
+            if m.get("type") == "flexDsp" and pred(m):
+                return m
+        return None
+    try:
+        requests.put(f"{rest}/mode", json={"mode": "USB", "filter": 1}, timeout=5)
+        _ws_send(sock, {"cmd": "enableAudio", "value": True})
+        _ws_send(sock, {"cmd": "flexDsp", "key": "nrKind", "index": 0, "value": 1})
+        _ws_send(sock, {"cmd": "flexDsp", "key": "nnr", "index": 0, "value": 1})
+        m = wait_state(lambda m: m.get("nrKind") == 1 and m.get("nnr") == 1 and m.get("nnrActive"), 10.0)
+        assert m, "NR2 never reported active"
+        assert 20 <= m["nnrDelayMs"] <= 100, m["nnrDelayMs"]
+
+        if sys.platform != "darwin":
+            requests.put(f"{rest}/ptt", json={"transmitting": True}, timeout=5)
+            assert _wait(lambda: "xmit 1" in radio.commands, timeout=5)
+            paused = wait_state(lambda m: m.get("nrKind") == 1 and not m.get("nnrActive"), 15.0)
+            requests.put(f"{rest}/ptt", json={"transmitting": False}, timeout=5)
+            assert paused, "NR2 kept running while transmitting"
+            assert wait_state(lambda m: m.get("nrKind") == 1 and m.get("nnrActive"), 15.0), \
+                "NR2 did not come back after unkey"
+
+        _ws_send(sock, {"cmd": "flexDsp", "key": "nrKind", "index": 0, "value": 0})
+        assert wait_state(lambda m: m.get("nrKind") == 0 and m.get("nnrActive"), 10.0), "NNR did not take over"
+        _ws_send(sock, {"cmd": "flexDsp", "key": "nnr", "index": 0, "value": 0})
+        assert wait_state(lambda m: m.get("nnr") == 0 and not m.get("nnrActive"), 10.0), "NR did not switch off"
+    finally:
+        _ws_send(sock, {"cmd": "flexDsp", "key": "nnr", "index": 0, "value": 0})
+        _ws_send(sock, {"cmd": "flexDsp", "key": "nrKind", "index": 0, "value": 0})
+        requests.put(f"{rest}/mode", json={"mode": "USB", "filter": 1}, timeout=5)
+        sock.close()
+
 def test_aether_scope(flex):
     """AetherSDR-style scope: free pan (the panadapter stays put until the VFO
     nears an edge, sweeps say fixed glass), the page can move its centre and

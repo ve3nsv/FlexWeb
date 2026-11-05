@@ -9648,6 +9648,8 @@ bool webServer::guestTuneAllowed(const QString &cmd, const QJsonObject &obj)
             "nrLevel", "anfLevel", "tnfEnabled", "panCenter", "panBandwidth", "panFree", "panRfGain",
             "filterLo", "filterHi", "band", "nnr", "nnrStrength", "nnrModel", "nnrAlpha", "nnrKnee",
             "nnrTau", "nnrMaxGain", "nnrAttack", "nnrRelease",
+            "nrKind", "nr2Method", "nr2Npe", "nr2Ae", "nr2Max", "nr2Floor", "nr2Smooth", "nr2Qspp",
+            "nr2Fill", "nr2FillLevel",
         };
         return keys.contains(obj.value("key").toString());
     }
@@ -9691,7 +9693,9 @@ void webServer::takeGuestSnapshot()
         auto num = [&d](const char *k) { return d.value(QLatin1String(k)).toVariant().toInt(); };
         for (const char *k : {"apf", "apfLevel", "wnb", "wnbLevel", "nbLevel", "nrLevel", "anfLevel",
                               "tnfEnabled", "nnr", "nnrStrength", "nnrModel", "nnrAlpha", "nnrKnee",
-                              "nnrTau", "nnrMaxGain", "nnrAttack", "nnrRelease"}) {
+                              "nnrTau", "nnrMaxGain", "nnrAttack", "nnrRelease", "nrKind", "nr2Method",
+                              "nr2Npe", "nr2Ae", "nr2Max", "nr2Floor", "nr2Smooth", "nr2Qspp", "nr2Fill",
+                              "nr2FillLevel"}) {
             if (d.contains(QLatin1String(k))) guestSnapFlex_.append({QString::fromLatin1(k), {0, num(k)}});
         }
         if (d.contains("rfg")) guestSnapFlex_.append({QStringLiteral("panRfGain"), {0, num("rfg")}});
