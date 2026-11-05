@@ -1478,3 +1478,21 @@ TUNE state after a mock radio reconnect matches the radio.
     Tests: stub that stops answering mid-poll -> "no answer" within 2.5 s,
     OFFLINE (reason noanswer) at 15 s; answering again clears it.
 
+68. FT8 TX audio ignores the receive audio controls (user, 2026-11-05;
+    small; both branches). While FT8 / FT4 transmits (also JS8 and SSTV:
+    every streamDigiAudio caller) the page plays its own copy of the
+    generated tones as a local monitor at a fixed level (monGain 0.025,
+    straight to the speakers from digiTxCtx), so VOL, MUTE and AF do not
+    change or silence it. Make it follow them like the receive audio:
+    a. Level = the fixed base x rxVolumeGain() (VOL squared, 0 when MUTE)
+       x the rig's AF level (afGain / AF slider, as the receive audio is
+       scaled by it), so it sounds at the same relative level as RX.
+    b. Live: a VOL / MUTE / AF change during the over adjusts the playing
+       monitor at once (keep the gain node, setTargetAtTime as
+       setRxVolume does), not only the next over.
+    c. MUTE silences it; VOL 0 / AF 0 too. The transmitted audio itself is
+       untouched (the monitor is a local copy only).
+    Tests: a page check that the monitor gain follows VOL, MUTE and AF
+    before and during a digi TX (the fake AudioContext pattern of
+    tests/cw_keyer_sim.mjs).
+
