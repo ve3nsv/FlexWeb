@@ -1136,6 +1136,7 @@ void servermain::sendProfilesToWeb()
 void servermain::closeCurrentRig()
 {
     queue->clear();
+    queue->clearCache();
     for (RIGCONFIG* radio : serverConfig.rigs) {
         if (radio->rig != Q_NULLPTR && radio->rigThread != Q_NULLPTR && radio->rigThread->isRunning())
             QMetaObject::invokeMethod(radio->rig, "closeComm", Qt::BlockingQueuedConnection);

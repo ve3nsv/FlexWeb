@@ -152,6 +152,7 @@ public:
 
     queuePriority del(funcs func, uchar receiver=0);
     void clear();
+    void clearCache();   // forget every value - a radio switch (punch list 73)
     bool waitForImmediate(int timeoutMs);
     void setDrainImmediate(bool on);
     void interval(qint64 val);
