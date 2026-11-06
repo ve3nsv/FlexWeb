@@ -1607,6 +1607,28 @@ TUNE state after a mock radio reconnect matches the radio.
     stream running with clock-paced silence after 250 ms without browser
     audio (LPCM 16-bit). test_lan_tx_audio checks the silence between overs
     at real time, the voice once with no silence inside the over.
+    1.0.117 (user, 2026-11-05): still no voice. The log now proves the
+    sending side on the user's PC: "LAN TX audio: ~500 packets, ~480 kB
+    (2.3-5 s of voice, the rest silence) sent to 100.74.78.87:50003" per
+    5 s - real time, continuous. The server offers TX rates 0xff01, which a
+    wfview server never does (icomserver.cpp offers 0x8b01): it is Icom's
+    RS-BA1 Remote Utility. FlexWeb now sends what wfview's client sends.
+    Next, on the server PC (user): Windows Sound > Playback, "Speakers (USB
+    Audio CODEC)" level meter while transmitting from FlexWeb - moving =
+    Remote Utility plays it into the 7300 (then the rig side), still = it
+    does not (Remote Utility's TX audio device / user rights); and Icom's
+    RS-BA1 Remote Control or wfview as a client through the same server.
+    Cause found (user's photo of Icom Remote Utility, 2026-11-06): the
+    "IC-7300 Man Cave" entry has Speaker = Mic = ICOM_VAUDIO-1 (Icom
+    Virtual Audio) - the "IC-9700 12252" entry's own Virtual Audio device -
+    instead of the 7300's USB Audio CODEC (Mic = the device Remote Utility
+    plays the client's TX audio into). The two entries are cross-wired, so
+    no client's voice reaches the 7300. Not FlexWeb's to fix: in Remote
+    Utility set the 7300's Mic to "Speakers (USB Audio CODEC)" and Speaker
+    to "Microphone (USB Audio CODEC)" (the 7300's codec), then restart it.
+    No port forwarding needed: Tailscale carries 50001-50003. Alternative:
+    FlexWeb on the man-cave PC on the 7300's USB (COM4 + codec) directly.
+    Open until the user confirms voice after the Remote Utility change.
 
 71. RS-BA1 with two radios never connects (user log, 2026-11-05, 1.0.110;
     small). Over Tailscale (100.74.78.87) the server answered, logged in
