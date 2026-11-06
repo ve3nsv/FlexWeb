@@ -124,6 +124,7 @@ private:
 
 	bool highBandwidthConnection = false;
 	quint8 civId = 0;
+	bool civCrossWarned = false;   // receiveFromCivStream: another radio's CI-V on this stream
 	quint16 rxSampleRates = 0;
 	quint16 txSampleRates = 0;
     networkStatus status;

@@ -140,6 +140,25 @@ void icomUdpHandler::setVolume(quint8 value)
 
 void icomUdpHandler::receiveFromCivStream(QByteArray data)
 {
+    // The server says which CI-V address the chosen radio has; a frame from
+    // another radio on its stream means the server's entry is wired to the
+    // wrong COM port (RS-BA1 Remote Utility: the IC-9700 entry carrying the
+    // IC-7300, user's 1.0.125 log). Said once per session, loudly: wfweb
+    // would otherwise load the other radio and look as if it chose wrong.
+    if (!civCrossWarned && civId != 0) {
+        for (int i = data.indexOf("\xFE\xFE"); i >= 0 && i + 3 < data.size(); i = data.indexOf("\xFE\xFE", i + 2)) {
+            const quint8 from = quint8(data.at(i + 3));
+            if (from == 0xFE || from == 0xE0 || from == 0xE1 || from == 0x00) continue;
+            if (from != civId) {
+                civCrossWarned = true;
+                qWarning(logUdp()).noquote() << QString("LAN: \"%1\" (CI-V 0x%2 on the server) answers as CI-V 0x%3 - "
+                                                        "the server's %1 entry is connected to another radio's COM port "
+                                                        "(Remote Utility: check that radio's COM port / CI-V settings)")
+                    .arg(devName).arg(civId, 2, 16, QChar('0')).arg(from, 2, 16, QChar('0'));
+            }
+            break;
+        }
+    }
     emit haveDataFromPort(data);
 }
 
