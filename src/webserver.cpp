@@ -557,6 +557,7 @@ void webServer::receiveRigCaps(rigCapabilities *caps)
 {
     rigCaps = caps;
     tunerRejected = false;   // new rig, new evidence
+    txMetersPolled_ = false; // a new rig's queue holds no TX meter polls
     // Each rig keeps its own local channel list, so swapping radios doesn't
     // hand an IC-718's memories to an IC-706.
     memStore.setRig(rigCaps ? rigCaps->modelName : QString());
@@ -2496,12 +2497,9 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         pttClient = on ? client : nullptr;
         broadcastTxState();
         updateAutoMon();
-        // Start/stop ALC meter polling for web clients
-        if (on) {
-            queue->addUnique(priorityHighest, queueItem(funcALCMeter, true, 0));
-        } else {
-            queue->del(funcALCMeter, 0);
-        }
+        // TX meters only while transmitting (the S meter has the fast slot
+        // to itself in receive); the rig's own TX status confirms it.
+        setTxMeterPolling(on);
     }
     else if (type == "setAfGain") {
         ushort val = static_cast<ushort>(qBound(0, cmd["value"].toInt(), 255));
@@ -4548,6 +4546,10 @@ void webServer::receiveCache(cacheItem item)
     case funcTransceiverStatus:
         nnrTx_ = item.value.toBool();
         if (ampTxRig_ != nnrTx_) { ampTxRig_ = nnrTx_; updateAmpTx(); }
+        // Not here: a queue call from inside receiveCache can deadlock on
+        // an echo (CLAUDE.md, BAND picker) - posted, it runs after return.
+        if (nnrTx_ != txMetersPolled_)
+            QMetaObject::invokeMethod(this, [this, tx = nnrTx_]() { setTxMeterPolling(tx); }, Qt::QueuedConnection);
         break;
     // The tone scan reads the squelch, not the browser, so it too is serviced
     // before that shortcut — otherwise a sweep whose last client walked away
@@ -5886,6 +5888,25 @@ void webServer::addTxMeterCaps(QJsonObject &o) const
             r["max"] = ks.maxVal;
             o["cwSpeedRange"] = r;
         }
+    }
+}
+
+// Po / SWR / ALC are polled only while transmitting. They read zero in
+// receive, and polled all the time they shared the S meter's Highest slot:
+// on an IC-7300 over RS-BA1 the S meter came every ~420 ms instead of
+// ~140 ms. The Flex pushes its meters, so nothing is polled for it; a rig
+// whose .rig file polls one of them itself keeps that poll.
+void webServer::setTxMeterPolling(bool tx)
+{
+    if (!queue || !rigCaps || rigCaps->manufacturer == manufFlexRadio) return;
+    if (tx == txMetersPolled_) return;
+    txMetersPolled_ = tx;
+    QSet<funcs> fromRigFile;
+    for (const auto &cap : rigCaps->periodic) fromRigFile.insert(cap.func);
+    for (funcs f : { funcPowerMeter, funcSWRMeter, funcALCMeter }) {
+        if (!rigCaps->commands.contains(f) || fromRigFile.contains(f)) continue;
+        if (tx) queue->addUnique(priorityHighest, queueItem(f, true, 0));
+        else queue->del(f, 0);
     }
 }
 

@@ -1395,12 +1395,18 @@ void servermain::initPeriodicPolling()
                 periodicFuncs.insert(cap.func);
             }
 
-            if (!periodicFuncs.contains(funcPowerMeter) && rigCaps->commands.contains(funcPowerMeter))
-                queue->addUnique(priorityHighest, queueItem(funcPowerMeter, true, 0));
-            if (!periodicFuncs.contains(funcSWRMeter) && rigCaps->commands.contains(funcSWRMeter))
-                queue->addUnique(priorityHighest, queueItem(funcSWRMeter, true, 0));
-            if (!periodicFuncs.contains(funcALCMeter) && rigCaps->commands.contains(funcALCMeter))
-                queue->addUnique(priorityHighest, queueItem(funcALCMeter, true, 0));
+            // Po / SWR / ALC: polled by the web server while transmitting
+            // only (webServer::setTxMeterPolling); always polled they took
+            // two thirds of the S meter's Highest slot in receive. Without
+            // the web server (-S) they stay polled all the time, as before.
+            if (cliOverrides.noWeb) {
+                if (!periodicFuncs.contains(funcPowerMeter) && rigCaps->commands.contains(funcPowerMeter))
+                    queue->addUnique(priorityHighest, queueItem(funcPowerMeter, true, 0));
+                if (!periodicFuncs.contains(funcSWRMeter) && rigCaps->commands.contains(funcSWRMeter))
+                    queue->addUnique(priorityHighest, queueItem(funcSWRMeter, true, 0));
+                if (!periodicFuncs.contains(funcALCMeter) && rigCaps->commands.contains(funcALCMeter))
+                    queue->addUnique(priorityHighest, queueItem(funcALCMeter, true, 0));
+            }
 
             if (rigCaps->hasSpectrum) {
                 queue->add(priorityImmediate, queueItem(funcScopeOnOff, QVariant::fromValue(quint8(1)), false));

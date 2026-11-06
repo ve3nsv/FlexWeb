@@ -961,6 +961,8 @@ private:
     std::unique_ptr<nnrStage> nnr_;
     int nnrModeKind_ = -1;       // modeInfo.mk of the current mode
     bool nnrTx_ = false;
+    bool txMetersPolled_ = false;   // Po / SWR / ALC in the queue (only while transmitting)
+    void setTxMeterPolling(bool tx);
     qint64 nnrGainAt_ = 0;
     bool nnrForThisRig() const;
     void nnrRx(QByteArray &pcm);

@@ -1618,6 +1618,20 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+74. IC-7300 S meter refresh (user, 2026-11-06; small). Measured in the
+    user's 1.0.117 log: S meter 2.4 readings/s (every ~420 ms), scope 3.8
+    frames/s. The S meter is polled (CI-V 15 02; the 7300 does not push
+    it) at Highest, which comes every other 70 ms tick - but Po, SWR and
+    ALC were also polled at Highest all the time (servermain, for every
+    rig), so in receive, where they read zero, each of the three got one
+    slot in three. Done: Po / SWR / ALC only while transmitting
+    (webServer::setTxMeterPolling, from PTT and the rig's TX status,
+    posted out of receiveCache); in receive the S meter alone, ~140 ms
+    (~7/s). Faster still (every tick, ~14/s) is possible over LAN but
+    shares the RS-BA1 link with tuning commands - not done. Test:
+    test_meter_polling (no Po / SWR reads in receive, Po while keyed, gone
+    after unkey).
+
 73. One server, several radios, chosen on the page (user, 2026-11-05;
     medium). The operator has a FLEX-6400 (LAN / SmartLink), and an
     IC-7300 and an IC-9700 on one RS-BA1 server (Tailscale). Today one
@@ -1700,6 +1714,28 @@ TUNE state after a mock radio reconnect matches the radio.
     stream running with clock-paced silence after 250 ms without browser
     audio (LPCM 16-bit). test_lan_tx_audio checks the silence between overs
     at real time, the voice once with no silence inside the over.
+    1.0.117 (user, 2026-11-05): still no voice. The log now proves the
+    sending side on the user's PC: "LAN TX audio: ~500 packets, ~480 kB
+    (2.3-5 s of voice, the rest silence) sent to 100.74.78.87:50003" per
+    5 s - real time, continuous. The server offers TX rates 0xff01, which a
+    wfview server never does (icomserver.cpp offers 0x8b01): it is Icom's
+    RS-BA1 Remote Utility. FlexWeb now sends what wfview's client sends.
+    Next, on the server PC (user): Windows Sound > Playback, "Speakers (USB
+    Audio CODEC)" level meter while transmitting from FlexWeb - moving =
+    Remote Utility plays it into the 7300 (then the rig side), still = it
+    does not (Remote Utility's TX audio device / user rights); and Icom's
+    RS-BA1 Remote Control or wfview as a client through the same server.
+    Cause found (user's photo of Icom Remote Utility, 2026-11-06): the
+    "IC-7300 Man Cave" entry has Speaker = Mic = ICOM_VAUDIO-1 (Icom
+    Virtual Audio) - the "IC-9700 12252" entry's own Virtual Audio device -
+    instead of the 7300's USB Audio CODEC (Mic = the device Remote Utility
+    plays the client's TX audio into). The two entries are cross-wired, so
+    no client's voice reaches the 7300. Not FlexWeb's to fix: in Remote
+    Utility set the 7300's Mic to "Speakers (USB Audio CODEC)" and Speaker
+    to "Microphone (USB Audio CODEC)" (the 7300's codec), then restart it.
+    No port forwarding needed: Tailscale carries 50001-50003. Alternative:
+    FlexWeb on the man-cave PC on the 7300's USB (COM4 + codec) directly.
+    Open until the user confirms voice after the Remote Utility change.
 
 71. RS-BA1 with two radios never connects (user log, 2026-11-05, 1.0.110;
     small). Over Tailscale (100.74.78.87) the server answered, logged in

@@ -33,7 +33,7 @@ QStringList LaunchConfig::toArguments(const QString &logFile) const
 
     if ((transport == FlexLan || transport == SmartLink) && (flexAudio == "opus" || flexAudio == "none"))
         args << "--flex-audio" << flexAudio;
-    if (!ampHost.trimmed().isEmpty()) args << "--rfkit" << ampHost.trimmed();
+    if (!ampHost().trimmed().isEmpty()) args << "--rfkit" << ampHost().trimmed();
     if (isNetwork() && onDemandSeconds > 0) args << "--on-demand" << QString::number(onDemandSeconds);
     if (restLan) args << "--rest";
     if (guestView) args << "--guest-view";
@@ -42,7 +42,7 @@ QStringList LaunchConfig::toArguments(const QString &logFile) const
     if (!ntfyTopic.trimmed().isEmpty()) args << "--ntfy-topic" << ntfyTopic.trimmed();
 
     if (webPort > 0 && webPort != defaultWebPort) args << "-p" << QString::number(webPort);
-    if (!nameTag.trimmed().isEmpty()) args << "-n" << nameTag.trimmed();
+    if (!nameTag().trimmed().isEmpty()) args << "-n" << nameTag().trimmed();
     if (!settingsFile.isEmpty()) args << "-s" << settingsFile;
 
     args << QProcess::splitCommand(extraArguments);
@@ -79,7 +79,17 @@ void LaunchConfig::load(const QSettings &s)
     flexHost = s.value("flexHost", "auto").toString();
     smartLinkRadio = s.value("smartLinkRadio", "auto").toString();
     flexAudio = s.value("flexAudio", "auto").toString();
-    ampHost = s.value("ampHost").toString();
+    static const char *const groupKey[GroupCount] = {"Usb", "IcomLan", "Flex"};
+    for (int g = 0; g < GroupCount; ++g) {
+        ampHosts[g] = s.value(QString("ampHost%1").arg(groupKey[g])).toString();
+        nameTags[g] = s.value(QString("nameTag%1").arg(groupKey[g])).toString();
+    }
+    // Settings from before the split had one of each. The amplifier support
+    // is the Flex's (ported from AetherSDR), so an old amp goes to the Flex;
+    // an old name goes to the Flex if it says so, else to the transport that
+    // was in use.
+    if (!s.contains("ampHostFlex") && s.contains("ampHost"))
+        ampHosts[GroupFlex] = s.value("ampHost").toString();
     onDemandSeconds = qBound(0, s.value("onDemandSeconds", 0).toInt(), 86400);
     restLan = s.value("restLan", false).toBool();
     guestView = s.value("guestView", false).toBool();
@@ -88,7 +98,11 @@ void LaunchConfig::load(const QSettings &s)
     ntfyTopic = s.value("ntfyTopic").toString();
     webPort = s.value("webPort", defaultWebPort).toInt();
     if (webPort <= 0 || webPort > 65535) webPort = defaultWebPort;
-    nameTag = s.value("nameTag").toString();
+    if (!s.contains("nameTagFlex") && !s.contains("nameTagIcomLan") && !s.contains("nameTagUsb")
+        && s.contains("nameTag")) {
+        const QString old = s.value("nameTag").toString();
+        nameTags[old.contains("flex", Qt::CaseInsensitive) ? int(GroupFlex) : int(groupOf(transport))] = old;
+    }
     settingsFile = s.value("settingsFile").toString();
     extraArguments = s.value("extraArguments").toString();
     startServerOnOpen = s.value("startServerOnOpen", false).toBool();
@@ -110,7 +124,12 @@ void LaunchConfig::save(QSettings &s) const
     s.setValue("flexHost", flexHost);
     s.setValue("smartLinkRadio", smartLinkRadio);
     s.setValue("flexAudio", flexAudio);
-    s.setValue("ampHost", ampHost);
+    static const char *const groupKeyOut[GroupCount] = {"Usb", "IcomLan", "Flex"};
+    for (int g = 0; g < GroupCount; ++g) {
+        s.setValue(QString("ampHost%1").arg(groupKeyOut[g]), ampHosts[g]);
+        s.setValue(QString("nameTag%1").arg(groupKeyOut[g]), nameTags[g]);
+    }
+    s.remove("ampHost");
     s.setValue("onDemandSeconds", onDemandSeconds);
     s.setValue("restLan", restLan);
     s.setValue("guestView", guestView);
@@ -118,7 +137,7 @@ void LaunchConfig::save(QSettings &s) const
     s.setValue("allowRequests", allowRequests);
     s.setValue("ntfyTopic", ntfyTopic);
     s.setValue("webPort", webPort);
-    s.setValue("nameTag", nameTag);
+    s.remove("nameTag");
     s.setValue("settingsFile", settingsFile);
     s.setValue("extraArguments", extraArguments);
     s.setValue("startServerOnOpen", startServerOnOpen);

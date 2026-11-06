@@ -43,8 +43,21 @@ struct LaunchConfig {
     QString smartLinkRadio = "auto";  // serial, radio name or "auto"
     QString flexAudio = "auto";  // --flex-audio auto|opus|none
 
+    // The amplifier and the top-bar name belong to the radio, not to the
+    // launcher: one of each per kind of connection - USB, Icom LAN, Flex
+    // (LAN and SmartLink) - so starting the IC-7300 does not bring the
+    // Flex's RF2K-S and "Flex 6400" name along (user, 2026-11-06).
+    enum Group { GroupUsb = 0, GroupIcomLan = 1, GroupFlex = 2, GroupCount = 3 };
+    static Group groupOf(Transport t)
+    { return t == Usb ? GroupUsb : t == Lan ? GroupIcomLan : GroupFlex; }
+    QString ampHosts[GroupCount];   // --rfkit host[:port]; empty = no amplifier
+    QString nameTags[GroupCount];   // -n
+    QString ampHost() const { return ampHosts[groupOf(transport)]; }
+    QString nameTag() const { return nameTags[groupOf(transport)]; }
+    void setAmpHost(const QString &h) { ampHosts[groupOf(transport)] = h; }
+    void setNameTag(const QString &n) { nameTags[groupOf(transport)] = n; }
+
     // Station (any network rig)
-    QString ampHost;             // --rfkit host[:port]; empty = no amplifier
     int onDemandSeconds = 0;     // --on-demand N; 0 = stay connected
     bool restLan = false;        // --rest
     bool guestView = false;      // --guest-view: "View only" on the login page
@@ -56,7 +69,6 @@ struct LaunchConfig {
 
     // Server
     int webPort = defaultWebPort;
-    QString nameTag;             // -n
     QString settingsFile;        // -s, absolute; empty = server default location
     QString extraArguments;      // appended verbatim, split like a shell would
 
