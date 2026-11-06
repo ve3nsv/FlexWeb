@@ -98,7 +98,43 @@ void icomUdpAudio::receiveAudioData(audioPacket audio) {
     if (!enableTx || (txaudio == Q_NULLPTR && !txSetup.externalTx)) {
         return;
     }
-    if (audio.data.length() > 0) {
+    if (audio.data.isEmpty()) return;
+    lastExternalTx.restart();
+    sendTxPayload(audio.data, false);
+}
+
+// The browser only sends audio while keyed, so the TX stream used to start
+// from nothing on every over. wfview captures its mic all the time and the
+// RS-BA1 / wfview server always has a running TX stream; keep ours running
+// the same way with silence between the browser's frames (punch list 72).
+// LPCM 16-bit mono (codec 0x04, the default) only - zeros are not silence
+// in the other codecs.
+void icomUdpAudio::sendTxKeepalive()
+{
+    if (!enableTx || !txSetup.externalTx || txSetup.codec != 0x04 || !txSetup.sampleRate) return;
+    // Real audio is flowing, or paused for less than a jitter hiccup: a
+    // silence inserted mid-over would only push the voice later.
+    if (lastExternalTx.isValid() && lastExternalTx.elapsed() < 250) {
+        keepaliveClock.invalidate();
+        return;
+    }
+    // Paced by the clock, not by the timer's ticks (15.6 ms grain on
+    // Windows): 20 ms of silence for every 20 ms that has passed.
+    if (!keepaliveClock.isValid()) { keepaliveClock.start(); keepaliveSentMs = 0; }
+    const QByteArray chunk(int(txSetup.sampleRate / 50) * 2, '\0');
+    int n = 0;
+    while (keepaliveClock.elapsed() - keepaliveSentMs >= 20 && n++ < 5) {
+        sendTxPayload(chunk, true);
+        keepaliveSentMs += 20;
+    }
+    if (keepaliveClock.elapsed() - keepaliveSentMs > 200) keepaliveSentMs = keepaliveClock.elapsed();   // a stall: do not burst
+}
+
+void icomUdpAudio::sendTxPayload(const QByteArray& data, bool silence)
+{
+    audioPacket audio;
+    audio.data = data;
+    {
         int len = 0;
 
         while (len < audio.data.length()) {
@@ -122,6 +158,25 @@ void icomUdpAudio::receiveAudioData(audioPacket audio) {
             //qInfo(logUdp()) << "Sending audio packet length: " << tx.length();
             sendTrackedPacket(tx);
             sendAudioSeq++;
+            ++txReportPackets;
+            txReportBytes += partial.length();
+            if (silence) txReportSilentBytes += partial.length();
+        }
+        // What actually left for the radio / RS-BA1 server, every 5 s while
+        // sending (punch list 72: the log could not show it before).
+        if (!txReportTimer.isValid()) txReportTimer.start();
+        if (txReportTimer.elapsed() >= 5000) {
+            const qint64 voice = qint64(txReportBytes - txReportSilentBytes);
+            // Only while voice went out: the keepalive alone is not news.
+            if (voice > 0)
+                qInfo(logUdp()).noquote() << QString("LAN TX audio: %1 packets, %2 bytes (%3 ms of voice, the rest silence) sent to %4:%5 in the last %6 s")
+                    .arg(txReportPackets).arg(txReportBytes)
+                    .arg(txSetup.sampleRate ? voice * 1000 / (2 * qint64(txSetup.sampleRate)) : 0)
+                    .arg(radioIP.toString()).arg(port).arg(txReportTimer.elapsed() / 1000);
+            txReportPackets = 0;
+            txReportBytes = 0;
+            txReportSilentBytes = 0;
+            txReportTimer.restart();
         }
     }
 }
@@ -261,7 +316,12 @@ void icomUdpAudio::startAudio() {
     pingTimer->start(PING_PERIOD); // send ping packets every 100ms
 
     if (enableTx && txSetup.externalTx) {
-        qInfo(logUdp()) << "icomUdpAudio: TX audio from the web server (no local capture device)";
+        qInfo(logUdp()) << "icomUdpAudio: TX audio from the web server (no local capture device)"
+                        << (txSetup.codec == 0x04 ? "- stream kept running with silence between overs, as wfview's" : "");
+        txKeepaliveTimer = new QTimer(this);
+        txKeepaliveTimer->setTimerType(Qt::PreciseTimer);
+        connect(txKeepaliveTimer, &QTimer::timeout, this, &icomUdpAudio::sendTxKeepalive);
+        txKeepaliveTimer->start(20);
     }
     else if (enableTx) {
         if (txSetup.type == qtAudio) {
