@@ -392,6 +392,14 @@ void cachingQueue::clear()
     QMutexLocker locker(&mutex);
     queue.clear();
 }
+
+// A radio switch: nothing the last radio reported may stand for the next
+// one (the IC-7300's "powered off" kept the Flex on the power-off screen).
+void cachingQueue::clearCache()
+{
+    QMutexLocker locker(&mutex);
+    cache.clear();
+}
 void cachingQueue::message(QString msg)
 {
 

@@ -10336,6 +10336,9 @@ void webServer::onRadioSwitched(int index, QString who)
     // its own once connected, an Icom has none.
     flexDspJson_ = QJsonObject();
     flexMemoriesJson_ = QJsonArray();
+    // The cache was emptied with the old rig; a value it no longer has
+    // leaves this mirror as it was, so the last radio's "off" would stay.
+    rigPoweredOn = true;
     QJsonObject o;
     o["type"] = "radioSwitched";
     o["index"] = index;
