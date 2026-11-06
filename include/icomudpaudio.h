@@ -59,6 +59,7 @@ public slots:
     void getRxLevels(quint16 amplitude, quint16 amplitudeRMS, quint16 latency, quint16 current, bool under, bool over);
     void getTxLevels(quint16 amplitude, quint16 amplitudeRMS, quint16 latency, quint16 current, bool under, bool over);
     void receiveAudioData(audioPacket audio);
+    void sendTxKeepalive();
 
 
 private:
@@ -83,6 +84,12 @@ private:
 	QElapsedTimer txReportTimer;   // LAN TX audio log line
 	quint32 txReportPackets = 0;
 	quint64 txReportBytes = 0;
+	quint64 txReportSilentBytes = 0;
+	QElapsedTimer lastExternalTx;  // the web server's last TX frame
+	QTimer* txKeepaliveTimer = Q_NULLPTR;
+	QElapsedTimer keepaliveClock;
+	qint64 keepaliveSentMs = 0;
+	void sendTxPayload(const QByteArray& data, bool silence);
 
 	QMutex audioMutex;
 

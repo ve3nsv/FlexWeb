@@ -1598,6 +1598,15 @@ TUNE state after a mock radio reconnect matches the radio.
     Audio CODEC); that device enabled, not muted, level up in Windows; the
     user's rights; and whether Icom's own RS-BA1 Remote Control (or
     wfview) transmits voice through the same server.
+    Compared with upstream wfview (wf-group/wfview 0985685, 2026-09-27):
+    the packet building, ident, sequence, 1364-byte split, stream request
+    and codec handling are identical. The one difference: wfview's TX
+    stream never stops (its mic is captured all the time), FlexWeb's ran
+    only while keyed. A server that plays into the USB codec only once a
+    steady stream runs would key with no voice. Now icomUdpAudio keeps the
+    stream running with clock-paced silence after 250 ms without browser
+    audio (LPCM 16-bit). test_lan_tx_audio checks the silence between overs
+    at real time, the voice once with no silence inside the over.
 
 71. RS-BA1 with two radios never connects (user log, 2026-11-05, 1.0.110;
     small). Over Tailscale (100.74.78.87) the server answered, logged in
