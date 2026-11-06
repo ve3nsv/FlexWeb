@@ -109,6 +109,8 @@ signals:
     void requestPowerOff();
     void requestLanDisconnect();
     void requestLanReconnect();
+    // Punch list 73: the page picked another radio (servermain::switchRadio).
+    void requestRadioSwitch(int index, QString who);
     // Page -> flexCommander::setFlexDsp (see there for the keys).
     void flexDspSet(QString key, int index, int value);
     // Punch list 53: PTT (kind 0) / TUNE (kind 1) straight to flexCommander::
@@ -148,6 +150,10 @@ public slots:
     // --name tag: sent to the browser as rigInfo.name so the top bar and
     // tab title show it instead of the rig model.
     void setInstanceName(const QString &name);
+    // Punch list 73: the --radio profiles for the page's RADIO menu, and the
+    // one in use; onRadioSwitched once servermain has opened the new one.
+    void setRadioProfiles(QStringList names, QStringList types, int index);
+    void onRadioSwitched(int index, QString who);
     // --rfkit host[:port]: an RF-KIT (RF2K-S) amplifier on the LAN, shown in
     // the AMP panel. Runs on the web thread; empty = no amplifier.
     void configureRfkit(const QString &target);
@@ -563,6 +569,9 @@ private:
     // while the rig is keyed (closed tab, lost network, a latched PTT), the
     // server unkeys rather than leave the transmitter on.
     QWebSocket *pttClient = nullptr;
+    QStringList radioNames_, radioTypes_;   // punch list 73
+    int radioIndex_ = -1;
+    void addRadiosTo(QJsonObject &o) const;
 
     // Browser-mic diagnostics.  A browser whose default input is the rig's
     // own USB codec streams the receiver audio back into the transmitter,

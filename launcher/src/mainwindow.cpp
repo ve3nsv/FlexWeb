@@ -189,6 +189,11 @@ void MainWindow::buildUi()
     m_lanBufferSpin->setSpecialValueText("default (150 ms)");
     m_lanBufferSpin->setToolTip("Audio buffer on the link to the radio or RS-BA1 server. 150 ms suits a LAN; "
                                 "across the internet (Tailscale, port forwarding) 300 ms or more stops dropouts.");
+    m_multiRadioCheck = new QCheckBox("RADIO menu: offer the FlexRadio and the Icom LAN radios on the page, one at a time", m_rigGroup);
+    m_multiRadioCheck->setToolTip("One server for all of them: the page's RADIO menu switches between the Flex "
+                                  "(the FlexRadio / SmartLink settings) and each Icom LAN radio (the Radio field, "
+                                  "e.g. \"IC-7300, IC-9700\" for an RS-BA1 server with both). No radio is connected "
+                                  "until a browser opens the page. Each kind keeps its own amplifier and name.");
     m_noAutoConnectCheck = new QCheckBox("Don't connect to the rig at start (use Reconnect in the web UI)", m_rigGroup);
 
     auto *serialLabel = new QLabel("Serial port", m_rigGroup);
@@ -227,6 +232,8 @@ void MainWindow::buildUi()
     rig->addWidget(m_lanBufferSpin, row, 4);
     ++row;
     rig->addWidget(m_noAutoConnectCheck, row, 1, 1, 6);
+    ++row;
+    rig->addWidget(m_multiRadioCheck, row, 0, 1, 7);
 
     // FlexRadio on the LAN.
     m_flexRadio = new QRadioButton("FlexRadio", m_rigGroup);
@@ -485,6 +492,7 @@ void MainWindow::buildUi()
 
     for (QRadioButton *b : {m_usbRadio, m_lanRadio, m_flexRadio, m_smartRadio})
         connect(b, &QRadioButton::toggled, this, [this](bool) { swapPerRadioFields(); updateTransportWidgets(); });
+    connect(m_multiRadioCheck, &QCheckBox::toggled, this, [this](bool) { updateTransportWidgets(); });
     connect(m_smartSignInButton, &QPushButton::clicked, this, &MainWindow::smartLinkSignIn);
     connect(m_smartRefreshButton, &QPushButton::clicked, this, &MainWindow::smartLinkRefresh);
     connect(m_smartSignOutButton, &QPushButton::clicked, this, &MainWindow::smartLinkSignOut);
@@ -596,6 +604,7 @@ void MainWindow::applyConfigToForm()
     m_lanPassEdit->setText(m_cfg.lanPassword);
     m_lanRadioEdit->setText(m_cfg.lanRadio);
     m_lanBufferSpin->setValue(m_cfg.lanBufferMs);
+    m_multiRadioCheck->setChecked(m_cfg.multiRadio);
     m_noAutoConnectCheck->setChecked(m_cfg.noAutoConnect);
     m_portSpin->setValue(m_cfg.webPort);
     m_nameEdit->setText(m_cfg.nameTag());
@@ -641,6 +650,7 @@ void MainWindow::applyFormToConfig()
     m_cfg.lanPassword = m_lanPassEdit->text();
     m_cfg.lanRadio = m_lanRadioEdit->text();
     m_cfg.lanBufferMs = m_lanBufferSpin->value();
+    m_cfg.multiRadio = m_multiRadioCheck->isChecked();
     m_cfg.noAutoConnect = m_noAutoConnectCheck->isChecked();
     m_cfg.webPort = m_portSpin->value();
     m_cfg.setNameTag(m_nameEdit->text().trimmed());
@@ -1213,12 +1223,14 @@ void MainWindow::updateTransportWidgets()
     const bool lan = m_lanRadio->isChecked();
     const bool flex = m_flexRadio->isChecked();
     const bool smart = m_smartRadio->isChecked();
-    for (QWidget *w : m_usbWidgets) w->setEnabled(usb);
-    for (QWidget *w : m_lanWidgets) w->setEnabled(lan);
-    for (QWidget *w : m_flexWidgets) w->setEnabled(flex);
+    // RADIO menu (punch list 73): the Flex's and the Icom LAN's settings both apply.
+    const bool multi = m_multiRadioCheck && m_multiRadioCheck->isChecked();
+    for (QWidget *w : m_usbWidgets) w->setEnabled(usb && !multi);
+    for (QWidget *w : m_lanWidgets) w->setEnabled(lan || multi);
+    for (QWidget *w : m_flexWidgets) w->setEnabled(flex || (multi && !smart));
     for (QWidget *w : m_flexAudioWidgets) w->setEnabled(flex || smart);
     for (QWidget *w : m_smartWidgets) w->setEnabled(smart);
-    for (QWidget *w : m_networkWidgets) w->setEnabled(!usb);
+    for (QWidget *w : m_networkWidgets) w->setEnabled(!usb || multi);
 }
 
 int MainWindow::runServerTool(const QStringList &args, const QByteArray &input, QString *output, int timeoutMs)

@@ -34,6 +34,8 @@ UNITS = {
     # Callsign lookup for access requests: zip reader, ISED list, HamQTH / QRZ XML.
     # The LAN rig address as typed: "--lan host", URLs, ports, slashes.
     "lanhost": [],
+    # The --radio profiles: one server, several radios (punch list 73).
+    "radioprofile": [],
     "calllookup": ["src/calllookupparse.cpp", "src/thirdparty/tinf/tinflate.c", "src/thirdparty/tinf/crc32.c"],
 }
 

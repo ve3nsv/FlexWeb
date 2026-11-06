@@ -113,6 +113,8 @@ html, body {
     white-space: nowrap; max-width: 160px;
     overflow: hidden; text-overflow: ellipsis;
 }
+/* Punch list 73: with several radios the name is the RADIO menu's key. */
+#rigTag.radio-pick { cursor: pointer; text-decoration: underline dotted; }
 #rigTag:empty { display: none; }
 /* Server CPU (punch list 17): the whole machine's load, amber above 70 %,
    red above 90 %; tap for FlexWeb's own share, cores and memory. */
@@ -3178,6 +3180,10 @@ try {
             <div class="overlay-title">NOISE REDUCTION</div>
             <div id="nnrBody" style="width:100%"></div>
         </div>
+        <div id="radioOverlay" class="overlay">
+            <div class="overlay-title">RADIO</div>
+            <div id="radioBody" style="width:100%"></div>
+        </div>
 
         <div id="rxDspOverlay" class="overlay">
             <div class="overlay-title">RECEIVE DSP</div>
@@ -4184,6 +4190,19 @@ function handleMessage(msg) {
         case 'talkers':
             onTalkers(msg);
             break;
+        case 'radioSwitching':
+            showRadioSwitching('Switching to ' + msg.name + (msg.by ? ' (' + msg.by + ')' : '') + '\u2026');
+            break;
+        case 'radioSwitched':
+            // A clean page for the other radio (a Flex's panels and state must
+            // not carry over to an Icom): reload once it is connected.
+            showRadioSwitching(msg.name + ' connected \u2014 reloading\u2026');
+            setTimeout(function () { location.reload(); }, 600);
+            break;
+        case 'radioRefused':
+            hideRadioSwitching();
+            guestNotice(msg.text || 'Radio not switched', 4000);
+            break;
         case 'txBusy':
             setTxOther(msg.by || 'another browser');
             txBusyRefused();
@@ -4197,6 +4216,7 @@ function handleMessage(msg) {
             if (msg.txOpus !== undefined) serverTxOpus = !!msg.txOpus;
             if (msg.reporterMessage !== undefined) setReporterMessageField(msg.reporterMessage);
             if (msg.ampConfigured !== undefined) { ampConfigured = !!msg.ampConfigured; renderAmpIndicator(); }
+            if (msg.radios) { radioList = msg.radios; radioIndex = msg.radioIndex; updateRadioTag(); }
             if (msg.version) {
                 serverVersion = msg.version;
                 var el = document.getElementById('splashVersion');
@@ -6965,6 +6985,7 @@ function setPanel(name) {
     else if (name === 'proc') { renderProcOverlay(); document.getElementById('procOverlay').classList.add('visible'); }
     else if (name === 'rxdsp') { renderRxDspOverlay(); document.getElementById('rxDspOverlay').classList.add('visible'); }
     else if (name === 'nnr') { renderNnrOverlay(); document.getElementById('nnrOverlay').classList.add('visible'); }
+    else if (name === 'radio') { renderRadioOverlay(); document.getElementById('radioOverlay').classList.add('visible'); }
     else if (name === 'amp') { renderAmpOverlay(); document.getElementById('ampOverlay').classList.add('visible'); }
     else if (name === 'flexmem') {
         var mb = document.getElementById('flexMemOvBody'); mb.innerHTML = '';
@@ -8243,9 +8264,69 @@ function renderBandOverlay() {
     document.getElementById('bandOverlay').classList.add('visible');
 }
 
+// Punch list 73: one server, several radios (--radio profiles), one
+// connected at a time. FUNC > RADIO or the top-bar radio name opens the list.
+var radioList = [];
+var radioIndex = -1;
+var RADIO_TYPE_LABEL = { flex: 'FLEX LAN', smartlink: 'SMARTLINK', icomlan: 'ICOM LAN' };
+document.addEventListener('click', function (e) {
+    var t = e.target && e.target.closest ? e.target.closest('#rigTag.radio-pick') : null;
+    if (t) togglePanel('radio');
+});
+function updateRadioTag() {
+    var el = document.getElementById('rigTag');
+    if (!el) return;
+    var many = radioList.length > 1;
+    el.classList.toggle('radio-pick', many);
+    if (many) el.title = 'Radio: ' + ((radioList[radioIndex] || {}).name || '') + ' \u2014 tap to choose another';
+}
+function renderRadioOverlay() {
+    var body = document.getElementById('radioBody');
+    body.innerHTML = '';
+    var grid = document.createElement('div');
+    grid.className = 'overlay-grid';
+    radioList.forEach(function (r, i) {
+        grid.appendChild(makeFuncBtn(r.name, i === radioIndex ? 'IN USE' : (RADIO_TYPE_LABEL[r.type] || r.type || ''),
+            i === radioIndex, function () {
+                if (i === radioIndex) { setPanel('default'); return; }
+                if (guestView) { guestNotice(); return; }
+                if (isTransmitting) { guestNotice('Not while transmitting - unkey first', 4000); return; }
+                send({ cmd: 'selectRadio', index: i });
+                setPanel('default');
+            }));
+    });
+    body.appendChild(grid);
+    var note = document.createElement('div');
+    note.className = 'nnr-note';
+    note.textContent = 'One radio at a time: choosing another unkeys, releases this one and connects that one; '
+        + 'every browser follows (the page reloads). The amplifier goes with the radio it belongs to.';
+    body.appendChild(note);
+}
+function showRadioSwitching(text) {
+    var n = document.getElementById('radioSwitchNote');
+    if (!n) {
+        n = document.createElement('div');
+        n.id = 'radioSwitchNote';
+        n.setAttribute('role', 'status');
+        n.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;'
+            + 'background:rgba(0,0,0,0.72);color:#fff;font:600 20px/1.4 system-ui,sans-serif;z-index:9999;'
+            + 'text-align:center;padding:16px';
+        document.body.appendChild(n);
+    }
+    n.textContent = text;
+    n.style.display = 'flex';
+}
+function hideRadioSwitching() {
+    var n = document.getElementById('radioSwitchNote');
+    if (n) n.style.display = 'none';
+}
+
 function renderFuncOverlay() {
     var grid = document.getElementById('funcGrid');
     grid.innerHTML = '';
+    if (radioList.length > 1)
+        grid.appendChild(makeFuncBtn('RADIO', (radioList[radioIndex] || {}).name || '\u2014', false,
+            function () { togglePanel('radio'); }));
 
     // Preamp / attenuator. On rigs with a multi-step attenuator (IC-7610 has
     // 16 steps) cycling through every step to reach the preamp is painful, so

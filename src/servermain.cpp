@@ -73,6 +73,7 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
 
     loadSettings(); // Look for saved preferences
     applyCLIOverrides();
+    loadProfiles();   // --radio: the RADIO menu's radios (punch list 73)
     autoDetectSerialPort();
 
     setManufacturer(prefs.manufacturer);
@@ -98,7 +99,11 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
             QMetaObject::invokeMethod(web, "setSettingsFile", Qt::QueuedConnection,
                                       Q_ARG(QString, settings->fileName()));
         }
-        if (!cliOverrides.name.isEmpty()) {
+        if (profileIndex >= 0) {
+            // With --radio profiles the top bar names the radio in use.
+            QMetaObject::invokeMethod(web, "setInstanceName", Qt::QueuedConnection,
+                                      Q_ARG(QString, profiles[profileIndex].name));
+        } else if (!cliOverrides.name.isEmpty()) {
             QMetaObject::invokeMethod(web, "setInstanceName", Qt::QueuedConnection,
                                       Q_ARG(QString, cliOverrides.name));
         }
@@ -108,6 +113,8 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
             QString rfkit = cliOverrides.rfkit;
             if (rfkit.isEmpty() && settings)
                 rfkit = settings->value("Amplifier/Rfkit", QString()).toString();
+            // With --radio profiles the amplifier is the radio's own (punch list 73b).
+            if (profileIndex >= 0) rfkit = profiles[profileIndex].amp;
             // Punch list 42: keep the RF2K-S awake while a user is on.
             QMetaObject::invokeMethod(web, "setAmpKeepAwake", Qt::QueuedConnection,
                                       Q_ARG(int, settings ? settings->value("Amplifier/KeepAwakeSecs", 60).toInt() : 60));
@@ -157,7 +164,9 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
         connect(web, &webServer::requestPowerOff, this, &servermain::powerRigOff);
         connect(web, &webServer::requestLanDisconnect, this, &servermain::disconnectLan);
         connect(web, &webServer::requestLanReconnect, this, &servermain::reconnectLan);
+        connect(web, &webServer::requestRadioSwitch, this, &servermain::switchRadio);
         webThread->start();
+        sendProfilesToWeb();
         QMetaObject::invokeMethod(web, "init", Qt::QueuedConnection,
             Q_ARG(quint16, effectiveWebPort), Q_ARG(quint16, effectiveWebPort + 1));
         qInfo(logSystem()) << "Web server starting on port" << effectiveWebPort;
@@ -1054,6 +1063,125 @@ void servermain::loadSettings()
 // The LAN address as typed (launcher field, settings file, --lan): a pasted
 // "--lan host", a URL or a trailing slash made it an "Invalid hostname".
 // A ":port" there is used as the control port unless one was given.
+// --- Punch list 73: one server, several radios -----------------------------
+
+void servermain::loadProfiles()
+{
+    for (const QString &spec : cliOverrides.radios) {
+        QString err;
+        const radioProfile p = radioProfile::parse(spec, &err);
+        if (!p.valid()) {
+            qWarning(logSystem()).noquote() << QString("--radio ignored (%1): %2").arg(err, p.name.isEmpty() ? spec.left(40) : p.name);
+            continue;
+        }
+        profiles << p;
+    }
+    if (profiles.isEmpty()) return;
+    // The radio used last comes back; the first on a fresh install.
+    const QString last = settings ? settings->value("Radios/Last").toString() : QString();
+    int idx = 0;
+    for (int i = 0; i < profiles.size(); ++i)
+        if (profiles[i].name == last) idx = i;
+    applyProfile(idx);
+    // No radio connected until a browser is on (punch list 73f): the
+    // on-demand release, 30 s unless --on-demand says otherwise.
+    if (cliOverrides.onDemandIdle <= 0) cliOverrides.onDemandIdle = 30;
+    QStringList names;
+    for (const radioProfile &p : profiles) names << p.name;
+    qInfo(logSystem()).noquote() << QString("Radios: %1 on the page's RADIO menu (%2); starting with \"%3\", "
+                                            "connected only while a browser is on")
+        .arg(profiles.size()).arg(names.join(", "), profiles[idx].name);
+}
+
+void servermain::applyProfile(int index)
+{
+    const radioProfile &p = profiles[index];
+    profileIndex = index;
+    prefs.enableLAN = true;
+    udpPrefs.controlLANPort = p.controlPort > 0 ? quint16(p.controlPort) : udpDefPrefs.controlLANPort;
+    udpPrefs.serialLANPort = udpDefPrefs.serialLANPort;
+    udpPrefs.audioLANPort = p.audioPort > 0 ? quint16(p.audioPort) : udpDefPrefs.audioLANPort;
+    udpPrefs.clientName = udpDefPrefs.clientName;
+    udpPrefs.username = p.user;
+    udpPrefs.password = p.pass;
+    udpPrefs.radioName = p.radio;
+    if (p.type == QLatin1String("smartlink")) {
+        prefs.manufacturer = manufFlexRadio;
+        udpPrefs.ipAddress = QStringLiteral("smartlink:") + p.host;
+    } else if (p.type == QLatin1String("flex")) {
+        prefs.manufacturer = manufFlexRadio;
+        udpPrefs.ipAddress = p.host;
+    } else {
+        prefs.manufacturer = manufIcom;
+        udpPrefs.ipAddress = p.host;
+        tidyLanHost();
+    }
+    rxSetup.latency = txSetup.latency = quint16(p.bufferMs > 0 ? qBound(50, p.bufferMs, 1000) : 150);
+}
+
+void servermain::sendProfilesToWeb()
+{
+    if (!web || profiles.isEmpty()) return;
+    QStringList names, types;
+    for (const radioProfile &p : profiles) { names << p.name; types << p.type; }
+    QMetaObject::invokeMethod(web, "setRadioProfiles", Qt::QueuedConnection,
+                              Q_ARG(QStringList, names), Q_ARG(QStringList, types), Q_ARG(int, profileIndex));
+}
+
+// Close the radio link and take the commander down, so the next radio can
+// be of another kind (Flex <-> Icom). Order matters: the link closes first
+// (the radio gets its disconnect), the queue drops the caps pointer and the
+// web thread is made to process that before the commander that owns the
+// caps is deleted.
+void servermain::closeCurrentRig()
+{
+    queue->clear();
+    for (RIGCONFIG* radio : serverConfig.rigs) {
+        if (radio->rig != Q_NULLPTR && radio->rigThread != Q_NULLPTR && radio->rigThread->isRunning())
+            QMetaObject::invokeMethod(radio->rig, "closeComm", Qt::BlockingQueuedConnection);
+        radio->rigAvailable = false;
+    }
+    queue->setRigCaps(Q_NULLPTR);
+    if (web != Q_NULLPTR)
+        QMetaObject::invokeMethod(web, []() {}, Qt::BlockingQueuedConnection);   // the null caps have landed
+    for (RIGCONFIG* radio : serverConfig.rigs) {
+        if (radio->rigThread == Q_NULLPTR) continue;
+        radio->rigThread->quit();
+        if (!radio->rigThread->wait(5000)) {
+            qWarning(logSystem()) << "Radio: the rig thread did not stop in 5 s - forcing it";
+            radio->rigThread->terminate();
+            radio->rigThread->wait(2000);
+        }
+        delete radio->rigThread;   // the commander was deleteLater'd on finished()
+        radio->rigThread = Q_NULLPTR;
+        radio->rig = Q_NULLPTR;
+    }
+    queue->setDrainImmediate(false);   // a Flex set it; an Icom is paced by the tick
+    rigPoweredOn = true;
+}
+
+void servermain::switchRadio(int index, QString who)
+{
+    if (index < 0 || index >= profiles.size()) return;
+    const radioProfile &p = profiles[index];
+    qInfo(logSystem()).noquote() << QString("Radio: switching from \"%1\" to \"%2\" (%3)")
+        .arg(profileIndex >= 0 ? profiles[profileIndex].name : QString("-"), p.name, who);
+    closeCurrentRig();
+    applyProfile(index);
+    setManufacturer(prefs.manufacturer);   // that kind's rig files
+    if (settings) { settings->setValue("Radios/Last", p.name); settings->sync(); }
+    if (web != Q_NULLPTR) {
+        QMetaObject::invokeMethod(web, "configureRfkit", Qt::QueuedConnection, Q_ARG(QString, p.amp));
+        QMetaObject::invokeMethod(web, "setInstanceName", Qt::QueuedConnection, Q_ARG(QString, p.name));
+    }
+    openRig();
+    if (web != Q_NULLPTR) {
+        QMetaObject::invokeMethod(web, "setLanInfo", Qt::QueuedConnection, Q_ARG(bool, true), Q_ARG(bool, true));
+        sendProfilesToWeb();
+        QMetaObject::invokeMethod(web, "onRadioSwitched", Qt::QueuedConnection, Q_ARG(int, index), Q_ARG(QString, who));
+    }
+}
+
 void servermain::tidyLanHost()
 {
     if (!prefs.enableLAN || udpPrefs.ipAddress.isEmpty()) return;
