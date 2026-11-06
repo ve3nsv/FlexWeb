@@ -7,6 +7,8 @@
 #include "../launcher/src/portowner.h"
 
 #include <QDebug>
+#include <QSettings>
+#include <QTemporaryDir>
 #include <cstdlib>
 
 namespace {
@@ -44,7 +46,7 @@ int main()
         LaunchConfig c;
         c.transport = LaunchConfig::FlexLan;
         c.flexHost = " 10.0.0.162 ";
-        c.ampHost = "10.0.0.25";
+        c.setAmpHost("10.0.0.25");
         c.onDemandSeconds = 30;
         const QStringList args = c.toArguments(log);
         require(valueOf(args, "--manufacturer") == "3", "Flex is manufacturer 3");
@@ -111,6 +113,52 @@ int main()
         require(indexOfFlag(c.toArguments(log), "--manufacturer") < 0, "Icom adds no --manufacturer");
     }
 
+    // The amplifier and the name tag belong to the kind of radio: the Flex's
+    // RF2K-S and "Flex 6400" do not follow an Icom LAN start (user,
+    // 2026-11-06), and each comes back with its own radio.
+    {
+        LaunchConfig c;
+        c.transport = LaunchConfig::FlexLan;
+        c.setAmpHost("10.0.0.25");
+        c.setNameTag("Flex 6400");
+        c.transport = LaunchConfig::Lan;
+        c.lanHost = "100.74.78.87";
+        QStringList args = c.toArguments(log);
+        require(indexOfFlag(args, "--rfkit") < 0, "the Flex's amplifier is not passed for an Icom LAN rig");
+        require(indexOfFlag(args, "-n") < 0, "the Flex's name is not passed for an Icom LAN rig");
+        c.setNameTag("IC-7300");
+        require(valueOf(c.toArguments(log), "-n") == "IC-7300", "the Icom LAN rig has its own name");
+        c.transport = LaunchConfig::SmartLink;
+        args = c.toArguments(log);
+        require(valueOf(args, "--rfkit") == "10.0.0.25", "SmartLink shares the Flex's amplifier");
+        require(valueOf(args, "-n") == "Flex 6400", "SmartLink shares the Flex's name");
+
+        QTemporaryDir dir;
+        QSettings out(dir.filePath("l.ini"), QSettings::IniFormat);
+        c.save(out);
+        out.sync();
+        QSettings in(dir.filePath("l.ini"), QSettings::IniFormat);
+        LaunchConfig d;
+        d.load(in);
+        require(d.ampHosts[LaunchConfig::GroupFlex] == "10.0.0.25" && d.ampHosts[LaunchConfig::GroupIcomLan].isEmpty(),
+                "amplifiers saved per radio kind");
+        require(d.nameTags[LaunchConfig::GroupIcomLan] == "IC-7300" && d.nameTags[LaunchConfig::GroupFlex] == "Flex 6400",
+                "names saved per radio kind");
+
+        // Settings from before the split: one amp, one name.
+        QSettings old(dir.filePath("old.ini"), QSettings::IniFormat);
+        old.setValue("transport", int(LaunchConfig::Lan));
+        old.setValue("ampHost", "10.0.0.25");
+        old.setValue("nameTag", "Flex 6400");
+        old.sync();
+        LaunchConfig e;
+        e.load(old);
+        require(e.ampHosts[LaunchConfig::GroupFlex] == "10.0.0.25" && e.ampHost().isEmpty(),
+                "an old amplifier moves to the Flex, not to the Icom LAN rig in use");
+        require(e.nameTags[LaunchConfig::GroupFlex] == "Flex 6400" && e.nameTag().isEmpty(),
+                "an old name that says Flex moves to the Flex");
+    }
+
     // LAN: host and credentials, and the USB fields are ignored even if set.
     {
         LaunchConfig c;
@@ -143,7 +191,7 @@ int main()
     {
         LaunchConfig c;
         c.webPort = 8090;
-        c.nameTag = "Shack";
+        c.setNameTag("Shack");
         c.settingsFile = "C:/Users/me/wfweb/contest.ini";
         c.extraArguments = "--rigctld-port 4532 --remote-log \"127.0.0.1:2237\"";
         const QStringList args = c.toArguments(log);

@@ -474,7 +474,7 @@ void MainWindow::buildUi()
     move(available.center() - QRect(QPoint(), target).center());
 
     for (QRadioButton *b : {m_usbRadio, m_lanRadio, m_flexRadio, m_smartRadio})
-        connect(b, &QRadioButton::toggled, this, [this](bool) { updateTransportWidgets(); });
+        connect(b, &QRadioButton::toggled, this, [this](bool) { swapPerRadioFields(); updateTransportWidgets(); });
     connect(m_smartSignInButton, &QPushButton::clicked, this, &MainWindow::smartLinkSignIn);
     connect(m_smartRefreshButton, &QPushButton::clicked, this, &MainWindow::smartLinkRefresh);
     connect(m_smartSignOutButton, &QPushButton::clicked, this, &MainWindow::smartLinkSignOut);
@@ -564,7 +564,8 @@ void MainWindow::applyConfigToForm()
     if (m_cfg.smartLinkRadio != "auto" && !m_cfg.smartLinkRadio.isEmpty())
         m_smartRadioCombo->addItem(m_cfg.smartLinkRadio, m_cfg.smartLinkRadio);
     m_smartRadioCombo->setCurrentIndex(qMax(0, m_smartRadioCombo->findData(m_cfg.smartLinkRadio)));
-    m_ampEdit->setText(m_cfg.ampHost);
+    m_shownGroup = LaunchConfig::groupOf(m_cfg.transport);
+    m_ampEdit->setText(m_cfg.ampHost());
     m_onDemandSpin->setValue(m_cfg.onDemandSeconds);
     m_restLanCheck->setChecked(m_cfg.restLan);
     m_guestViewCheck->setChecked(m_cfg.guestView);
@@ -586,7 +587,7 @@ void MainWindow::applyConfigToForm()
     m_lanRadioEdit->setText(m_cfg.lanRadio);
     m_noAutoConnectCheck->setChecked(m_cfg.noAutoConnect);
     m_portSpin->setValue(m_cfg.webPort);
-    m_nameEdit->setText(m_cfg.nameTag);
+    m_nameEdit->setText(m_cfg.nameTag());
     m_settingsEdit->setText(m_cfg.settingsFile);
     m_extraEdit->setText(m_cfg.extraArguments);
     m_startOnOpenCheck->setChecked(m_cfg.startServerOnOpen);
@@ -613,7 +614,7 @@ void MainWindow::applyFormToConfig()
             ? m_smartRadioCombo->itemData(i).toString() : typed;
         if (m_cfg.smartLinkRadio.isEmpty()) m_cfg.smartLinkRadio = "auto";
     }
-    m_cfg.ampHost = m_ampEdit->text().trimmed();
+    m_cfg.setAmpHost(m_ampEdit->text().trimmed());
     m_cfg.onDemandSeconds = m_onDemandSpin->value();
     m_cfg.restLan = m_restLanCheck->isChecked();
     m_cfg.guestView = m_guestViewCheck->isChecked();
@@ -630,7 +631,7 @@ void MainWindow::applyFormToConfig()
     m_cfg.lanRadio = m_lanRadioEdit->text();
     m_cfg.noAutoConnect = m_noAutoConnectCheck->isChecked();
     m_cfg.webPort = m_portSpin->value();
-    m_cfg.nameTag = m_nameEdit->text().trimmed();
+    m_cfg.setNameTag(m_nameEdit->text().trimmed());
     const QString settings = m_settingsEdit->text().trimmed();
     // The server resolves -s against its working directory; hand it an
     // absolute path so the file is where the user expects.
@@ -1176,6 +1177,23 @@ void MainWindow::setAutostart(bool enabled)
 // --- Closing ---------------------------------------------------------------
 
 // --- FlexRadio / SmartLink -------------------------------------------------
+
+// The amplifier and name fields show the chosen kind of radio's own values:
+// switching USB / Icom LAN / Flex keeps what was typed for the one left and
+// shows the one picked.
+void MainWindow::swapPerRadioFields()
+{
+    const LaunchConfig::Transport t = m_lanRadio->isChecked() ? LaunchConfig::Lan
+        : m_flexRadio->isChecked() ? LaunchConfig::FlexLan
+        : m_smartRadio->isChecked() ? LaunchConfig::SmartLink : LaunchConfig::Usb;
+    const int g = LaunchConfig::groupOf(t);
+    if (g == m_shownGroup || m_shownGroup < 0) return;
+    m_cfg.ampHosts[m_shownGroup] = m_ampEdit->text().trimmed();
+    m_cfg.nameTags[m_shownGroup] = m_nameEdit->text().trimmed();
+    m_shownGroup = g;
+    m_ampEdit->setText(m_cfg.ampHosts[g]);
+    m_nameEdit->setText(m_cfg.nameTags[g]);
+}
 
 void MainWindow::updateTransportWidgets()
 {

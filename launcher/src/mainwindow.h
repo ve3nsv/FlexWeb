@@ -140,6 +140,8 @@ private:
     QLineEdit *m_lanHostEdit = nullptr;
     QLineEdit *m_lanUserEdit = nullptr;
     QLineEdit *m_lanRadioEdit = nullptr;
+    int m_shownGroup = -1;          // LaunchConfig::Group whose amp / name the form shows
+    void swapPerRadioFields();
     QLineEdit *m_lanPassEdit = nullptr;
     QCheckBox *m_noAutoConnectCheck = nullptr;
     QList<QWidget *> m_usbWidgets;
