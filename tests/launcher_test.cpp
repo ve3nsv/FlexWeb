@@ -167,6 +167,7 @@ int main()
         c.lanUser = "alain";
         c.lanPassword = "secret";
         c.lanRadio = " 7300 ";
+        c.lanBufferMs = 300;
         c.noAutoConnect = true;
         c.serialPort = "COM7";
         c.audioDevice = "USB Audio CODEC";
@@ -175,6 +176,7 @@ int main()
         require(valueOf(args, "--lan-user") == "alain", "--lan-user");
         require(valueOf(args, "--lan-pass") == "secret", "--lan-pass");
         require(valueOf(args, "--lan-radio") == "7300", "--lan-radio carries the trimmed radio");
+        require(valueOf(args, "--lan-buffer") == "300", "--lan-buffer for a WAN link");
         require(indexOfFlag(args, "--no-autoconnect") >= 0, "--no-autoconnect in LAN mode");
         require(indexOfFlag(args, "--serial-port") < 0, "no serial flag in LAN mode");
         require(indexOfFlag(args, "--audio-device") < 0, "no audio flag in LAN mode");

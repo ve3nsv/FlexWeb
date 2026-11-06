@@ -87,6 +87,8 @@ private:
 	quint64 txReportSilentBytes = 0;
 	QElapsedTimer lastExternalTx;  // the web server's last TX frame
 	QTimer* txKeepaliveTimer = Q_NULLPTR;
+	bool rxAudioStarted = false;
+	QElapsedTimer lateLogTimer;   // "network is running late" at most every 10 s
 	QElapsedTimer keepaliveClock;
 	qint64 keepaliveSentMs = 0;
 	void sendTxPayload(const QByteArray& data, bool silence);

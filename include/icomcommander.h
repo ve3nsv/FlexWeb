@@ -109,6 +109,7 @@ private:
     tcpServer* tcp = Q_NULLPTR;
     icomUdpHandler* udp=Q_NULLPTR;
     QThread* udpHandlerThread = Q_NULLPTR;
+    void stopUdpThreadBounded(const char* where);   // punch list 75c
 
     void determineRigCaps();
     QByteArray payloadIn;

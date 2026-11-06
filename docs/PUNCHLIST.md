@@ -1618,6 +1618,50 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+75. IC-7300 / Icom LAN interface review against wfweb 0.9.5 and wfview
+    (user, 2026-11-06). FlexWeb is on wfweb 0.9.3; upstream wfweb's Icom
+    code (icomcommander, the UDP classes, rigcommander) is unchanged since,
+    apart from FlexWeb's own fixes (71, 72, 74); the IC-7300 .rig is ahead
+    of wfview's (fixed-scope edge table, Meters\38 241 not wfview's 2410).
+    wfweb 0.9.4 / 0.9.5 are modes (RTTY + DeepRTTY, DeepCW, CW paddle, SSTV
+    on slowscan's decoder) - separate merge question. Findings for the
+    operator's RS-BA1-over-Tailscale 7300 (1.0.117 log, 47 min):
+    a. RX audio holes: on sustained network lateness icomUdpAudio drops
+       one 20 ms packet in six ("Latency sustained -> flushing audio",
+       nothing is flushed - wfview's flushAudio() is commented out); 112
+       hard gaps in 47 min, in the packet-loss bursts. The browser's
+       rx-jitter buffer already absorbs lateness (resample, crossfaded
+       skip at a quiet moment): in the web build log, do not drop.
+    b. Local RX playback: icomUdpAudio opens the PC's default output for
+       RX as wfview's desktop does ("Output Cannot initialize audio
+       device" here; where it opens, the server PC plays the rig). The
+       browser is the RX sink: none, as 72 did for TX (externalRx).
+    c. Shutdown / on-demand release waits for the UDP thread for ever
+       (udpHandlerThread->wait()); wfview now waits 3 s, then forces it.
+       With --on-demand and a lossy WAN this is the hang to avoid: port
+       wfview's bounded wait.
+    d. WAN tuning: rx / tx latency 150 ms (prefs) for a path with ~2000
+       retransmit requests in 47 min; a launcher field (LAN audio buffer)
+       so a WAN user can give the rig link 300 ms.
+    e. Not FlexWeb's to change: scope 4 frames/s at the 7300's FAST - the
+       CI-V path is the 7300's 115200 baud USB serial on the man-cave PC
+       through Remote Utility, shared with every command; and any
+       client's voice depends on Remote Utility's 7300 Mic device (72).
+    Biggest gain without code: FlexWeb on the man-cave PC (as a client of
+    Remote Utility on 127.0.0.1, or on the 7300's USB with Remote
+    Utility's 7300 entry disconnected): the lossy UDP hop becomes the
+    browser's WebSocket, which the page's jitter buffer is built for.
+    Done (2026-11-06, user "Go, 75 first then 73"): a - logged at most
+    every 10 s, not dropped, in the web build (-S keeps the drop); b -
+    audioSetup::externalRx, no local playback device; c - stopUdpThread
+    Bounded, 5 s then forced, both stop paths; d - --lan-buffer 50-1000 ms,
+    [LAN] AudioBufferMs, launcher "Audio buffer" (0 = 150). Also found and
+    fixed: startAudio() reran after the 30 s audio watchdog and started a
+    second ping timer and a second TX keepalive (double TX stream); the TX
+    thread setup named the RX thread (a null dereference once there is no
+    RX thread). Not covered by a CI test: the late-network path and the
+    forced stop (the mock answers at once); launcher test covers d.
+
 74. IC-7300 S meter refresh (user, 2026-11-06; small). Measured in the
     user's 1.0.117 log: S meter 2.4 readings/s (every ~420 ms), scope 3.8
     frames/s. The S meter is polled (CI-V 15 02; the 7300 does not push

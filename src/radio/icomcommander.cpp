@@ -34,6 +34,20 @@ icomCommander::icomCommander(quint8 guid[GUIDLEN], rigCommander* parent) : rigCo
     // Add some commands that is a minimum for rig detection
 }
 
+// The radio link's thread stopped with a time limit (punch list 75c): it
+// used to be waited for without one, so a thread stuck on a lossy WAN hung
+// the --on-demand release / reconnect, or the server's exit. wfview now
+// gives it 3 s and then forces it; FlexWeb 5 s (the disconnect packet goes
+// out from that thread's own teardown).
+void icomCommander::stopUdpThreadBounded(const char* where)
+{
+    if (!udpHandlerThread) return;
+    if (udpHandlerThread->wait(5000)) return;
+    qWarning(logRig()) << where << ": the radio link's thread did not stop in 5 s - forcing it";
+    udpHandlerThread->terminate();
+    udpHandlerThread->wait(2000);
+}
+
 icomCommander::~icomCommander()
 {
     qInfo(logRig()) << "closing instance of icomCommander()";
@@ -49,7 +63,7 @@ icomCommander::~icomCommander()
 
     if (udpHandlerThread != Q_NULLPTR) {
         udpHandlerThread->quit();
-        udpHandlerThread->wait();
+        stopUdpThreadBounded("~icomCommander");
     }
 
     if (ptty != Q_NULLPTR) {
@@ -221,7 +235,7 @@ void icomCommander::closeComm()
         // processed on the UDP thread — so ~icomUdpBase() runs there and
         // sends the 0x05 disconnect packet via its QUdpSocket.
         udpHandlerThread->quit();
-        udpHandlerThread->wait();
+        stopUdpThreadBounded("closeComm");
         delete udpHandlerThread; // avoid leaking QThread objects on reconnect
         udpHandlerThread = Q_NULLPTR;
     }

@@ -846,6 +846,7 @@ void servermain::setDefPrefs()
     // browser's audio on the same stream: the rig keyed with no voice
     // (IC-7300 over RS-BA1, punch list 72). Rig server mode (-S) keeps it.
     txSetup.externalTx = !cliOverrides.noWeb;
+    rxSetup.externalRx = !cliOverrides.noWeb;
 
     udpDefPrefs.ipAddress = QString("");
     udpDefPrefs.controlLANPort = 50001;
@@ -1025,6 +1026,12 @@ void servermain::loadSettings()
         udpPrefs.username = settings->value("Username", udpDefPrefs.username).toString();
         udpPrefs.password = settings->value("Password", udpDefPrefs.password).toString();
         udpPrefs.radioName = settings->value("Radio", "").toString();
+        // The rig link's audio buffer (punch list 75d): 150 ms suits a LAN;
+        // an RS-BA1 server across the internet wants more.
+        {
+            const int buf = settings->value("AudioBufferMs", 0).toInt();
+            if (buf > 0) rxSetup.latency = txSetup.latency = quint16(qBound(50, buf, 1000));
+        }
         rxSetup.sampleRate = settings->value("AudioRXSampleRate", 48000).toInt();
         txSetup.sampleRate = rxSetup.sampleRate;
         rxSetup.codec = settings->value("AudioRXCodec", 4).toInt();
@@ -1096,6 +1103,8 @@ void servermain::applyCLIOverrides()
         udpPrefs.password = cliOverrides.lanPass;
     if (!cliOverrides.lanRadio.isEmpty())
         udpPrefs.radioName = cliOverrides.lanRadio;
+    if (cliOverrides.lanBufferMs > 0)
+        rxSetup.latency = txSetup.latency = quint16(qBound(50, cliOverrides.lanBufferMs, 1000));
 
     // Radio overrides
     if (cliOverrides.civAddr >= 0) {

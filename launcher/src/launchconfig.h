@@ -36,6 +36,7 @@ struct LaunchConfig {
     QString lanUser;
     QString lanPassword;
     QString lanRadio;      // a server with several radios: part of a name or its number
+    int lanBufferMs = 0;   // --lan-buffer; 0 = the server's 150 ms
     bool noAutoConnect = false;  // --no-autoconnect (LAN only)
 
     // FlexRadio
