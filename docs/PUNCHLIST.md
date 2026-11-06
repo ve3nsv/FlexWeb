@@ -1525,6 +1525,20 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+74. IC-7300 S meter refresh (user, 2026-11-06; small). Measured in the
+    user's 1.0.117 log: S meter 2.4 readings/s (every ~420 ms), scope 3.8
+    frames/s. The S meter is polled (CI-V 15 02; the 7300 does not push
+    it) at Highest, which comes every other 70 ms tick - but Po, SWR and
+    ALC were also polled at Highest all the time (servermain, for every
+    rig), so in receive, where they read zero, each of the three got one
+    slot in three. Done: Po / SWR / ALC only while transmitting
+    (webServer::setTxMeterPolling, from PTT and the rig's TX status,
+    posted out of receiveCache); in receive the S meter alone, ~140 ms
+    (~7/s). Faster still (every tick, ~14/s) is possible over LAN but
+    shares the RS-BA1 link with tuning commands - not done. Test:
+    test_meter_polling (no Po / SWR reads in receive, Po while keyed, gone
+    after unkey).
+
 73. One server, several radios, chosen on the page (user, 2026-11-05;
     medium). The operator has a FLEX-6400 (LAN / SmartLink), and an
     IC-7300 and an IC-9700 on one RS-BA1 server (Tailscale). Today one

@@ -172,7 +172,12 @@ The top-bar meter (`#meterCanvas`) has two faces, picked in `drawMeter()`:
   (`meterAnimStep`: `meterShown` follows `meterVal`, 45 ms up / 180 ms down,
   peak `meterPeakDb` falls 10 dB/s, reset every 10 s). A Flex pushes every
   LEVEL reading at once (no flush window), and the periodic `meters`
-  message leaves `sMeter` out on a Flex.
+  message leaves `sMeter` out on a Flex. Polled rigs: Po / SWR / ALC are in
+  the queue only while transmitting (`webServer::setTxMeterPolling`, from
+  PTT and the rig's TX status, posted - never from inside `receiveCache`);
+  in receive the S meter has the Highest slot to itself (~140 ms on an
+  IC-7300 over LAN, was ~420 ms). `-S` keeps the old always-on polls;
+  `tests/test_meter_polling.py`.
 - **Needle** — `resources/web-shared/needle-meter.js`, the IC-7610 screen
   meter. One pointer: S on RX, the selected reading on TX, so `po` joins the
   tap cycle there. The face is vector, from geometry measured off the rig's
