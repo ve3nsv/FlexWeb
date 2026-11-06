@@ -67,6 +67,15 @@ void icomUdpCivData::watchdog()
 void icomUdpCivData::send(QByteArray d)
 {
     //qInfo(logUdp()) << "Sending: (" << d.length() << ") " << d;
+    // Not before the server's "I am here": a frame stamped rcvdid 0 is
+    // thrown away, its retransmits (the same bytes) too, and the server then
+    // holds every later frame waiting for it - the rig never hears another
+    // command (seen after a radio switch, punch list 73). The commander's ID
+    // probe repeats every 500 ms and the queue re-polls, so dropping is safe.
+    if (remoteId == 0) {
+        qDebug(logUdp()) << "icomUdpCivData: stream not open yet, CI-V frame dropped";
+        return;
+    }
     data_packet p;
     memset(p.packet, 0x0, sizeof(p)); // We can't be sure it is initialized with 0x00!
     p.len = (quint32)sizeof(p) + d.length();

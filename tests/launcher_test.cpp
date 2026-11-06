@@ -174,6 +174,7 @@ int main()
         c.lanPassword = "p;w";
         c.lanRadio = "IC-7300, IC-9700";
         c.lanBufferMs = 300;
+        c.ampHosts[LaunchConfig::GroupIcomLan] = "10.0.0.25";   // typed while Icom LAN was the transport
         const QStringList args = c.toArguments(log);
         QStringList radios;
         for (int i = 0; i + 1 < args.size(); ++i) if (args[i] == "--radio") radios << args[i + 1];

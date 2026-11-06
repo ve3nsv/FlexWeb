@@ -1735,6 +1735,19 @@ TUNE state after a mock radio reconnect matches the radio.
     Flex -> Icom -> Flex, the amp follows the Flex, the old rig goes
     quiet). Not done: d (per-profile state), e (7300 <-> 9700 on one
     RS-BA1 session - today a new login, a few seconds), USB profiles.
+    First test (user's 1.0.123 log, Flex -> Icom): the 7300 never
+    answered. The commander's first ID probe left at 50.440, 12 ms before
+    the CI-V stream's "I am here": stamped rcvdid 0, the RS-BA1 server
+    discarded it, asked for it again ~40 times a second, our retransmits
+    (the same bytes) were discarded too, and every later frame was held
+    behind it - a race in any Icom LAN start, likelier after a switch.
+    icomUdpCivData::send / icomUdpAudio::sendTxPayload now send nothing
+    before the server's stream id is known. The page then showed "Radio is
+    powered off" with no way back: the RADIO choice is now on the start
+    and power-off screens too. The launcher gave the Icom entry the amp
+    (the one amp field on screen is the current transport's): in RADIO
+    menu mode only the Flex gets one. Two Icom entries need the LAN Radio
+    field filled ("7300, 9700"); empty = one entry, the server's first.
 
 72. IC-7300 over RS-BA1: TUNE works, voice TX silent (user, 2026-11-05;
     small; diagnosis open). USB MOD level 50 %. FlexWeb sets DATA OFF MOD

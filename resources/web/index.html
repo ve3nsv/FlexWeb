@@ -115,6 +115,12 @@ html, body {
 }
 /* Punch list 73: with several radios the name is the RADIO menu's key. */
 #rigTag.radio-pick { cursor: pointer; text-decoration: underline dotted; }
+/* Punch list 73: the radio choice on the start and power-off screens, so a
+   radio that does not connect is never a dead end. */
+.radio-choices { display: none; margin-top: 22px; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; font: 12px system-ui, sans-serif; color: #888; }
+.radio-choices.many { display: flex; }
+.radio-choices button { padding: 7px 14px; font-size: 13px; color: #ccc; background: transparent; border: 1px solid #444; border-radius: 6px; cursor: pointer; }
+.radio-choices button.cur { color: #0cf; border-color: #0aa; cursor: default; }
 #rigTag:empty { display: none; }
 /* Server CPU (punch list 17): the whole machine's load, amber above 70 %,
    red above 90 %; tap for FlexWeb's own share, cores and memory. */
@@ -2515,6 +2521,7 @@ try {
         </button>
         <div id="splashHint" style="margin-top: 20px; font-size: 12px; color: #666;">Enable RX Audio</div>
         <div id="splashError"  style="margin-top: 16px; min-height: 18px; font-size: 12px; color: #f88;"></div>
+        <div class="radio-choices"></div>
 
         <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 32px;">
             <a href="https://github.com/ve3nsv/FlexWeb" target="_blank" rel="noopener"
@@ -2549,6 +2556,7 @@ try {
             <button id="lanConnBtn" onclick="toggleLanConnection()" style="display: none;">Disconnect LAN</button>
             <div id="powerOnSpinner" style="display: none;"></div>
         </div>
+        <div class="radio-choices"></div>
     </div>
     <div style="position: absolute; bottom: 20px; left: 20px; font-size: 11px; color: #555;">
         <span id="powerOffVersion">FlexWeb</span>
@@ -8279,6 +8287,32 @@ function updateRadioTag() {
     var many = radioList.length > 1;
     el.classList.toggle('radio-pick', many);
     if (many) el.title = 'Radio: ' + ((radioList[radioIndex] || {}).name || '') + ' \u2014 tap to choose another';
+    renderRadioChoices();
+}
+function pickRadio(i) {
+    if (i === radioIndex) return false;
+    if (guestView) { guestNotice(); return false; }
+    if (isTransmitting) { guestNotice('Not while transmitting - unkey first', 4000); return false; }
+    send({ cmd: 'selectRadio', index: i });
+    return true;
+}
+function renderRadioChoices() {
+    document.querySelectorAll('.radio-choices').forEach(function (box) {
+        box.innerHTML = '';
+        box.classList.toggle('many', radioList.length > 1);
+        if (radioList.length < 2) return;
+        var lbl = document.createElement('span');
+        lbl.textContent = 'RADIO';
+        box.appendChild(lbl);
+        radioList.forEach(function (r, i) {
+            var b = document.createElement('button');
+            b.textContent = r.name;
+            b.className = i === radioIndex ? 'cur' : '';
+            b.title = i === radioIndex ? 'In use' : 'Switch to ' + r.name;
+            b.addEventListener('click', function (e) { e.stopPropagation(); pickRadio(i); });
+            box.appendChild(b);
+        });
+    });
 }
 function renderRadioOverlay() {
     var body = document.getElementById('radioBody');
@@ -8288,11 +8322,7 @@ function renderRadioOverlay() {
     radioList.forEach(function (r, i) {
         grid.appendChild(makeFuncBtn(r.name, i === radioIndex ? 'IN USE' : (RADIO_TYPE_LABEL[r.type] || r.type || ''),
             i === radioIndex, function () {
-                if (i === radioIndex) { setPanel('default'); return; }
-                if (guestView) { guestNotice(); return; }
-                if (isTransmitting) { guestNotice('Not while transmitting - unkey first', 4000); return; }
-                send({ cmd: 'selectRadio', index: i });
-                setPanel('default');
+                if (i === radioIndex || pickRadio(i)) setPanel('default');
             }));
     });
     body.appendChild(grid);
@@ -8309,7 +8339,7 @@ function showRadioSwitching(text) {
         n.id = 'radioSwitchNote';
         n.setAttribute('role', 'status');
         n.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;'
-            + 'background:rgba(0,0,0,0.72);color:#fff;font:600 20px/1.4 system-ui,sans-serif;z-index:9999;'
+            + 'background:rgba(0,0,0,0.72);color:#fff;font:600 20px/1.4 system-ui,sans-serif;z-index:10002;'
             + 'text-align:center;padding:16px';
         document.body.appendChild(n);
     }
