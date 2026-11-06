@@ -1587,6 +1587,17 @@ TUNE state after a mock radio reconnect matches the radio.
     30 s RX-audio watchdog drops the local capture. Test: test_lan_tx_audio
     (mock_radio now records TX audio packets and answers the audio port's
     handshake).
+    1.0.115 (user, 2026-11-05): still no voice. Log: local capture off,
+    server offers TX (0xff01, 48 kHz codec 4), mic peaks -3..-9 dBFS,
+    DATA OFF MOD = USB acknowledged (1a 05 00 66 03 -> FB, reads back 03),
+    test_lan_tx_audio passed on CI (packets on the audio port). So the
+    audio reaches the RS-BA1 server PC and stops there or is not played
+    into the 7300's USB codec. Added: "LAN TX audio: N packets, M bytes
+    (T ms of audio) sent to ip:port" every 5 s while sending. To check on
+    the server PC: Remote Utility's transmit audio device = Speakers (USB
+    Audio CODEC); that device enabled, not muted, level up in Windows; the
+    user's rights; and whether Icom's own RS-BA1 Remote Control (or
+    wfview) transmits voice through the same server.
 
 71. RS-BA1 with two radios never connects (user log, 2026-11-05, 1.0.110;
     small). Over Tailscale (100.74.78.87) the server answered, logged in

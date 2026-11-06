@@ -122,6 +122,20 @@ void icomUdpAudio::receiveAudioData(audioPacket audio) {
             //qInfo(logUdp()) << "Sending audio packet length: " << tx.length();
             sendTrackedPacket(tx);
             sendAudioSeq++;
+            ++txReportPackets;
+            txReportBytes += partial.length();
+        }
+        // What actually left for the radio / RS-BA1 server, every 5 s while
+        // sending (punch list 72: the log could not show it before).
+        if (!txReportTimer.isValid()) txReportTimer.start();
+        if (txReportTimer.elapsed() >= 5000) {
+            qInfo(logUdp()).noquote() << QString("LAN TX audio: %1 packets, %2 bytes (%3 ms of audio) sent to %4:%5 in the last %6 s")
+                .arg(txReportPackets).arg(txReportBytes)
+                .arg(txSetup.sampleRate ? qint64(txReportBytes) * 1000 / (2 * qint64(txSetup.sampleRate)) : 0)
+                .arg(radioIP.toString()).arg(port).arg(txReportTimer.elapsed() / 1000);
+            txReportPackets = 0;
+            txReportBytes = 0;
+            txReportTimer.restart();
         }
     }
 }

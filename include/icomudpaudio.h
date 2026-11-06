@@ -3,6 +3,7 @@
 
 
 #include <QObject>
+#include <QElapsedTimer>
 #include <QUdpSocket>
 #include <QNetworkDatagram>
 #include <QHostInfo>
@@ -79,6 +80,9 @@ private:
 
     QTimer* txAudioTimer = Q_NULLPTR;
 	bool enableTx = true;
+	QElapsedTimer txReportTimer;   // LAN TX audio log line
+	quint32 txReportPackets = 0;
+	quint64 txReportBytes = 0;
 
 	QMutex audioMutex;
 
