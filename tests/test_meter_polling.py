@@ -9,8 +9,10 @@ import requests
 
 
 def _reads(mock, sub, since):
-    # CI-V read frames: FE FE <to> <from> 15 <sub> FD
-    return [f for f in mock.civ_log[since:] if len(f) == 7 and f[4] == 0x15 and f[5] == sub]
+    # CI-V read frames: FE FE <to> <from> [29 <receiver>] 15 <sub> FD - the
+    # mock is an IC-7610, whose two receivers take the 29 prefix.
+    tail = bytes([0x15, sub, 0xFD])
+    return [f for f in mock.civ_log[since:] if len(f) in (7, 9) and f.endswith(tail)]
 
 
 def test_tx_meters_only_while_transmitting(rest_url, mock_radio):
