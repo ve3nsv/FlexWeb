@@ -392,6 +392,11 @@ int main(int argc, char *argv[])
         "  --lan-audio <port>      LAN audio port (default 50003)\n"
         "  --lan-user <user>       LAN username\n"
         "  --lan-pass <pass>       LAN password\n"
+        "  --radio <profile>       A radio for the page's RADIO menu (repeat for each; one is\n"
+        "                          connected at a time, only while a browser is on):\n"
+        "                          \"name=IC-7300;type=icomlan;host=ip;user=u;pass=p;radio=7300\"\n"
+        "                          \"name=Flex 6400;type=flex;host=auto;amp=10.0.0.25\"\n"
+        "                          types: flex, smartlink (host = radio), icomlan\n"
         "  --lan-buffer <ms>       Audio buffer on the LAN rig link, 50-1000 ms (default 150;\n"
         "                          300 or more for an RS-BA1 server across the internet)\n"
         "  --lan-radio <name>      Which radio on a server that has several (RS-BA1 /\n"
@@ -763,6 +768,11 @@ int main(int argc, char *argv[])
         {
             if (argc > c + 1) { overrides.lanUser = argv[++c]; }
             else { std::cout << "Error: --lan-user requires username\n"; return -1; }
+        }
+        else if (currentArg == "--radio")
+        {
+            if (argc > c + 1) { overrides.radios << QString::fromLocal8Bit(argv[++c]); }
+            else { std::cout << "Error: --radio requires a profile\n"; return -1; }
         }
         else if (currentArg == "--lan-buffer")
         {

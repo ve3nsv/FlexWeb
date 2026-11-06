@@ -159,6 +159,37 @@ int main()
                 "an old name that says Flex moves to the Flex");
     }
 
+    // Punch list 73: one server, several radios. The Flex and each Icom LAN
+    // radio become --radio profiles with their own amp and name; no single
+    // transport flags, no --rfkit / -n of their own.
+    {
+        LaunchConfig c;
+        c.multiRadio = true;
+        c.transport = LaunchConfig::FlexLan;
+        c.flexHost = "auto";
+        c.setAmpHost("10.0.0.25");
+        c.setNameTag("Flex 6400");
+        c.lanHost = "100.74.78.87";
+        c.lanUser = "va3nsv";
+        c.lanPassword = "p;w";
+        c.lanRadio = "IC-7300, IC-9700";
+        c.lanBufferMs = 300;
+        const QStringList args = c.toArguments(log);
+        QStringList radios;
+        for (int i = 0; i + 1 < args.size(); ++i) if (args[i] == "--radio") radios << args[i + 1];
+        require(radios.size() == 3, "three --radio profiles (Flex, IC-7300, IC-9700)");
+        require(radios.value(0).contains("name=Flex 6400") && radios.value(0).contains("type=flex")
+                && radios.value(0).contains("amp=10.0.0.25"), "the Flex with its amp");
+        require(radios.value(1).contains("name=IC-7300") && radios.value(1).contains("radio=IC-7300")
+                && radios.value(1).contains("type=icomlan") && !radios.value(1).contains("amp="),
+                "the IC-7300 without the Flex's amp");
+        require(radios.value(1).contains("pass=p\\;w"), "a ; in the password escaped");
+        require(radios.value(2).contains("name=IC-9700") && radios.value(2).contains("buffer=300"), "the IC-9700");
+        require(indexOfFlag(args, "--lan") < 0 && indexOfFlag(args, "--manufacturer") < 0
+                && indexOfFlag(args, "--rfkit") < 0 && indexOfFlag(args, "-n") < 0,
+                "no single-radio flags with the RADIO menu");
+    }
+
     // LAN: host and credentials, and the USB fields are ignored even if set.
     {
         LaunchConfig c;

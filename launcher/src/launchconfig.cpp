@@ -1,4 +1,5 @@
 #include "launchconfig.h"
+#include "../../include/radioprofile.h"   // header-only, Qt5Core (punch list 73)
 
 #include <QProcess>
 #include <QSettings>
@@ -10,7 +11,9 @@ QStringList LaunchConfig::toArguments(const QString &logFile) const
     // behaviour independent of how the handles were inherited.
     args << "--no-tui" << "-l" << logFile;
 
-    if (transport == Lan) {
+    if (multiRadio) {
+        for (const QString &p : radioProfiles()) args << "--radio" << p;
+    } else if (transport == Lan) {
         args << "--lan" << lanHost.trimmed();
         if (!lanUser.isEmpty()) args << "--lan-user" << lanUser;
         if (!lanPassword.isEmpty()) args << "--lan-pass" << lanPassword;
@@ -32,9 +35,9 @@ QStringList LaunchConfig::toArguments(const QString &logFile) const
         if (!audioDevice.isEmpty()) args << "--audio-device" << audioDevice;
     }
 
-    if ((transport == FlexLan || transport == SmartLink) && (flexAudio == "opus" || flexAudio == "none"))
+    if ((multiRadio || transport == FlexLan || transport == SmartLink) && (flexAudio == "opus" || flexAudio == "none"))
         args << "--flex-audio" << flexAudio;
-    if (!ampHost().trimmed().isEmpty()) args << "--rfkit" << ampHost().trimmed();
+    if (!multiRadio && !ampHost().trimmed().isEmpty()) args << "--rfkit" << ampHost().trimmed();
     if (isNetwork() && onDemandSeconds > 0) args << "--on-demand" << QString::number(onDemandSeconds);
     if (restLan) args << "--rest";
     if (guestView) args << "--guest-view";
@@ -43,11 +46,54 @@ QStringList LaunchConfig::toArguments(const QString &logFile) const
     if (!ntfyTopic.trimmed().isEmpty()) args << "--ntfy-topic" << ntfyTopic.trimmed();
 
     if (webPort > 0 && webPort != defaultWebPort) args << "-p" << QString::number(webPort);
-    if (!nameTag().trimmed().isEmpty()) args << "-n" << nameTag().trimmed();
+    if (!multiRadio && !nameTag().trimmed().isEmpty()) args << "-n" << nameTag().trimmed();
     if (!settingsFile.isEmpty()) args << "-s" << settingsFile;
 
     args << QProcess::splitCommand(extraArguments);
     return args;
+}
+
+QStringList LaunchConfig::radioProfiles() const
+{
+    QStringList out;
+    // The Flex: SmartLink when that is the chosen transport, else the LAN.
+    {
+        radioProfile f;
+        f.name = nameTags[GroupFlex].trimmed();
+        if (f.name.isEmpty()) f.name = QStringLiteral("FlexRadio");
+        if (transport == SmartLink) {
+            f.type = QStringLiteral("smartlink");
+            f.host = smartLinkRadio.trimmed().isEmpty() ? QStringLiteral("auto") : smartLinkRadio.trimmed();
+        } else {
+            f.type = QStringLiteral("flex");
+            f.host = flexHost.trimmed().isEmpty() ? QStringLiteral("auto") : flexHost.trimmed();
+        }
+        f.amp = ampHosts[GroupFlex].trimmed();
+        out << f.toSpec();
+    }
+    // Each Icom LAN radio: "IC-7300, IC-9700" in the Radio field is two
+    // radios on one RS-BA1 / wfview server; empty is the server's first.
+    if (!lanHost.trimmed().isEmpty()) {
+        QStringList names = lanRadio.split(QLatin1Char(','), Qt::SkipEmptyParts);
+        for (QString &n : names) n = n.trimmed();
+        names.removeAll(QString());
+        if (names.isEmpty()) names << QString();
+        for (const QString &n : names) {
+            radioProfile i;
+            i.type = QStringLiteral("icomlan");
+            i.host = lanHost.trimmed();
+            i.user = lanUser;
+            i.pass = lanPassword;
+            i.radio = n;
+            i.bufferMs = lanBufferMs;
+            i.amp = ampHosts[GroupIcomLan].trimmed();
+            i.name = !n.isEmpty() ? n
+                   : !nameTags[GroupIcomLan].trimmed().isEmpty() ? nameTags[GroupIcomLan].trimmed()
+                   : QStringLiteral("Icom");
+            out << i.toSpec();
+        }
+    }
+    return out;
 }
 
 QStringList LaunchConfig::restProbeUrls() const
@@ -77,6 +123,7 @@ void LaunchConfig::load(const QSettings &s)
     lanPassword = s.value("lanPassword").toString();
     lanRadio = s.value("lanRadio").toString();
     lanBufferMs = qBound(0, s.value("lanBufferMs", 0).toInt(), 1000);
+    multiRadio = s.value("multiRadio", false).toBool();
     noAutoConnect = s.value("noAutoConnect", false).toBool();
     flexHost = s.value("flexHost", "auto").toString();
     smartLinkRadio = s.value("smartLinkRadio", "auto").toString();
@@ -123,6 +170,7 @@ void LaunchConfig::save(QSettings &s) const
     s.setValue("lanPassword", lanPassword);
     s.setValue("lanRadio", lanRadio);
     s.setValue("lanBufferMs", lanBufferMs);
+    s.setValue("multiRadio", multiRadio);
     s.setValue("noAutoConnect", noAutoConnect);
     s.setValue("flexHost", flexHost);
     s.setValue("smartLinkRadio", smartLinkRadio);

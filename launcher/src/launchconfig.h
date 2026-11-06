@@ -66,7 +66,15 @@ struct LaunchConfig {
     bool allowRequests = false;  // --allow-requests: "Request access" on the sign-in page
     QString ntfyTopic;           // --ntfy-topic: push new requests to ntfy.sh/<topic>
 
-    bool isNetwork() const { return transport != Usb; }
+    bool isNetwork() const { return multiRadio || transport != Usb; }
+
+    // Punch list 73: one server, several radios, chosen on the page. The
+    // Flex (LAN or SmartLink, whichever is picked; LAN otherwise) and each
+    // Icom LAN radio listed in lanRadio ("IC-7300, IC-9700") become --radio
+    // profiles; the transport choice is then only the Flex's LAN /
+    // SmartLink. The amplifier and the names are each radio kind's own.
+    bool multiRadio = false;
+    QStringList radioProfiles() const;
 
     // Server
     int webPort = defaultWebPort;

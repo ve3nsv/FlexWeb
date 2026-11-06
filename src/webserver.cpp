@@ -3020,6 +3020,28 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     else if (type == "reconnectLan") {
         emit requestLanReconnect();
     }
+    else if (type == "selectRadio") {
+        // Punch list 73: another radio. Never while anyone transmits (the
+        // switch closes the link), never by a guest (not in guestAllowed).
+        const int idx = cmd["index"].toInt(-1);
+        if (idx < 0 || idx >= radioNames_.size() || idx == radioIndex_) return;
+        if (pttClient || nnrTx_ || ampTxAir_) {
+            QJsonObject r;
+            r["type"] = "radioRefused";
+            r["reason"] = "tx";
+            r["text"] = "Not while transmitting - unkey first";
+            if (client) sendJsonTo(client, r);
+            return;
+        }
+        const QString who = client ? clientLabel(client) : QStringLiteral("server");
+        QJsonObject o;
+        o["type"] = "radioSwitching";
+        o["index"] = idx;
+        o["name"] = radioNames_[idx];
+        o["by"] = who;
+        sendJsonToAll(o);
+        emit requestRadioSwitch(idx, who);
+    }
     else if (type == "getMemories") {
         if (!queue || !rigCaps) {
             QJsonObject err;
@@ -4177,6 +4199,7 @@ void webServer::sendCurrentState(QWebSocket *client)
     info["stationGrid"] = reporterGrid;
     info["reporterMessage"] = reporterMessage;
     info["ampConfigured"] = !rfkitTarget_.isEmpty();
+    addRadiosTo(info);
 
     sendJsonTo(client, info);
     if (!rfkitTarget_.isEmpty() && !ampJson_.isEmpty())
@@ -10282,6 +10305,44 @@ void webServer::onFlexNnrGain(float gain, bool active)
     o["gain"] = double(std::lround(gain * 1000)) / 1000.0;
     o["active"] = active;
     sendJsonToAll(o);
+}
+
+void webServer::setRadioProfiles(QStringList names, QStringList types, int index)
+{
+    radioNames_ = names;
+    radioTypes_ = types;
+    radioIndex_ = index;
+}
+
+void webServer::addRadiosTo(QJsonObject &o) const
+{
+    if (radioNames_.isEmpty()) return;
+    QJsonArray list;
+    for (int i = 0; i < radioNames_.size(); ++i) {
+        QJsonObject r;
+        r["name"] = radioNames_[i];
+        r["type"] = i < radioTypes_.size() ? radioTypes_[i] : QString();
+        list.append(r);
+    }
+    o["radios"] = list;
+    o["radioIndex"] = radioIndex_;
+}
+
+void webServer::onRadioSwitched(int index, QString who)
+{
+    radioIndex_ = index;
+    // The last radio's Flex state must not reach the next one's pages (they
+    // reload on radioSwitched and get sendCurrentState): a Flex republishes
+    // its own once connected, an Icom has none.
+    flexDspJson_ = QJsonObject();
+    flexMemoriesJson_ = QJsonArray();
+    QJsonObject o;
+    o["type"] = "radioSwitched";
+    o["index"] = index;
+    o["name"] = index >= 0 && index < radioNames_.size() ? radioNames_[index] : QString();
+    o["by"] = who;
+    sendJsonToAll(o);
+    qInfo().noquote() << "Web: radio switched to" << o["name"].toString() << "by" << who;
 }
 
 void webServer::onFlexOnAir(bool onAir)

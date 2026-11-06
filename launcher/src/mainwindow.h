@@ -141,6 +141,7 @@ private:
     QLineEdit *m_lanUserEdit = nullptr;
     QLineEdit *m_lanRadioEdit = nullptr;
     QSpinBox *m_lanBufferSpin = nullptr;
+    QCheckBox *m_multiRadioCheck = nullptr;   // punch list 73
     int m_shownGroup = -1;          // LaunchConfig::Group whose amp / name the form shows
     void swapPerRadioFields();
     QLineEdit *m_lanPassEdit = nullptr;

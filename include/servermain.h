@@ -1,6 +1,7 @@
 #ifndef WFMAIN_H
 #define WFMAIN_H
 
+#include "radioprofile.h"
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDirIterator>
 #include <QtCore/QStandardPaths>
@@ -88,6 +89,7 @@ struct cmdLineOverrides {
     bool allowRequests = false; // --allow-requests: "Request access" on the login page
     QString ntfyTopic;          // --ntfy-topic: push new access requests
     bool guestTune = false;    // --guest-tune: guests may tune (RX only) while no signed-in user is on
+    QStringList radios;        // --radio <profile>, repeated: the page's RADIO menu (punch list 73)
 };
 
 class servermain : public QObject
@@ -221,6 +223,8 @@ signals:
     void stateUpdated();
 
 public slots:
+    // Punch list 73: close the current radio and connect profile `index`.
+    void switchRadio(int index, QString who);
     void powerRigOff();
     void powerRigOn();
     void disconnectLan();
@@ -248,6 +252,14 @@ private:
     void tidyLanHost();
     void autoDetectSerialPort();
     cmdLineOverrides cliOverrides;
+
+    // Punch list 73: the radios the page can choose, one connected at a time.
+    QList<radioProfile> profiles;
+    int profileIndex = -1;
+    void loadProfiles();
+    void applyProfile(int index);
+    void sendProfilesToWeb();
+    void closeCurrentRig();
 
     void openRig();
     void initPeriodicPolling();

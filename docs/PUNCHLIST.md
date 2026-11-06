@@ -1622,6 +1622,26 @@ TUNE state after a mock radio reconnect matches the radio.
     the page's rigInfo follows.
     Interim (no code): launch the 7300 / 9700 with the launcher's
     amplifier field empty, so the amp is not polled for them.
+    Done (2026-11-06, user "Go, 75 first then 73"): a, b, c, f.
+    include/radioprofile.h - a profile is one --radio "k=v;..." (name,
+    type flex / smartlink / icomlan, host, user, pass, radio, amp, buffer,
+    port, audioport; \; and \\ escapes; tests/radioprofile_test.cpp).
+    With profiles, servermain::loadProfiles takes the last used
+    ([Radios] Last) or the first, forces --on-demand (30 s if not given);
+    switchRadio closes the commander and its thread (closeCurrentRig:
+    closeComm, null caps through the web thread, thread stopped in 5 s),
+    applies the profile, the amp (configureRfkit with the profile's amp,
+    empty = none) and the name tag, opens the new rig. Web: selectRadio
+    {index} (not for guests; refused while anyone is keyed, radioRefused),
+    radioSwitching / radioSwitched to every browser, rigInfo radios +
+    radioIndex. Page: FUNC > RADIO and a tap on the rig tag open the RADIO
+    panel; on radioSwitched every page reloads. Launcher: "RADIO menu"
+    tick - the Flex (LAN or SmartLink, the Flex amp) plus one Icom LAN
+    profile per name in the LAN Radio field ("IC-7300, IC-9700", the Icom
+    LAN amp). Test: tests/test_radio_switch.py (mock Flex + mock IC-7610,
+    Flex -> Icom -> Flex, the amp follows the Flex, the old rig goes
+    quiet). Not done: d (per-profile state), e (7300 <-> 9700 on one
+    RS-BA1 session - today a new login, a few seconds), USB profiles.
 
 72. IC-7300 over RS-BA1: TUNE works, voice TX silent (user, 2026-11-05;
     small; diagnosis open). USB MOD level 50 %. FlexWeb sets DATA OFF MOD
