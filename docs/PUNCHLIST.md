@@ -1525,6 +1525,39 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+76. Page settings per radio and per user (user, 2026-11-06; medium).
+    Today the page keeps its view settings in the browser's localStorage
+    (52 keys: wfSpeed, wfPalette, wfSpectFill, wfScopeRef, wfScopeMode,
+    wfSpecSplit, wfScopeSync*, meter face, audio buffer, NR choice ...):
+    one set per browser, shared by every radio, and a different set on the
+    phone, the Mac and the shack PC. The operator switches Flex / IC-7300 /
+    IC-9700 from the RADIO menu (item 73) and wants each radio to come back
+    as it was - a 50 kHz Flex scope at MID is not what the 7300's 115200
+    baud scope wants - and the same settings on every device he signs in
+    from.
+    a. Server-side store, keyed user x radio profile: QSettings("wfweb",
+       "pageprefs") [<user>/<profile>] (guest: read-only, the operator's
+       defaults). Sent in rigInfo as pagePrefs; the page writes back with
+       {cmd:'setPagePrefs', key, value} debounced (~1 s), not on every
+       drag. Not a guest command.
+    b. Two scopes per key, decided per key in one table in index.html:
+       per radio (scope span, ref, speed, palette, fill, split, mode, sync
+       trim, meter face, filter / NR choice) and per user only (look:
+       AETHER / CLASSIC, layout, keyer TONE, recorder options). Device-only
+       stays in localStorage (audio buffer learned for this network, the
+       scope-sync delay measured on this machine).
+    c. Load order: server value for this user + radio, else this
+       browser's current localStorage value (first run migrates it up),
+       else the default. A setting changed on one device shows on another
+       at its next page load (no live push needed; the RADIO switch
+       reloads anyway).
+    d. Server CLI single-radio: the profile key is the rig model, so a
+       plain --lan / USB setup gets the same per-user memory.
+    Tests: a node sim of the key table (scope per key, migration, guest
+    read-only) and an e2e on the two-radio mock (test_radio_switch):
+    waterfall speed set on the Flex, switch to the Icom (default speed),
+    switch back (the Flex's speed), a second user sees their own.
+
 75. IC-7300 / Icom LAN interface review against wfweb 0.9.5 and wfview
     (user, 2026-11-06). FlexWeb is on wfweb 0.9.3; upstream wfweb's Icom
     code (icomcommander, the UDP classes, rigcommander) is unchanged since,
