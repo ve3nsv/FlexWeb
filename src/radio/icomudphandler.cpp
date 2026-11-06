@@ -611,7 +611,9 @@ int icomUdpHandler::pickRadio() const
     if (wantRadio.isEmpty()) return 0;
     bool isNum = false;
     const int n = wantRadio.toInt(&isNum);
-    if (isNum) return (n >= 1 && n <= radios.size()) ? n - 1 : -1;
+    // A position (1, 2 ...) when it is one; otherwise digits are part of a
+    // name ("7300" -> "IC-7300 Man Cave").
+    if (isNum && n >= 1 && n <= radios.size()) return n - 1;
     for (int i = 0; i < radios.size(); ++i)
         if (QString(radios[i].name).contains(wantRadio, Qt::CaseInsensitive)) return i;
     return -1;
