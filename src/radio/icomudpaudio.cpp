@@ -133,6 +133,7 @@ void icomUdpAudio::sendTxKeepalive()
 
 void icomUdpAudio::sendTxPayload(const QByteArray& data, bool silence)
 {
+    if (remoteId == 0) return;   // stream not open yet (see icomUdpCivData::send)
     audioPacket audio;
     audio.data = data;
     {

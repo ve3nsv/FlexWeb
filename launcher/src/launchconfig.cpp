@@ -86,7 +86,9 @@ QStringList LaunchConfig::radioProfiles() const
             i.pass = lanPassword;
             i.radio = n;
             i.bufferMs = lanBufferMs;
-            i.amp = ampHosts[GroupIcomLan].trimmed();
+            // No amplifier: the RF2K-S goes with the Flex only (punch list
+            // 73b). In this mode the one amp field on screen is the current
+            // transport's, so an Icom LAN entry would carry the Flex's amp.
             i.name = !n.isEmpty() ? n
                    : !nameTags[GroupIcomLan].trimmed().isEmpty() ? nameTags[GroupIcomLan].trimmed()
                    : QStringLiteral("Icom");
