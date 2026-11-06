@@ -67,6 +67,7 @@ void icomUdpAudio::watchdog()
                 rxAudioThread->wait();
                 rxAudioThread = Q_NULLPTR;
                 rxaudio = Q_NULLPTR;
+                rxAudioStarted = false;   // the next audio starts the local playback again
             }
 
             if (txAudioThread != Q_NULLPTR) {
@@ -231,7 +232,7 @@ void icomUdpAudio::dataReceived()
                     seqPrefix++;
                 }
 
-                if (rxAudioThread == Q_NULLPTR)
+                if (!rxAudioStarted)
                     startAudio();
 
                 const int excess = pingLatenessMs - (pingBaselineMs + rxSetup.latency);
@@ -243,10 +244,23 @@ void icomUdpAudio::dataReceived()
                                      << "excess" << excess;
 
                     if (++latencyCounter > 5) {
-                        qInfo(logUdp()) << "Latency sustained -> flushing audio";
                         latencyCounter = 0;
-                        //flushAudio();   // clear queue / reset decoder
-                        break;
+                        if (rxSetup.externalRx) {
+                            // The browser's jitter buffer (rx-jitter.js) catches up
+                            // smoothly - resampling, a crossfaded skip at a quiet
+                            // moment. Dropping a packet here only cut a hard 20 ms
+                            // hole into the audio (112 in 47 min over RS-BA1 on
+                            // the WAN, punch list 75a). Logged, not dropped.
+                            if (!lateLogTimer.isValid() || lateLogTimer.elapsed() > 10000) {
+                                qInfo(logUdp()).noquote() << QString("LAN audio: the network is running %1 ms late "
+                                                                     "(the browser's buffer absorbs it)").arg(excess);
+                                lateLogTimer.restart();
+                            }
+                        } else {
+                            qInfo(logUdp()) << "Latency sustained -> flushing audio";
+                            //flushAudio();   // clear queue / reset decoder
+                            break;
+                        }
                     }
                 } else {
                     latencyCounter = 0;
@@ -270,7 +284,16 @@ void icomUdpAudio::dataReceived()
 }
 
 void icomUdpAudio::startAudio() {
+    rxAudioStarted = true;
 
+    // The browser is the receive sink in the web build: no local playback
+    // device (wfview's desktop path played the rig out of the server PC's
+    // default output - "Output Cannot initialize audio device" when there
+    // is none). Punch list 75b. -S keeps it.
+    if (rxSetup.externalRx) {
+        qInfo(logUdp()) << "icomUdpAudio: RX audio to the web server only (no local playback device)";
+    }
+    else {
     if (rxSetup.type == qtAudio) {
         rxaudio = new audioHandlerQtOutput();
     }
@@ -306,22 +329,28 @@ void icomUdpAudio::startAudio() {
     connect(this, SIGNAL(haveSetVolume(quint8)), rxaudio, SLOT(setVolume(quint8)));
     connect(rxaudio, SIGNAL(haveLevels(quint16, quint16, quint16, quint16, bool, bool)), this, SLOT(getRxLevels(quint16, quint16, quint16, quint16, bool, bool)));
     connect(rxAudioThread, SIGNAL(finished()), rxaudio, SLOT(deleteLater()));
-
-    connect(rxAudioThread, SIGNAL(finished()), rxaudio, SLOT(deleteLater()));
+    }
 
     sendControl(false, 0x03, 0x00); // First connect packet
 
-    pingTimer = new QTimer(this);
-    connect(pingTimer, &QTimer::timeout, this, &icomUdpBase::sendPing);
-    pingTimer->start(PING_PERIOD); // send ping packets every 100ms
+    // startAudio() runs again after the watchdog stopped the RX thread (30 s
+    // without audio): one ping timer and one TX keepalive, not one more each
+    // time - a second keepalive doubled the TX stream.
+    if (!pingTimer) {
+        pingTimer = new QTimer(this);
+        connect(pingTimer, &QTimer::timeout, this, &icomUdpBase::sendPing);
+        pingTimer->start(PING_PERIOD); // send ping packets every 100ms
+    }
 
     if (enableTx && txSetup.externalTx) {
-        qInfo(logUdp()) << "icomUdpAudio: TX audio from the web server (no local capture device)"
-                        << (txSetup.codec == 0x04 ? "- stream kept running with silence between overs, as wfview's" : "");
-        txKeepaliveTimer = new QTimer(this);
-        txKeepaliveTimer->setTimerType(Qt::PreciseTimer);
-        connect(txKeepaliveTimer, &QTimer::timeout, this, &icomUdpAudio::sendTxKeepalive);
-        txKeepaliveTimer->start(20);
+        if (!txKeepaliveTimer) {
+            qInfo(logUdp()) << "icomUdpAudio: TX audio from the web server (no local capture device)"
+                            << (txSetup.codec == 0x04 ? "- stream kept running with silence between overs, as wfview's" : "");
+            txKeepaliveTimer = new QTimer(this);
+            txKeepaliveTimer->setTimerType(Qt::PreciseTimer);
+            connect(txKeepaliveTimer, &QTimer::timeout, this, &icomUdpAudio::sendTxKeepalive);
+            txKeepaliveTimer->start(20);
+        }
     }
     else if (enableTx) {
         if (txSetup.type == qtAudio) {
@@ -345,7 +374,7 @@ void icomUdpAudio::startAudio() {
         }
 
         txAudioThread = new QThread(this);
-        rxAudioThread->setObjectName("txAudio()");
+        txAudioThread->setObjectName("txAudio()");
 
         txaudio->moveToThread(txAudioThread);
 
@@ -359,7 +388,7 @@ void icomUdpAudio::startAudio() {
         emit setupTxAudio(txSetup);
     }
 
-    emit setupRxAudio(rxSetup);
+    if (rxaudio) emit setupRxAudio(rxSetup);
 
 }
 

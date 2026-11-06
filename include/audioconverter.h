@@ -74,6 +74,9 @@ struct audioSetup {
     // TX audio comes from outside (the browser via the web server), not from
     // a local capture device: icomUdpAudio then opens no input of its own.
     bool externalTx = false;
+    // RX audio goes to the web server only: icomUdpAudio opens no local
+    // playback device (punch list 75b).
+    bool externalRx = false;
 };
 
 class audioConverter : public QObject

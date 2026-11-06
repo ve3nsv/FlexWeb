@@ -56,6 +56,7 @@ struct cmdLineOverrides {
     QString lanUser;
     QString lanPass;
     QString lanRadio;
+    int lanBufferMs = 0;       // --lan-buffer: the rig link's audio buffer, ms (0 = 150)
     // [Radio] overrides
     int civAddr = -1;
     int manufacturer = -1;

@@ -1558,6 +1558,16 @@ TUNE state after a mock radio reconnect matches the radio.
     Remote Utility on 127.0.0.1, or on the 7300's USB with Remote
     Utility's 7300 entry disconnected): the lossy UDP hop becomes the
     browser's WebSocket, which the page's jitter buffer is built for.
+    Done (2026-11-06, user "Go, 75 first then 73"): a - logged at most
+    every 10 s, not dropped, in the web build (-S keeps the drop); b -
+    audioSetup::externalRx, no local playback device; c - stopUdpThread
+    Bounded, 5 s then forced, both stop paths; d - --lan-buffer 50-1000 ms,
+    [LAN] AudioBufferMs, launcher "Audio buffer" (0 = 150). Also found and
+    fixed: startAudio() reran after the 30 s audio watchdog and started a
+    second ping timer and a second TX keepalive (double TX stream); the TX
+    thread setup named the RX thread (a null dereference once there is no
+    RX thread). Not covered by a CI test: the late-network path and the
+    forced stop (the mock answers at once); launcher test covers d.
 
 74. IC-7300 S meter refresh (user, 2026-11-06; small). Measured in the
     user's 1.0.117 log: S meter 2.4 readings/s (every ~420 ms), scope 3.8

@@ -15,6 +15,7 @@ QStringList LaunchConfig::toArguments(const QString &logFile) const
         if (!lanUser.isEmpty()) args << "--lan-user" << lanUser;
         if (!lanPassword.isEmpty()) args << "--lan-pass" << lanPassword;
         if (!lanRadio.trimmed().isEmpty()) args << "--lan-radio" << lanRadio.trimmed();
+        if (lanBufferMs > 0) args << "--lan-buffer" << QString::number(lanBufferMs);
         if (noAutoConnect) args << "--no-autoconnect";
     } else if (transport == FlexLan) {
         const QString host = flexHost.trimmed();
@@ -75,6 +76,7 @@ void LaunchConfig::load(const QSettings &s)
     lanUser = s.value("lanUser").toString();
     lanPassword = s.value("lanPassword").toString();
     lanRadio = s.value("lanRadio").toString();
+    lanBufferMs = qBound(0, s.value("lanBufferMs", 0).toInt(), 1000);
     noAutoConnect = s.value("noAutoConnect", false).toBool();
     flexHost = s.value("flexHost", "auto").toString();
     smartLinkRadio = s.value("smartLinkRadio", "auto").toString();
@@ -120,6 +122,7 @@ void LaunchConfig::save(QSettings &s) const
     s.setValue("lanUser", lanUser);
     s.setValue("lanPassword", lanPassword);
     s.setValue("lanRadio", lanRadio);
+    s.setValue("lanBufferMs", lanBufferMs);
     s.setValue("noAutoConnect", noAutoConnect);
     s.setValue("flexHost", flexHost);
     s.setValue("smartLinkRadio", smartLinkRadio);

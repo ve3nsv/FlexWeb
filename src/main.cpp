@@ -392,6 +392,8 @@ int main(int argc, char *argv[])
         "  --lan-audio <port>      LAN audio port (default 50003)\n"
         "  --lan-user <user>       LAN username\n"
         "  --lan-pass <pass>       LAN password\n"
+        "  --lan-buffer <ms>       Audio buffer on the LAN rig link, 50-1000 ms (default 150;\n"
+        "                          300 or more for an RS-BA1 server across the internet)\n"
         "  --lan-radio <name>      Which radio on a server that has several (RS-BA1 /\n"
         "                          wfview server); part of its name, or its number from 1\n"
         "  --civ <addr>            CI-V address, hex or decimal (e.g. 0x94 or 148 for IC-7300)\n"
@@ -761,6 +763,11 @@ int main(int argc, char *argv[])
         {
             if (argc > c + 1) { overrides.lanUser = argv[++c]; }
             else { std::cout << "Error: --lan-user requires username\n"; return -1; }
+        }
+        else if (currentArg == "--lan-buffer")
+        {
+            if (argc > c + 1) { overrides.lanBufferMs = QString(argv[++c]).toInt(); }
+            else { std::cout << "Error: --lan-buffer requires milliseconds\n"; return -1; }
         }
         else if (currentArg == "--lan-radio")
         {
