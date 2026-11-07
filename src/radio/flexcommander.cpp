@@ -346,6 +346,7 @@ void flexCommander::resetSession()
     sliceCreatePending = false;
     resumeHz = 0;
     resumeMode.clear();
+    resumeFm = false;
     panId.clear();
     panStreamId = 0;
     rxStreamId = 0;
@@ -793,6 +794,54 @@ void flexCommander::createAudioStreams()
     });
 }
 
+// After a reconnect: FlexWeb's own frequency, mode and (in FM) repeater
+// settings onto the slice it got, which the radio restored from its own
+// memory (often another band) or created plain (simplex, no tone). Once.
+void flexCommander::resumeSliceState(int id)
+{
+    const quint64 hz = resumeHz;
+    const QString m = resumeMode;
+    const bool fm = resumeFm;
+    resumeHz = 0;
+    resumeMode.clear();
+    resumeFm = false;
+    if (id != sliceId || !hz) return;
+    if (hz != freqHz || (!m.isEmpty() && m != mode)) {
+        qInfo(logRig()).noquote() << QString("Flex: the radio restored slice %1 at %2 MHz %3 - back to %4 MHz %5")
+            .arg(id).arg(freqHz / 1e6, 0, 'f', 6).arg(mode).arg(hz / 1e6, 0, 'f', 6).arg(m);
+        if (!m.isEmpty() && m != mode) {
+            sliceSet(QString("mode=%1").arg(m));
+            mode = m;
+        }
+        sendCmd(QString("slice tune %1 %2").arg(sliceId).arg(hz / 1e6, 0, 'f', 6));
+        freqHz = hz;
+        reportVfoFreqs();
+        recenterPan();
+        applyBandAntennas();
+    }
+    if (!fm) return;
+    // After the mode and tune (a mode change resets the slice's FM fields).
+    const QString dir = (resumeRptDir == "up" || resumeRptDir == "down") ? resumeRptDir : QStringLiteral("simplex");
+    const double tx = dir == "down" ? -resumeRptOffsetMHz : dir == "up" ? resumeRptOffsetMHz : 0.0;
+    const QString tone = resumeToneMode.isEmpty() ? QStringLiteral("off") : resumeToneMode;
+    const double toneHz = resumeToneHz > 0 ? resumeToneHz : 67.0;
+    sliceSet(QString("repeater_offset_dir=%1 fm_repeater_offset_freq=%2 tx_offset_freq=%3 fm_tone_mode=%4 fm_tone_value=%5 squelch=%6 squelch_level=%7")
+             .arg(dir).arg(resumeRptOffsetMHz, 0, 'f', 6).arg(tx, 0, 'f', 6).arg(tone).arg(toneHz, 0, 'f', 1)
+             .arg(resumeSquelchOn ? 1 : 0).arg(resumeSquelchLevel));
+    rptDir = dir;
+    rptOffsetMHz = resumeRptOffsetMHz;
+    txOffsetMHz = tx;
+    txOffsetKnown = true;
+    fmToneMode = tone;
+    fmToneHz = toneHz;
+    squelchOn = resumeSquelchOn;
+    squelchLevel = resumeSquelchLevel;
+    qInfo(logRig()).noquote() << QString("Flex: repeater back - %1 %2 MHz, tone %3 %4 Hz, squelch %5")
+        .arg(dir).arg(resumeRptOffsetMHz, 0, 'f', 4).arg(tone).arg(toneHz, 0, 'f', 1).arg(resumeSquelchOn ? resumeSquelchLevel : 0);
+    publishDsp();
+    reportCurrent(funcSquelch);
+}
+
 void flexCommander::adoptOrCreateSlice()
 {
     if (sliceId >= 0 || sliceCreatePending || !tcp || tcp->state() != QAbstractSocket::ConnectedState)
@@ -800,6 +849,13 @@ void flexCommander::adoptOrCreateSlice()
     sliceCreatePending = true;
     resumeHz = freqHz;
     resumeMode = mode;
+    resumeFm = freqHz && (mode == "FM" || mode == "NFM" || mode == "DFM");
+    resumeRptDir = rptDir;
+    resumeRptOffsetMHz = rptOffsetMHz;
+    resumeToneMode = fmToneMode;
+    resumeToneHz = fmToneHz;
+    resumeSquelchOn = squelchOn;
+    resumeSquelchLevel = squelchLevel;
 
     const double startMHz = freqHz ? freqHz / 1e6 : 14.200;
     const QString startMode = mode.isEmpty() ? QString("USB") : mode;
@@ -833,6 +889,7 @@ void flexCommander::adoptOrCreateSlice()
             if (id == sliceId) {
                 qInfo(logRig()) << "Flex: created slice" << sliceId;
                 sendCmd(QString("slice set %1 active=1 tx=1").arg(sliceId));
+                resumeSliceState(id);
             }
         });
     };
@@ -1337,25 +1394,7 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
         if (resumeHz) {
             // After this status is applied: put the slice back where
             // FlexWeb was, if the radio restored it somewhere else.
-            QTimer::singleShot(0, this, [this, id]() {
-                const quint64 hz = resumeHz;
-                const QString m = resumeMode;
-                resumeHz = 0;
-                resumeMode.clear();
-                if (id != sliceId || !hz) return;
-                if (hz == freqHz && (m.isEmpty() || m == mode)) return;
-                qInfo(logRig()).noquote() << QString("Flex: the radio restored slice %1 at %2 MHz %3 - back to %4 MHz %5")
-                    .arg(id).arg(freqHz / 1e6, 0, 'f', 6).arg(mode).arg(hz / 1e6, 0, 'f', 6).arg(m);
-                if (!m.isEmpty() && m != mode) {
-                    sliceSet(QString("mode=%1").arg(m));
-                    mode = m;
-                }
-                sendCmd(QString("slice tune %1 %2").arg(sliceId).arg(hz / 1e6, 0, 'f', 6));
-                freqHz = hz;
-                reportVfoFreqs();
-                recenterPan();
-                applyBandAntennas();
-            });
+            QTimer::singleShot(0, this, [this, id]() { resumeSliceState(id); });
         }
     } else if (id != sliceId) {
         return;

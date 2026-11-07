@@ -979,6 +979,83 @@ def test_on_demand():
         thread.join(timeout=2)
 
 
+def test_reconnect_resumes_slice():
+    """On demand, released on a 2 m repeater; at the next browser the radio
+    restores its own saved slice elsewhere (40 m LSB, simplex) while
+    FlexWeb's panafall create is in flight. FlexWeb must use that one slice
+    (no second receiver - user's 1.0.131 log heard LSB and FM at once) and
+    put it back on the repeater: frequency, FM, shift, PL tone, squelch."""
+    if not WFWEB_BIN.exists():
+        pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
+    from test_web_login import _ws, _ws_send
+
+    loop = asyncio.new_event_loop()
+    radio = MockFlexRadio()
+    loop.run_until_complete(radio.start())
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+
+    web_port = _free_port()
+    rest = f"http://127.0.0.1:{web_port + 1}/api/v1/radio"
+    env = os.environ.copy()
+    env["HOME"] = "/tmp/wfweb-flex-resume-test"
+    env["WFWEB_NO_TUI"] = "1"
+    os.makedirs(env["HOME"], exist_ok=True)
+    proc = subprocess.Popen(
+        [str(WFWEB_BIN), "-p", str(web_port), "--manufacturer", "3",
+         "--lan", "127.0.0.1",
+         "--lan-control", str(radio.control_port),
+         "--lan-audio", str(radio.vita_port),
+         "--on-demand", "2"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+    try:
+        assert _wait(lambda: requests.get(f"{rest}/info", timeout=2).status_code == 200,
+                     timeout=30), "wfweb did not start"
+        st, sock, _ = _ws(web_port, None)
+        assert " 101" in st, st
+        assert _wait(lambda: radio.slice.get("in_use") == "1", timeout=15), "no slice"
+        # On the repeater: 146.940 FM, DUP- 600 kHz, PL 100.0, squelch 20.
+        requests.put(f"{rest}/frequency", json={"hz": 146_940_000}, timeout=5)
+        assert _wait(lambda: radio.slice.get("RF_frequency") == "146.940000", timeout=5), radio.slice
+        radio._slice_status(mode="FM", squelch=1, squelch_level=20)
+        for key, value in (("rptOffset", 600000), ("rptDir", 1), ("toneValue", 1000), ("toneMode", 1)):
+            _ws_send(sock, {"cmd": "flexDsp", "key": key, "index": 0, "value": value})
+        assert _wait(lambda: radio.slice.get("fm_tone_mode") == "ctcss_tx"
+                     and radio.slice.get("tx_offset_freq") == "-0.600000", timeout=5), radio.slice
+        sock.close()
+        assert _wait(lambda: radio._writer is None, timeout=10), "not released"
+
+        # Next connect: the radio restores its own slice on 40 m.
+        radio.restore_slice = {"RF_frequency": "7.160000", "mode": "LSB",
+                               "repeater_offset_dir": "simplex", "fm_repeater_offset_freq": "0.000000",
+                               "tx_offset_freq": "0.000000", "fm_tone_mode": "off",
+                               "fm_tone_value": "67.0", "squelch": 0, "squelch_level": 20}
+        before = len(radio.commands)
+        st, sock, _ = _ws(web_port, None)
+        assert " 101" in st, st
+        assert _wait(lambda: radio.slice.get("RF_frequency") == "146.940000"
+                     and radio.slice.get("mode") == "FM", timeout=15), radio.slice
+        assert _wait(lambda: radio.slice.get("repeater_offset_dir") == "down"
+                     and radio.slice.get("fm_repeater_offset_freq") == "0.600000"
+                     and radio.slice.get("tx_offset_freq") == "-0.600000"
+                     and radio.slice.get("fm_tone_mode") == "ctcss_tx"
+                     and radio.slice.get("fm_tone_value") == "100.0"
+                     and radio.slice.get("squelch") == "1", timeout=5), radio.slice
+        time.sleep(1.0)
+        created = [c for c in radio.commands[before:] if c.startswith("slice create")]
+        assert not created, f"a second slice was created beside the restored one: {created}"
+        sock.close()
+    finally:
+        radio.restore_slice = None
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)
+
+
 def test_kicked_by_another_client():
     """Kicked by another client (forced=1): wfweb closes the session and does
     not reconnect on its own; the page's Connect (reconnectLan) does."""

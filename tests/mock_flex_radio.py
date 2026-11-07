@@ -124,6 +124,10 @@ class MockFlexRadio:
         # that band's antennas back a moment later, after the client's own
         # commands. recall_hf is what it recalls below 2 m (a stale value).
         self.recall_hf = {"rxant": "ANT1", "txant": "ANT1"}
+        # Like a real radio for a returning GUI client: it restores its own
+        # saved slice for the client - while the client's panafall create is
+        # in flight, before that reply. None = no saved slice.
+        self.restore_slice: dict | None = None
         # Radio memories ("sub memories all", memory apply/create/set/remove).
         self.memories = {
             0: {"owner": "VE3NSV", "group": "Nets", "freq": "3.873000", "name": "Club\x7fnet",
@@ -316,6 +320,12 @@ class MockFlexRadio:
             self._pan_status(center="14.200000", bandwidth="0.200000", x_pixels=50, y_pixels=20,
                              min_dbm="-125.00", max_dbm="-40.00",
                              rfgain=0, client_handle=f"0x{self.handle:08X}")
+            if self.restore_slice:
+                self._slice_status(in_use=1, client_handle=f"0x{self.handle:08X}", pan=PAN_ID,
+                                   filter_lo=-2800, filter_hi=-100, audio_level=50, agc_mode="med",
+                                   rxant="ANT1", txant="ANT1", ant_list="ANT1,ANT2,RX_A,XVTA",
+                                   tx_ant_list="ANT1,ANT2,XVTA", rit_on=0, rit_freq=0,
+                                   **self.restore_slice)
             return 0, PAN_ID
         if cmd.startswith("display pan rfgain_info"):
             return 0, "-8,32,8"           # a FLEX-6400's range
