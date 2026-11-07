@@ -224,6 +224,15 @@ private:
     // back to this. 0 = nothing to resume (first connect).
     quint64 resumeHz = 0;
     QString resumeMode;
+    // ... and, in FM, the repeater: shift, direction, PL tone, squelch. A
+    // slice the radio restores or FlexWeb creates starts simplex with no
+    // tone - the operator could not open the repeater after a reconnect.
+    bool resumeFm = false;
+    QString resumeRptDir, resumeToneMode;
+    double resumeRptOffsetMHz = 0.0, resumeToneHz = 0.0;
+    bool resumeSquelchOn = false;
+    int resumeSquelchLevel = 20;
+    void resumeSliceState(int id);
     QString panId;                  // "0x40000000"
     quint32 panStreamId = 0;
     quint32 rxStreamId = 0;
