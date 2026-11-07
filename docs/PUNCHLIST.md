@@ -1525,6 +1525,43 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+78. Tone controls on the page (user, 2026-11-07; medium). The IC-7300's
+    MENU > SET > Tone Control / TBW is all in its rig file (via 1A 05)
+    and the server can already set and read it - only the page is
+    missing; wfview defines the commands with no control, wfweb 0.9.5
+    has none.
+    a. FUNC > TONE, built from the connected rig's caps: TX Bass / Treble
+       for the current mode (SSB / AM / FM, -5..+5), SSB TX bandwidth
+       WIDE / MID / NAR (16 58); RX Bass / Treble and HPF / LPF for the
+       current mode (SSB, AM, FM, CW HPF/LPF). Read back from the rig,
+       so the panel shows what is set; a key the rig file lacks is not
+       shown (IC-9700 from its own rig file).
+    b. Flex: its 8-band TX and RX equaliser (eq txsc / rxsc) in the same
+       panel.
+    c. Not in any rig file: the TBW edge frequencies of WIDE / MID / NAR
+       (1A 05 menu items) - add to IC-7300.rig / IC-9700.rig if wanted.
+    Tests: the panel against the mock IC-7610 / IC-7300 rig caps (keys
+    present / absent), a set reaching the mock as the right 1A 05 frame.
+
+77. Speech compressor controls (user, 2026-11-07; small-medium). Port
+    wfweb 0.9.4's #147 (FlexWeb is on 0.9.3): FUNC COMP tile, GAIN COMP
+    level row (0-10 as on the radio, funcCompressorLevel 14 0E), a
+    "COMP n" tile on the spectrum while on (hasCompressor / hasCompLevel
+    in rigInfo, setCompressor / setCompLevel commands). Its digital-TX
+    hold: COMP off for FlexWeb's own FT8/FT4, JS8, TUNE, FreeDV / RADE,
+    packet and SSTV overs in USB / LSB and back on after
+    (holdCompressorForDigitalTx / releaseCompressorHold) - only in SSB,
+    never switched on if it was off, an operator COMP press during the
+    over wins. Also its fix in the same release: the first PTT after
+    connecting could be lost (the periodic status read deleted a pending
+    set). Flex: PROC on/off + level (transmit speech_processor_enable /
+    speech_processor_level) on the same tile and row.
+    b. Later, optional: a browser / server-side TX compressor and EQ for
+       any rig (wfview's TX audio processing: Dyson compressor +
+       equaliser on the mic audio before it is sent).
+    Tests: wfweb's #147 tests ported; the hold on the mock rig (COMP off
+    at key, back at unkey, untouched when it was off).
+
 76. Page settings per radio and per user (user, 2026-11-06; medium).
     Today the page keeps its view settings in the browser's localStorage
     (52 keys: wfSpeed, wfPalette, wfSpectFill, wfScopeRef, wfScopeMode,
