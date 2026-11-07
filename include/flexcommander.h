@@ -218,6 +218,12 @@ private:
     // Our receiver
     int sliceId = -1;
     bool sliceCreatePending = false;
+    // A reconnect (on demand, page Connect): where FlexWeb was. The radio
+    // restores its own saved slice for our client id, often somewhere else
+    // (40 m LSB when we left on a 2 m repeater); the adopted slice is tuned
+    // back to this. 0 = nothing to resume (first connect).
+    quint64 resumeHz = 0;
+    QString resumeMode;
     QString panId;                  // "0x40000000"
     quint32 panStreamId = 0;
     quint32 rxStreamId = 0;

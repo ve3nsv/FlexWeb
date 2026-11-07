@@ -344,6 +344,8 @@ void flexCommander::resetSession()
     infoDone = false;
     sliceId = -1;
     sliceCreatePending = false;
+    resumeHz = 0;
+    resumeMode.clear();
     panId.clear();
     panStreamId = 0;
     rxStreamId = 0;
@@ -796,6 +798,8 @@ void flexCommander::adoptOrCreateSlice()
     if (sliceId >= 0 || sliceCreatePending || !tcp || tcp->state() != QAbstractSocket::ConnectedState)
         return;
     sliceCreatePending = true;
+    resumeHz = freqHz;
+    resumeMode = mode;
 
     const double startMHz = freqHz ? freqHz / 1e6 : 14.200;
     const QString startMode = mode.isEmpty() ? QString("USB") : mode;
@@ -818,6 +822,14 @@ void flexCommander::adoptOrCreateSlice()
             // and made it ours; either way make it the active TX slice.
             if (sliceId < 0)
                 sliceId = id;
+            else if (id != sliceId) {
+                // A restored slice was adopted while this create was in
+                // flight: two receivers would play into one audio stream
+                // (user's 1.0.131 log: 40 m LSB and 2 m FM at once).
+                qInfo(logRig()) << "Flex: closing the extra slice" << id << "- using the restored slice" << sliceId;
+                sendCmd(QString("slice remove %1").arg(id));
+                return;
+            }
             if (id == sliceId) {
                 qInfo(logRig()) << "Flex: created slice" << sliceId;
                 sendCmd(QString("slice set %1 active=1 tx=1").arg(sliceId));
@@ -841,6 +853,12 @@ void flexCommander::adoptOrCreateSlice()
         QString id = kvs.contains("pan") ? kvs.value("pan") : body.trimmed().split(',').value(0);
         adoptPan(normalizedId(id));
         qInfo(logRig()) << "Flex: created panadapter" << panId;
+        if (sliceId >= 0) {
+            // The radio restored our slice meanwhile ("using slice"): no
+            // second one.
+            sliceCreatePending = false;
+            return;
+        }
         createSlice();
     });
 }
@@ -1321,6 +1339,29 @@ void flexCommander::handleSliceStatus(int id, const QMap<QString, QString>& kvs)
         sliceId = id;
         sliceCreatePending = false;
         qInfo(logRig()) << "Flex: using slice" << sliceId;
+        if (resumeHz) {
+            // After this status is applied: put the slice back where
+            // FlexWeb was, if the radio restored it somewhere else.
+            QTimer::singleShot(0, this, [this, id]() {
+                const quint64 hz = resumeHz;
+                const QString m = resumeMode;
+                resumeHz = 0;
+                resumeMode.clear();
+                if (id != sliceId || !hz) return;
+                if (hz == freqHz && (m.isEmpty() || m == mode)) return;
+                qInfo(logRig()).noquote() << QString("Flex: the radio restored slice %1 at %2 MHz %3 - back to %4 MHz %5")
+                    .arg(id).arg(freqHz / 1e6, 0, 'f', 6).arg(mode).arg(hz / 1e6, 0, 'f', 6).arg(m);
+                if (!m.isEmpty() && m != mode) {
+                    sliceSet(QString("mode=%1").arg(m));
+                    mode = m;
+                }
+                sendCmd(QString("slice tune %1 %2").arg(sliceId).arg(hz / 1e6, 0, 'f', 6));
+                freqHz = hz;
+                reportVfoFreqs();
+                recenterPan();
+                applyBandAntennas();
+            });
+        }
     } else if (id != sliceId) {
         return;
     }
