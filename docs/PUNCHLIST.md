@@ -1635,6 +1635,16 @@ TUNE state after a mock radio reconnect matches the radio.
        (1A 05 menu items) - add to IC-7300.rig / IC-9700.rig if wanted.
     Tests: the panel against the mock IC-7610 / IC-7300 rig caps (keys
     present / absent), a set reaching the mock as the right 1A 05 frame.
+    Done (2026-11-10, user "Go"): a - server kToneCtls (bass / treble TX
+    + RX for SSB / AM / FM, SSB TBW), rigInfo toneCtls = what the rig file
+    declares, getToneCtls (read when the panel opens - not polled),
+    setToneCtl {key, value} + read-back, live "toneCtl" updates. Page:
+    FUNC > TONE CTL, the panel for the current mode family (-5..+5 steps,
+    TBW WIDE / MID / NAR). IC-7300 only so far: IC-9700.rig has none of
+    these menu items (its 1A 05 numbers must be checked against the 9700
+    manual before they are added - a wrong number would change another
+    setting). b - already there: FUNC > EQ (the Flex's 8-band RX / TX EQ).
+    c and HPF / LPF not done.
 
 77. Speech compressor controls (user, 2026-11-07; small-medium). Port
     wfweb 0.9.4's #147 (FlexWeb is on 0.9.3): FUNC COMP tile, GAIN COMP
@@ -1654,6 +1664,16 @@ TUNE state after a mock radio reconnect matches the radio.
        equaliser on the mic audio before it is sent).
     Tests: wfweb's #147 tests ported; the hold on the mock rig (COMP off
     at key, back at unkey, untouched when it was off).
+    Done (2026-11-10, user "Go"): server - rigInfo / rigConnected
+    hasCompressor / hasCompLevel, status + updates compressor / compLevel,
+    setCompLevel (14 0E, 0-255). Page - FUNC COMP tile (level 0-10 or
+    ON / OFF), GAIN COMP row, "COMP n" spectrum readout in USB / LSB; the
+    data-mode hold is FlexWeb's clean receive path (modeCleanApply /
+    Restore): COMP off while FT8 / FT4, JS8, FreeDV / RADE or SSTV is open,
+    back after, never in FM, a COMP press meanwhile wins. The Flex keeps
+    its PROC tile (already held off for FM / FreeDV). Not done: packet
+    (its panel is not a clean-path profile), 77b, the first-PTT fix
+    (FlexWeb's queue differs - not seen here).
 
 76. Page settings per radio and per user (user, 2026-11-06; medium).
     Today the page keeps its view settings in the browser's localStorage
@@ -1687,6 +1707,20 @@ TUNE state after a mock radio reconnect matches the radio.
     read-only) and an e2e on the two-radio mock (test_radio_switch):
     waterfall speed set on the Flex, switch to the Icom (default speed),
     switch back (the Flex's speed), a second user sees their own.
+    Done (2026-11-10, user "Go"): QSettings("wfweb","pageprefs")
+    u/<user>/radio/<radio>/<key> and u/<user>/all/<key> (no login = "_";
+    radio = the RADIO menu's profile, "default" on a one-radio server).
+    rigInfo pagePrefs {radioKey, radio, user} (not to guests);
+    setPagePrefs {radio, user} (null deletes). Page: PAGE_PREF_SCOPE (16
+    per radio incl. band memory, 12 per user); localStorage.setItem /
+    removeItem are wrapped at load so the page's own writes of those keys
+    go up 1 s later; applyPagePrefs writes the server's values in and
+    reloads once when they differ (15 s guard), uploads what the server
+    lacks (first run / new radio); a RADIO switch flushes first. Device
+    keys (audio buffer, codec, devices, volume, sync / FT8 latency) and
+    the logs stay in the browser. Test: test_radio_switch (Flex setting
+    stays with the Flex, the user's look follows to the Icom). Not done:
+    guests seeing the operator's settings (they keep their own).
 
 75. IC-7300 / Icom LAN interface review against wfweb 0.9.5 and wfview
     (user, 2026-11-06). FlexWeb is on wfweb 0.9.3; upstream wfweb's Icom

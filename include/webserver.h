@@ -572,6 +572,11 @@ private:
     QStringList radioNames_, radioTypes_;   // punch list 73
     int radioIndex_ = -1;
     void addRadiosTo(QJsonObject &o) const;
+    // Punch list 76: page settings per user and per radio, kept here
+    // (QSettings "wfweb"/"pageprefs") instead of in each browser.
+    QString pagePrefsUser(QWebSocket *c) const;
+    QString pagePrefsRadioKey() const;
+    void addPagePrefsTo(QJsonObject &o, QWebSocket *c) const;
 
     // Browser-mic diagnostics.  A browser whose default input is the rig's
     // own USB codec streams the receiver audio back into the transmitter,

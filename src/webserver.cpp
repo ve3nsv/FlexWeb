@@ -69,6 +69,25 @@ static QString manufacturerName(manufacturersType_t m)
     return QStringLiteral("Unknown");
 }
 
+// Punch list 78: the rig's tone menu (IC-7300 SET > Tone Control / TBW), CI-V
+// 1A 05 - bass / treble 0-10 (the rig shows -5..+5) - and 16 58 (SSB TX
+// bandwidth 0 WIDE, 1 MID, 2 NAR). Only what the rig file declares is
+// offered; read when the page opens the panel (getToneCtls), not polled.
+static const struct { const char *key; funcs func; } kToneCtls[] = {
+    { "ssbTxBass", funcSSBTXBass }, { "ssbTxTreble", funcSSBTXTreble },
+    { "amTxBass",  funcAMTXBass },  { "amTxTreble",  funcAMTXTreble },
+    { "fmTxBass",  funcFMTXBass },  { "fmTxTreble",  funcFMTXTreble },
+    { "ssbRxBass", funcSSBRXBass }, { "ssbRxTreble", funcSSBRXTreble },
+    { "amRxBass",  funcAMRXBass },  { "amRxTreble",  funcAMRXTreble },
+    { "fmRxBass",  funcFMRXBass },  { "fmRxTreble",  funcFMRXTreble },
+    { "ssbTxBw",   funcSSBTXBandwidth },
+};
+static const char *toneCtlKey(funcs f)
+{
+    for (const auto &t : kToneCtls) if (t.func == f) return t.key;
+    return nullptr;
+}
+
 static QString duplexModeName(duplexMode_t dm)
 {
     switch (dm) {
@@ -577,6 +596,14 @@ void webServer::receiveRigCaps(rigCapabilities *caps)
         // follow that capability instead of appearing on every rig.
         obj["hasTuner"] = rigCaps->commands.contains(funcTunerStatus);
         obj["hasPowerControl"] = rigCaps->commands.contains(funcPowerControl);
+        // Speech compressor (punch list 77): FUNC COMP tile, GAIN COMP row.
+        obj["hasCompressor"] = rigCaps->commands.contains(funcCompressor);
+        obj["hasCompLevel"] = rigCaps->commands.contains(funcCompressorLevel);
+        {
+            QJsonArray tc;
+            for (const auto &t : kToneCtls) if (rigCaps->commands.contains(t.func)) tc.append(QString(t.key));
+            obj["toneCtls"] = tc;
+        }
         obj["powerOnNeedsRemoteJack"] = powerOnNeedsRemoteJack(rigCaps);
         addToneCaps(obj);
         addBandCaps(obj);
@@ -2559,6 +2586,30 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         bool on = cmd["value"].toBool();
         queue->add(priorityImmediate, queueItem(funcCompressor, QVariant::fromValue<uchar>(on ? 1 : 0), false, 0));
     }
+    else if (type == "getToneCtls") {
+        // The TONE panel opened: read what the rig file declares.
+        if (!rigCaps) return;
+        for (const auto &t : kToneCtls)
+            if (rigCaps->commands.contains(t.func))
+                queue->add(priorityImmediate, t.func, false, 0);   // once (other priorities repeat)
+    }
+    else if (type == "setToneCtl") {
+        if (!rigCaps) return;
+        const QString key = cmd["key"].toString();
+        for (const auto &t : kToneCtls) {
+            if (key != QLatin1String(t.key) || !rigCaps->commands.contains(t.func)) continue;
+            const int hi = t.func == funcSSBTXBandwidth ? 2 : 10;
+            const uchar v = static_cast<uchar>(qBound(0, cmd["value"].toInt(), hi));
+            queue->addUnique(priorityImmediate, queueItem(t.func, QVariant::fromValue<uchar>(v), false, 0));
+            queue->add(priorityImmediate, t.func, false, 0);   // read back: the page shows what the rig took
+            break;
+        }
+    }
+    else if (type == "setCompLevel") {
+        // CI-V 14 0E, 0-255 (the rig shows 0-10).
+        ushort val = static_cast<ushort>(qBound(0, cmd["value"].toInt(), 255));
+        queue->addUnique(priorityImmediate, queueItem(funcCompressorLevel, QVariant::fromValue<ushort>(val), false, 0));
+    }
     else if (type == "setAudioCodec") {
         // AUDIO > QUALITY: "opus" or "pcm" for this browser's receive audio.
         const int rate = rigSampleRate ? int(rigSampleRate) : 48000;
@@ -3017,6 +3068,30 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     }
     else if (type == "disconnectLan") {
         emit requestLanDisconnect();
+    }
+    else if (type == "setPagePrefs") {
+        // Punch list 76: {radio: {key: value|null}, user: {...}} from the
+        // page's localStorage writes (debounced there). Guests keep theirs.
+        if (!client || isGuest(client)) return;
+        QSettings st(QStringLiteral("wfweb"), QStringLiteral("pageprefs"));
+        const QString base = QStringLiteral("u/") + pagePrefsUser(client) + QLatin1Char('/');
+        const struct { const char *scope; QString group; } scopes[] = {
+            { "radio", base + QStringLiteral("radio/") + pagePrefsRadioKey() + QLatin1Char('/') },
+            { "user",  base + QStringLiteral("all/") },
+        };
+        int n = 0;
+        for (const auto &sc : scopes) {
+            const QJsonObject kv = cmd[QLatin1String(sc.scope)].toObject();
+            for (auto it = kv.begin(); it != kv.end(); ++it) {
+                const QString key = it.key();
+                if (key.isEmpty() || key.size() > 64 || key.contains(QLatin1Char('/'))) continue;
+                if (it.value().isNull()) st.remove(sc.group + key);
+                else st.setValue(sc.group + key, it.value().toString().left(8192));
+                n++;
+            }
+        }
+        st.sync();
+        Q_UNUSED(n);
     }
     else if (type == "leaveSession") {
         // The page's DISCONNECT: this browser leaves; if no other signed-in
@@ -4081,6 +4156,13 @@ QJsonObject webServer::buildInfoJson() const
         info["rigAudioInputName"] = rigCaptureDeviceName;
         info["hasFilterSettings"] = rigCaps->commands.contains(funcPBTInner);
         info["hasPowerControl"] = rigCaps->commands.contains(funcPowerControl);
+        info["hasCompressor"] = rigCaps->commands.contains(funcCompressor);
+        info["hasCompLevel"] = rigCaps->commands.contains(funcCompressorLevel);
+        {
+            QJsonArray tc;
+            for (const auto &t : kToneCtls) if (rigCaps->commands.contains(t.func)) tc.append(QString(t.key));
+            info["toneCtls"] = tc;
+        }
         info["powerOnNeedsRemoteJack"] = powerOnNeedsRemoteJack(rigCaps);
         info["hasMainSub"] = rigCaps->hasCommand29;
         // Repeater duplex: only the rigs whose .rig declares the offset
@@ -4199,6 +4281,7 @@ void webServer::sendCurrentState(QWebSocket *client)
 {
     QJsonObject info = buildInfoJson();
     info["type"] = "rigInfo";
+    addPagePrefsTo(info, client);
     if (!audioConfigured && !audioErrorReason.isEmpty()) {
         info["audioError"] = audioErrorReason;
     }
@@ -4494,6 +4577,17 @@ QJsonObject webServer::buildStatusJson()
     if (mon.value.isValid()) status["monitor"] = mon.value.toBool();
     cacheItem monGain = queue->getCache(funcMonitorGain, 0);
     if (monGain.value.isValid()) status["monitorGain"] = monGain.value.toInt();
+
+    // Speech compressor and its level - only asked on rigs that have them
+    // (getCache() re-requests a miss).
+    if (rigCaps && rigCaps->commands.contains(funcCompressor)) {
+        cacheItem comp = queue->getCache(funcCompressor, 0);
+        if (comp.value.isValid()) status["compressor"] = comp.value.toBool();
+    }
+    if (rigCaps && rigCaps->commands.contains(funcCompressorLevel)) {
+        cacheItem compLevel = queue->getCache(funcCompressorLevel, 0);
+        if (compLevel.value.isValid()) status["compLevel"] = compLevel.value.toInt();
+    }
 
     // Tuner (0=off, 1=on, 2=tuning)
     cacheItem tuner = queue->getCache(funcTunerStatus, 0);
@@ -4811,6 +4905,23 @@ void webServer::receiveCache(cacheItem item)
     case funcMonitorGain:
         update["monitorGain"] = item.value.toInt();
         break;
+    case funcCompressor:
+        update["compressor"] = item.value.toBool();
+        break;
+    case funcCompressorLevel:
+        update["compLevel"] = item.value.toInt();
+        break;
+    case funcSSBTXBass: case funcSSBTXTreble: case funcAMTXBass: case funcAMTXTreble:
+    case funcFMTXBass: case funcFMTXTreble: case funcSSBRXBass: case funcSSBRXTreble:
+    case funcAMRXBass: case funcAMRXTreble: case funcFMRXBass: case funcFMRXTreble:
+    case funcSSBTXBandwidth: {
+        const char *k = toneCtlKey(item.command);
+        if (!k) break;
+        QJsonObject tc;
+        tc[k] = item.value.toInt();
+        update["toneCtl"] = tc;
+        break;
+    }
     case funcSplitStatus:
         update["split"] = item.value.toBool();
         break;
@@ -10333,6 +10444,43 @@ void webServer::setRadioProfiles(QStringList names, QStringList types, int index
     radioNames_ = names;
     radioTypes_ = types;
     radioIndex_ = index;
+}
+
+QString webServer::pagePrefsUser(QWebSocket *c) const
+{
+    QString u = wsUser.value(c);
+    if (u.isEmpty()) u = QStringLiteral("_");          // no web login: one set
+    u.replace(QLatin1Char('/'), QLatin1Char('_'));
+    return u;
+}
+
+// The radio the per-radio settings belong to: the RADIO menu's profile, or
+// "default" on a one-radio server (known before any rig is connected, so a
+// page loaded on demand gets its radio's settings with the first rigInfo).
+QString webServer::pagePrefsRadioKey() const
+{
+    QString k = (radioIndex_ >= 0 && radioIndex_ < radioNames_.size()) ? radioNames_.at(radioIndex_) : QStringLiteral("default");
+    k.replace(QLatin1Char('/'), QLatin1Char('_'));
+    return k.isEmpty() ? QStringLiteral("default") : k;
+}
+
+void webServer::addPagePrefsTo(QJsonObject &o, QWebSocket *c) const
+{
+    if (!c || isGuest(c)) return;
+    QSettings st(QStringLiteral("wfweb"), QStringLiteral("pageprefs"));
+    const QString base = QStringLiteral("u/") + pagePrefsUser(c) + QLatin1Char('/');
+    auto read = [&st](const QString &group) {
+        QJsonObject out;
+        st.beginGroup(group);
+        for (const QString &k : st.childKeys()) out[k] = st.value(k).toString();
+        st.endGroup();
+        return out;
+    };
+    QJsonObject pp;
+    pp["radioKey"] = pagePrefsRadioKey();
+    pp["radio"] = read(base + QStringLiteral("radio/") + pagePrefsRadioKey());
+    pp["user"] = read(base + QStringLiteral("all"));
+    o["pagePrefs"] = pp;
 }
 
 void webServer::addRadiosTo(QJsonObject &o) const
