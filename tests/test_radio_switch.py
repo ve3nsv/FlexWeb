@@ -131,6 +131,13 @@ def test_switch_flex_icom(tmp_path):
         info = _first(reader, lambda m: m.get("type") == "rigInfo")
         assert info and info.get("ampConfigured") is True, "no amplifier with the Flex"
 
+        # Punch list 76: settings per radio and per user, kept by the server.
+        _ws_send(sock, {"cmd": "setPagePrefs", "radio": {"wfSpeed": "FAST"}, "user": {"wfLook": "classic"}})
+        time.sleep(0.5)
+        pp = _rig_info(web_port, 0).get("pagePrefs") or {}
+        assert pp.get("radioKey") == "Flex" and pp.get("radio", {}).get("wfSpeed") == "FAST" \
+            and pp.get("user", {}).get("wfLook") == "classic", pp
+
         # The current radio again: nothing happens.
         _ws_send(sock, {"cmd": "selectRadio", "index": 0})
         assert not _first(reader, lambda m: m.get("type") == "radioSwitching", timeout=1.5)
@@ -148,6 +155,9 @@ def test_switch_flex_icom(tmp_path):
         flex_cmds = len(flex.commands)
         info = _rig_info(web_port, 1)
         assert info.get("ampConfigured") is False, "the amplifier stayed on with the Icom"
+        pp = info.get("pagePrefs") or {}
+        assert pp.get("radioKey") == "Icom" and "wfSpeed" not in pp.get("radio", {}) \
+            and pp.get("user", {}).get("wfLook") == "classic", f"the Flex's settings leaked or the user's were lost: {pp}"
 
         # And back to the Flex.
         st, sock, buf = _ws(web_port, None)
@@ -169,6 +179,8 @@ def test_switch_flex_icom(tmp_path):
         assert settled >= icom_frames
         info = _rig_info(web_port, 0)
         assert info.get("ampConfigured") is True, "the amplifier did not come back with the Flex"
+        assert (info.get("pagePrefs") or {}).get("radio", {}).get("wfSpeed") == "FAST", \
+            "the Flex's settings did not come back with it"
         assert "Radio: switching from" in server_log()
     finally:
         for s_ in (sock, holder):

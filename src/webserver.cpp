@@ -3068,6 +3068,30 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     else if (type == "disconnectLan") {
         emit requestLanDisconnect();
     }
+    else if (type == "setPagePrefs") {
+        // Punch list 76: {radio: {key: value|null}, user: {...}} from the
+        // page's localStorage writes (debounced there). Guests keep theirs.
+        if (!client || isGuest(client)) return;
+        QSettings st(QStringLiteral("wfweb"), QStringLiteral("pageprefs"));
+        const QString base = QStringLiteral("u/") + pagePrefsUser(client) + QLatin1Char('/');
+        const struct { const char *scope; QString group; } scopes[] = {
+            { "radio", base + QStringLiteral("radio/") + pagePrefsRadioKey() + QLatin1Char('/') },
+            { "user",  base + QStringLiteral("all/") },
+        };
+        int n = 0;
+        for (const auto &sc : scopes) {
+            const QJsonObject kv = cmd[QLatin1String(sc.scope)].toObject();
+            for (auto it = kv.begin(); it != kv.end(); ++it) {
+                const QString key = it.key();
+                if (key.isEmpty() || key.size() > 64 || key.contains(QLatin1Char('/'))) continue;
+                if (it.value().isNull()) st.remove(sc.group + key);
+                else st.setValue(sc.group + key, it.value().toString().left(8192));
+                n++;
+            }
+        }
+        st.sync();
+        Q_UNUSED(n);
+    }
     else if (type == "leaveSession") {
         // The page's DISCONNECT: this browser leaves; if no other signed-in
         // browser is on, the radio is released now. Decided here, not by the
@@ -4256,6 +4280,7 @@ void webServer::sendCurrentState(QWebSocket *client)
 {
     QJsonObject info = buildInfoJson();
     info["type"] = "rigInfo";
+    addPagePrefsTo(info, client);
     if (!audioConfigured && !audioErrorReason.isEmpty()) {
         info["audioError"] = audioErrorReason;
     }
@@ -10418,6 +10443,43 @@ void webServer::setRadioProfiles(QStringList names, QStringList types, int index
     radioNames_ = names;
     radioTypes_ = types;
     radioIndex_ = index;
+}
+
+QString webServer::pagePrefsUser(QWebSocket *c) const
+{
+    QString u = wsUser.value(c);
+    if (u.isEmpty()) u = QStringLiteral("_");          // no web login: one set
+    u.replace(QLatin1Char('/'), QLatin1Char('_'));
+    return u;
+}
+
+// The radio the per-radio settings belong to: the RADIO menu's profile, or
+// "default" on a one-radio server (known before any rig is connected, so a
+// page loaded on demand gets its radio's settings with the first rigInfo).
+QString webServer::pagePrefsRadioKey() const
+{
+    QString k = (radioIndex_ >= 0 && radioIndex_ < radioNames_.size()) ? radioNames_.at(radioIndex_) : QStringLiteral("default");
+    k.replace(QLatin1Char('/'), QLatin1Char('_'));
+    return k.isEmpty() ? QStringLiteral("default") : k;
+}
+
+void webServer::addPagePrefsTo(QJsonObject &o, QWebSocket *c) const
+{
+    if (!c || isGuest(c)) return;
+    QSettings st(QStringLiteral("wfweb"), QStringLiteral("pageprefs"));
+    const QString base = QStringLiteral("u/") + pagePrefsUser(c) + QLatin1Char('/');
+    auto read = [&st](const QString &group) {
+        QJsonObject out;
+        st.beginGroup(group);
+        for (const QString &k : st.childKeys()) out[k] = st.value(k).toString();
+        st.endGroup();
+        return out;
+    };
+    QJsonObject pp;
+    pp["radioKey"] = pagePrefsRadioKey();
+    pp["radio"] = read(base + QStringLiteral("radio/") + pagePrefsRadioKey());
+    pp["user"] = read(base + QStringLiteral("all"));
+    o["pagePrefs"] = pp;
 }
 
 void webServer::addRadiosTo(QJsonObject &o) const

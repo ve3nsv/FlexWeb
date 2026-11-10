@@ -1614,6 +1614,20 @@ TUNE state after a mock radio reconnect matches the radio.
     read-only) and an e2e on the two-radio mock (test_radio_switch):
     waterfall speed set on the Flex, switch to the Icom (default speed),
     switch back (the Flex's speed), a second user sees their own.
+    Done (2026-11-10, user "Go"): QSettings("wfweb","pageprefs")
+    u/<user>/radio/<radio>/<key> and u/<user>/all/<key> (no login = "_";
+    radio = the RADIO menu's profile, "default" on a one-radio server).
+    rigInfo pagePrefs {radioKey, radio, user} (not to guests);
+    setPagePrefs {radio, user} (null deletes). Page: PAGE_PREF_SCOPE (16
+    per radio incl. band memory, 12 per user); localStorage.setItem /
+    removeItem are wrapped at load so the page's own writes of those keys
+    go up 1 s later; applyPagePrefs writes the server's values in and
+    reloads once when they differ (15 s guard), uploads what the server
+    lacks (first run / new radio); a RADIO switch flushes first. Device
+    keys (audio buffer, codec, devices, volume, sync / FT8 latency) and
+    the logs stay in the browser. Test: test_radio_switch (Flex setting
+    stays with the Flex, the user's look follows to the Icom). Not done:
+    guests seeing the operator's settings (they keep their own).
 
 75. IC-7300 / Icom LAN interface review against wfweb 0.9.5 and wfview
     (user, 2026-11-06). FlexWeb is on wfweb 0.9.3; upstream wfweb's Icom

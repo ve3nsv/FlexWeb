@@ -2507,6 +2507,41 @@ body.amp-noanswer #ampBody .amp-tile { opacity: 0.45; filter: grayscale(1); }
 #slicePills, #applets, #aeZoom, #aeDrawerBtn { display: none; }
 </style>
 <script>
+// Punch list 76: page settings per radio and per user, kept on the server.
+// The page goes on reading and writing localStorage as before; writes to the
+// keys below are also sent to the server (debounced), and the server's
+// values for this user + radio come back in rigInfo (applyPagePrefs). Keys
+// not listed stay in this browser only (audio buffer, devices, volume,
+// measured delays, logs).
+var PAGE_PREF_SCOPE = {
+    // per radio
+    wfSpeed: 'radio', wfPalette: 'radio', wfSpectFill: 'radio', wfScopeRef: 'radio', wfScopeMode: 'radio',
+    wfScopeSync: 'radio', wfSpecSplit: 'radio', wfTracking: 'radio', wfHistory: 'radio', wfMeterStyle: 'radio',
+    wfTuneStep: 'radio', wfFineStep: 'radio', wfTxMeter: 'radio', wfAmpMeter: 'radio', wfEqSide: 'radio',
+    bandLastFreq: 'radio',
+    // per user, on every radio
+    wfLook: 'user', wfCwSidetone: 'user', wfPttMode: 'user', wfLiveTune: 'user', wfDrawer: 'user',
+    wfMemOpen: 'user', wfCpuChip: 'user', wfDigiCall1st: 'user', wfTxListen: 'user', wfTxListenDigi: 'user',
+    wfTxListenVol: 'user', wfScopeDrag: 'user'
+};
+var pagePrefsPending = { radio: {}, user: {} }, pagePrefsTimer = null, pagePrefsLive = false;
+(function () {
+    try {
+        var st = window.localStorage, set = st.setItem.bind(st), rem = st.removeItem.bind(st), get = st.getItem.bind(st);
+        window.pagePrefsRaw = { set: set, remove: rem, get: get };
+        function note(k, v) {
+            var sc = PAGE_PREF_SCOPE[k];
+            if (!sc || !pagePrefsLive) return;
+            pagePrefsPending[sc][k] = v;
+            clearTimeout(pagePrefsTimer);
+            pagePrefsTimer = setTimeout(function () { window.pagePrefsFlush && window.pagePrefsFlush(); }, 1000);
+        }
+        st.setItem = function (k, v) { set(k, v); note(k, String(v)); };
+        st.removeItem = function (k) { rem(k); note(k, null); };
+    } catch (e) {}
+})();
+</script>
+<script>
 // FUNC > LOOK: CLASSIC turns the AetherSDR skin and layout off for this
 // browser (set before first paint, so there is no flash of the other look).
 try {
@@ -4260,6 +4295,7 @@ function handleMessage(msg) {
             txBusyRefused();
             break;
         case 'rigInfo':
+            if (msg.pagePrefs) applyPagePrefs(msg.pagePrefs);
             if (msg.webUser !== undefined) setWebUser(msg.webUser);
             if (msg.role !== undefined) webRole = msg.role || '';
             if (msg.guest !== undefined) setGuestView(msg.guest);
@@ -8130,10 +8166,45 @@ function updateRadioTag() {
     if (many) el.title = 'Radio: ' + ((radioList[radioIndex] || {}).name || '') + ' \u2014 tap to choose another';
     renderRadioChoices();
 }
+// Punch list 76: the server's settings for this user + radio. Different from
+// what this browser has -> written into localStorage and the page reloaded
+// once (its settings are read at load); nothing stored yet -> this
+// browser's values go up (first run, or a new radio).
+window.pagePrefsFlush = function () {
+    clearTimeout(pagePrefsTimer); pagePrefsTimer = null;
+    var r = pagePrefsPending.radio, u = pagePrefsPending.user;
+    if (!Object.keys(r).length && !Object.keys(u).length) return;
+    if (guestView || !wsTransport) return;
+    pagePrefsPending = { radio: {}, user: {} };
+    send({ cmd: 'setPagePrefs', radio: r, user: u });
+};
+function applyPagePrefs(pp) {
+    if (guestView || !window.pagePrefsRaw) return;
+    var raw = window.pagePrefsRaw, changed = [], up = { radio: {}, user: {} };
+    Object.keys(PAGE_PREF_SCOPE).forEach(function (k) {
+        var sc = PAGE_PREF_SCOPE[k], srv = (pp[sc] || {})[k], loc = raw.get(k);
+        if (srv !== undefined && srv !== null) {
+            if (srv !== loc) { raw.set(k, srv); changed.push(k); }
+        } else if (loc !== null) {
+            up[sc][k] = loc;            // not on the server yet: this browser's goes up
+        }
+    });
+    pagePrefsLive = true;
+    if (Object.keys(up.radio).length || Object.keys(up.user).length) send({ cmd: 'setPagePrefs', radio: up.radio, user: up.user });
+    if (!changed.length) return;
+    var guard = 0;
+    try { guard = +sessionStorage.getItem('wfPagePrefsReload') || 0; } catch (e) {}
+    if (Date.now() - guard < 15000) { console.log('[Prefs] changed again within 15 s - not reloading', changed); return; }
+    try { sessionStorage.setItem('wfPagePrefsReload', String(Date.now())); } catch (e) {}
+    console.log('[Prefs] ' + (pp.radioKey || '') + ': settings from the server', changed);
+    setTimeout(function () { location.reload(); }, 50);
+}
+
 function pickRadio(i) {
     if (i === radioIndex) return false;
     if (guestView) { guestNotice(); return false; }
     if (isTransmitting) { guestNotice('Not while transmitting - unkey first', 4000); return false; }
+    window.pagePrefsFlush();       // this radio's last changes go to this radio
     send({ cmd: 'selectRadio', index: i });
     return true;
 }
