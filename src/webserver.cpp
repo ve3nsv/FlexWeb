@@ -69,6 +69,25 @@ static QString manufacturerName(manufacturersType_t m)
     return QStringLiteral("Unknown");
 }
 
+// Punch list 78: the rig's tone menu (IC-7300 SET > Tone Control / TBW), CI-V
+// 1A 05 - bass / treble 0-10 (the rig shows -5..+5) - and 16 58 (SSB TX
+// bandwidth 0 WIDE, 1 MID, 2 NAR). Only what the rig file declares is
+// offered; read when the page opens the panel (getToneCtls), not polled.
+static const struct { const char *key; funcs func; } kToneCtls[] = {
+    { "ssbTxBass", funcSSBTXBass }, { "ssbTxTreble", funcSSBTXTreble },
+    { "amTxBass",  funcAMTXBass },  { "amTxTreble",  funcAMTXTreble },
+    { "fmTxBass",  funcFMTXBass },  { "fmTxTreble",  funcFMTXTreble },
+    { "ssbRxBass", funcSSBRXBass }, { "ssbRxTreble", funcSSBRXTreble },
+    { "amRxBass",  funcAMRXBass },  { "amRxTreble",  funcAMRXTreble },
+    { "fmRxBass",  funcFMRXBass },  { "fmRxTreble",  funcFMRXTreble },
+    { "ssbTxBw",   funcSSBTXBandwidth },
+};
+static const char *toneCtlKey(funcs f)
+{
+    for (const auto &t : kToneCtls) if (t.func == f) return t.key;
+    return nullptr;
+}
+
 static QString duplexModeName(duplexMode_t dm)
 {
     switch (dm) {
@@ -580,6 +599,11 @@ void webServer::receiveRigCaps(rigCapabilities *caps)
         // Speech compressor (punch list 77): FUNC COMP tile, GAIN COMP row.
         obj["hasCompressor"] = rigCaps->commands.contains(funcCompressor);
         obj["hasCompLevel"] = rigCaps->commands.contains(funcCompressorLevel);
+        {
+            QJsonArray tc;
+            for (const auto &t : kToneCtls) if (rigCaps->commands.contains(t.func)) tc.append(QString(t.key));
+            obj["toneCtls"] = tc;
+        }
         obj["powerOnNeedsRemoteJack"] = powerOnNeedsRemoteJack(rigCaps);
         addToneCaps(obj);
         addBandCaps(obj);
@@ -2561,6 +2585,25 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         bool on = cmd["value"].toBool();
         queue->add(priorityImmediate, queueItem(funcCompressor, QVariant::fromValue<uchar>(on ? 1 : 0), false, 0));
     }
+    else if (type == "getToneCtls") {
+        // The TONE panel opened: read what the rig file declares.
+        if (!rigCaps) return;
+        for (const auto &t : kToneCtls)
+            if (rigCaps->commands.contains(t.func))
+                queue->add(priorityImmediate, t.func, false, 0);   // once (other priorities repeat)
+    }
+    else if (type == "setToneCtl") {
+        if (!rigCaps) return;
+        const QString key = cmd["key"].toString();
+        for (const auto &t : kToneCtls) {
+            if (key != QLatin1String(t.key) || !rigCaps->commands.contains(t.func)) continue;
+            const int hi = t.func == funcSSBTXBandwidth ? 2 : 10;
+            const uchar v = static_cast<uchar>(qBound(0, cmd["value"].toInt(), hi));
+            queue->addUnique(priorityImmediate, queueItem(t.func, QVariant::fromValue<uchar>(v), false, 0));
+            queue->add(priorityImmediate, t.func, false, 0);   // read back: the page shows what the rig took
+            break;
+        }
+    }
     else if (type == "setCompLevel") {
         // CI-V 14 0E, 0-255 (the rig shows 0-10).
         ushort val = static_cast<ushort>(qBound(0, cmd["value"].toInt(), 255));
@@ -4090,6 +4133,11 @@ QJsonObject webServer::buildInfoJson() const
         info["hasPowerControl"] = rigCaps->commands.contains(funcPowerControl);
         info["hasCompressor"] = rigCaps->commands.contains(funcCompressor);
         info["hasCompLevel"] = rigCaps->commands.contains(funcCompressorLevel);
+        {
+            QJsonArray tc;
+            for (const auto &t : kToneCtls) if (rigCaps->commands.contains(t.func)) tc.append(QString(t.key));
+            info["toneCtls"] = tc;
+        }
         info["powerOnNeedsRemoteJack"] = powerOnNeedsRemoteJack(rigCaps);
         info["hasMainSub"] = rigCaps->hasCommand29;
         // Repeater duplex: only the rigs whose .rig declares the offset
@@ -4837,6 +4885,17 @@ void webServer::receiveCache(cacheItem item)
     case funcCompressorLevel:
         update["compLevel"] = item.value.toInt();
         break;
+    case funcSSBTXBass: case funcSSBTXTreble: case funcAMTXBass: case funcAMTXTreble:
+    case funcFMTXBass: case funcFMTXTreble: case funcSSBRXBass: case funcSSBRXTreble:
+    case funcAMRXBass: case funcAMRXTreble: case funcFMRXBass: case funcFMRXTreble:
+    case funcSSBTXBandwidth: {
+        const char *k = toneCtlKey(item.command);
+        if (!k) break;
+        QJsonObject tc;
+        tc[k] = item.value.toInt();
+        update["toneCtl"] = tc;
+        break;
+    }
     case funcSplitStatus:
         update["split"] = item.value.toBool();
         break;

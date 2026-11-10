@@ -1542,6 +1542,16 @@ TUNE state after a mock radio reconnect matches the radio.
        (1A 05 menu items) - add to IC-7300.rig / IC-9700.rig if wanted.
     Tests: the panel against the mock IC-7610 / IC-7300 rig caps (keys
     present / absent), a set reaching the mock as the right 1A 05 frame.
+    Done (2026-11-10, user "Go"): a - server kToneCtls (bass / treble TX
+    + RX for SSB / AM / FM, SSB TBW), rigInfo toneCtls = what the rig file
+    declares, getToneCtls (read when the panel opens - not polled),
+    setToneCtl {key, value} + read-back, live "toneCtl" updates. Page:
+    FUNC > TONE CTL, the panel for the current mode family (-5..+5 steps,
+    TBW WIDE / MID / NAR). IC-7300 only so far: IC-9700.rig has none of
+    these menu items (its 1A 05 numbers must be checked against the 9700
+    manual before they are added - a wrong number would change another
+    setting). b - already there: FUNC > EQ (the Flex's 8-band RX / TX EQ).
+    c and HPF / LPF not done.
 
 77. Speech compressor controls (user, 2026-11-07; small-medium). Port
     wfweb 0.9.4's #147 (FlexWeb is on 0.9.3): FUNC COMP tile, GAIN COMP

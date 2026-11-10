@@ -1842,6 +1842,12 @@ body.amp-noanswer #ampBody .amp-tile { opacity: 0.45; filter: grayscale(1); }
 }
 #toneOverlay .tone-grid { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 8px; }
 #toneOverlay .tone-grid .dup-btn { flex: 0 0 auto; padding: 7px 12px; }
+#toneCtlOverlay .tc-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+#toneCtlOverlay .tc-label { width: 70px; color: #aaa; font-size: 13px; }
+#toneCtlOverlay .tc-val { width: 44px; text-align: center; font: 600 16px monospace; color: #fff; }
+#toneCtlOverlay .tc-sec { margin: 12px 0 4px; color: #5af; font-size: 12px; letter-spacing: 1px; }
+#toneCtlOverlay .dup-btn { padding: 7px 14px; background: #1b2330; color: #ddd; border: 1px solid #345; border-radius: 4px; cursor: pointer; }
+#toneCtlOverlay .dup-btn.active { background: #024a80; border-color: #5af; color: #fff; }
 #dupCustomInput {
     width: 72px; background: #001020; border: 1px solid #048; color: #8cf;
     padding: 4px 6px; font-family: 'Courier New', monospace;
@@ -2751,6 +2757,16 @@ try {
             </div>
         </div>
 
+        <!-- Punch list 78: the rig's tone menu (IC-7300 SET > Tone Control /
+             TBW), read when opened. Rows follow the rig file's toneCtls. -->
+        <div id="toneCtlOverlay" class="mem-modal">
+            <div class="mem-modal-title">
+                <span>Tone control <span id="toneCtlTitle"></span></span>
+                <button class="digi-settings-close" style="width:auto;margin:0;padding:2px 12px" onclick="closeToneCtl()">&#x2715; Close</button>
+            </div>
+            <div id="toneCtlBody"></div>
+        </div>
+
         <!-- Memory modal (styled like QSO Log) -->
         <div id="memoryOverlay" class="mem-modal">
             <div class="mem-modal-title">
@@ -3497,6 +3513,7 @@ var anfOn = false;
 var tunerState = 0;
 var hasCompressor = false, hasCompLevel = false;   // punch list 77 (Icom COMP, CI-V 16 44 / 14 0E)
 var compressorOn = false, compLevel = 0;            // compLevel 0-255; the rig shows 0-10
+var toneCtlKeys = [], toneCtl = {};                 // punch list 78: what the rig file offers, last values read
 var hasTuner = false;         // rig declares the ATU command (CI-V 0x1C 0x01)
 var currentPreamp = 0;
 var lastPreampAttSig = '';  // preamp/att steps valid at currentFreq (band-change watch)
@@ -4313,6 +4330,7 @@ function handleMessage(msg) {
                 updateToneCaps(msg);
                 if (msg.hasTuner !== undefined) updateHasTuner(!!msg.hasTuner);
                 if (msg.hasCompressor !== undefined) { hasCompressor = !!msg.hasCompressor; hasCompLevel = !!msg.hasCompLevel; syncCompUi(); }
+            if (msg.toneCtls !== undefined) { toneCtlKeys = msg.toneCtls || []; toneCtl = {}; }
                 if (msg.txMeters !== undefined) setTxMeterCaps(msg.txMeters, msg.poCal);
                 if (msg.cwSpeedRange) applyCwSpeedRange(msg.cwSpeedRange);
                 if (msg.manufacturer !== undefined) { cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal'; setDigiDriveCaps(msg.manufacturer); }
@@ -4354,6 +4372,7 @@ function handleMessage(msg) {
             updateToneCaps(msg);
             if (msg.hasTuner !== undefined) updateHasTuner(!!msg.hasTuner);
             if (msg.hasCompressor !== undefined) { hasCompressor = !!msg.hasCompressor; hasCompLevel = !!msg.hasCompLevel; syncCompUi(); }
+            if (msg.toneCtls !== undefined) { toneCtlKeys = msg.toneCtls || []; toneCtl = {}; }
             if (msg.txMeters !== undefined) setTxMeterCaps(msg.txMeters, msg.poCal);
                 if (msg.cwSpeedRange) applyCwSpeedRange(msg.cwSpeedRange);
                 if (msg.manufacturer !== undefined) { cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal'; setDigiDriveCaps(msg.manufacturer); }
@@ -4415,6 +4434,7 @@ function handleMessage(msg) {
             if (msg.micGain !== undefined) updateSlider('micGain', msg.micGain);
             if (msg.monitor !== undefined) { monitorEnabled = msg.monitor; if (currentPanel === 'func') renderFuncOverlay(); }
             if (msg.monitorGain !== undefined) { monitorLevel = msg.monitorGain; updateSlider('monitorLevel', msg.monitorGain); if (currentPanel === 'func') renderFuncOverlay(); }
+            if (msg.toneCtl) { for (var tk in msg.toneCtl) toneCtl[tk] = msg.toneCtl[tk]; if (toneCtlOpen()) renderToneCtl(); }
             if (msg.compressor !== undefined || msg.compLevel !== undefined) {
                 if (msg.compressor !== undefined) compressorOn = !!msg.compressor;
                 if (msg.compLevel !== undefined) compLevel = msg.compLevel;
@@ -4470,6 +4490,7 @@ function handleMessage(msg) {
             if (msg.micGain !== undefined) updateSlider('micGain', msg.micGain);
             if (msg.monitor !== undefined) { monitorEnabled = msg.monitor; if (currentPanel === 'func') renderFuncOverlay(); }
             if (msg.monitorGain !== undefined) { monitorLevel = msg.monitorGain; updateSlider('monitorLevel', msg.monitorGain); if (currentPanel === 'func') renderFuncOverlay(); }
+            if (msg.toneCtl) { for (var tk in msg.toneCtl) toneCtl[tk] = msg.toneCtl[tk]; if (toneCtlOpen()) renderToneCtl(); }
             if (msg.compressor !== undefined || msg.compLevel !== undefined) {
                 if (msg.compressor !== undefined) compressorOn = !!msg.compressor;
                 if (msg.compLevel !== undefined) compLevel = msg.compLevel;
@@ -5933,6 +5954,73 @@ function dspSlider(input, onValue) {
 // TUNE row in the TX gain rows (sidebar / GAIN panel): the radio's TUNE
 // carrier power, the PROC overlay's TUNE PWR.
 var tunePwrWired = false;
+// Tone control (punch list 78). The rig keeps bass / treble per mode family
+// (SSB, AM, FM) for TX and RX, 0-10 shown as -5..+5, and the SSB TX
+// bandwidth (TBW) WIDE / MID / NAR. Read when the panel opens.
+function toneCtlFamily() {
+    var m = currentMode || '';
+    if (/^AM/.test(m)) return 'AM';
+    if (/FM$/.test(m) || m === 'FM') return 'FM';
+    return 'SSB';
+}
+function toneCtlOpen() { var o = document.getElementById('toneCtlOverlay'); return !!o && o.classList.contains('visible'); }
+function openToneCtl() {
+    send({ cmd: 'getToneCtls' });
+    renderToneCtl();
+    document.getElementById('toneCtlOverlay').classList.add('visible');
+}
+function closeToneCtl() { document.getElementById('toneCtlOverlay').classList.remove('visible'); }
+function renderToneCtl() {
+    var body = document.getElementById('toneCtlBody');
+    if (!body) return;
+    var fam = toneCtlFamily(), pre = fam.toLowerCase();
+    document.getElementById('toneCtlTitle').textContent = '(' + fam + ')';
+    body.innerHTML = '';
+    function sec(t) { var d = document.createElement('div'); d.className = 'tc-sec'; d.textContent = t; body.appendChild(d); }
+    function stepRow(label, key) {
+        if (toneCtlKeys.indexOf(key) < 0) return;
+        var row = document.createElement('div'); row.className = 'tc-row';
+        var l = document.createElement('span'); l.className = 'tc-label'; l.textContent = label; row.appendChild(l);
+        var v = toneCtl[key];
+        var minus = document.createElement('button'); minus.className = 'dup-btn'; minus.textContent = '\u2212';
+        var val = document.createElement('span'); val.className = 'tc-val';
+        val.textContent = v === undefined ? '\u2026' : ((v - 5 > 0 ? '+' : '') + (v - 5));
+        var plus = document.createElement('button'); plus.className = 'dup-btn'; plus.textContent = '+';
+        function step(d) {
+            var cur = toneCtl[key]; if (cur === undefined) return;
+            var nv = Math.max(0, Math.min(10, cur + d)); if (nv === cur) return;
+            toneCtl[key] = nv; send({ cmd: 'setToneCtl', key: key, value: nv }); renderToneCtl();
+        }
+        minus.onclick = function () { step(-1); }; plus.onclick = function () { step(1); };
+        row.appendChild(minus); row.appendChild(val); row.appendChild(plus);
+        body.appendChild(row);
+    }
+    var hasTx = toneCtlKeys.indexOf(pre + 'TxBass') >= 0 || toneCtlKeys.indexOf(pre + 'TxTreble') >= 0 || (fam === 'SSB' && toneCtlKeys.indexOf('ssbTxBw') >= 0);
+    if (hasTx) {
+        sec('TRANSMIT');
+        stepRow('BASS', pre + 'TxBass');
+        stepRow('TREBLE', pre + 'TxTreble');
+        if (fam === 'SSB' && toneCtlKeys.indexOf('ssbTxBw') >= 0) {
+            var row = document.createElement('div'); row.className = 'tc-row';
+            var l = document.createElement('span'); l.className = 'tc-label'; l.textContent = 'TBW'; row.appendChild(l);
+            ['WIDE', 'MID', 'NAR'].forEach(function (n, i) {
+                var b = document.createElement('button');
+                b.className = 'dup-btn' + (toneCtl.ssbTxBw === i ? ' active' : '');
+                b.textContent = n;
+                b.onclick = function () { toneCtl.ssbTxBw = i; send({ cmd: 'setToneCtl', key: 'ssbTxBw', value: i }); renderToneCtl(); };
+                row.appendChild(b);
+            });
+            body.appendChild(row);
+        }
+    }
+    if (toneCtlKeys.indexOf(pre + 'RxBass') >= 0 || toneCtlKeys.indexOf(pre + 'RxTreble') >= 0) {
+        sec('RECEIVE');
+        stepRow('BASS', pre + 'RxBass');
+        stepRow('TREBLE', pre + 'RxTreble');
+    }
+    if (!body.children.length) body.textContent = 'This radio offers no tone settings for ' + fam + '.';
+}
+
 // Speech compressor (punch list 77): GAIN row, FUNC tile, spectrum readout.
 function compStep() { return Math.round((compLevel || 0) * 10 / 255); }
 function syncCompUi() {
@@ -8255,6 +8343,10 @@ function renderFuncOverlay() {
             send({ cmd: 'setCompressor', value: compressorOn });
             syncCompUi();
         }));
+
+    // Tone control (punch list 78): the rig's bass / treble / TBW menu.
+    if (toneCtlKeys.length && !flexDsp)
+        grid.appendChild(makeFuncBtn('TONE CTL', toneCtlFamily(), false, function() { setPanel('default'); openToneCtl(); }));
 
     // Look: the AetherSDR skin and layout, or the classic wfweb page.
     if (webRole === 'admin' && webLoginOn) {
