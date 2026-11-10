@@ -3017,6 +3017,26 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     else if (type == "disconnectLan") {
         emit requestLanDisconnect();
     }
+    else if (type == "leaveSession") {
+        // The page's DISCONNECT: this browser leaves; if no other signed-in
+        // browser is on, the radio is released now. Decided here, not by the
+        // page: its people list also counts guests, listeners and a socket
+        // left over from a reload, and then it never released (user, 1.0.135).
+        int others = 0;
+        for (QWebSocket *c : wsClients)
+            if (c != client && !isGuest(c) && c->state() == QAbstractSocket::ConnectedState) others++;
+        const bool release = others == 0 && lanConnected;
+        qInfo().noquote() << QString("Web: DISCONNECT by %1 - %2").arg(client ? clientLabel(client) : QString("?"),
+            release ? QStringLiteral("last browser, releasing the radio")
+                    : others ? QString("%1 other browser%2 on, the radio stays").arg(others).arg(others > 1 ? "s" : "")
+                             : QStringLiteral("the radio is not connected"));
+        QJsonObject r;
+        r["type"] = "leaveResult";
+        r["released"] = release;
+        r["others"] = others;
+        if (client) sendJsonTo(client, r);
+        if (release) emit requestLanDisconnect();
+    }
     else if (type == "reconnectLan") {
         emit requestLanReconnect();
     }

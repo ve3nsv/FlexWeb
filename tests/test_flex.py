@@ -1056,6 +1056,76 @@ def test_reconnect_resumes_slice():
         thread.join(timeout=2)
 
 
+def test_disconnect_button_releases():
+    """The page's DISCONNECT (leaveSession): the server decides. With another
+    signed-in browser on, this one leaves and the radio stays; as the last
+    one, the radio is released at once (not after the on-demand wait - 30 s
+    here, so a release can only come from the button)."""
+    if not WFWEB_BIN.exists():
+        pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
+    from test_web_login import _Reader, _ws, _ws_send
+
+    loop = asyncio.new_event_loop()
+    radio = MockFlexRadio()
+    loop.run_until_complete(radio.start())
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+
+    web_port = _free_port()
+    rest = f"http://127.0.0.1:{web_port + 1}/api/v1/radio"
+    env = os.environ.copy()
+    env["HOME"] = "/tmp/wfweb-flex-leave-test"
+    env["WFWEB_NO_TUI"] = "1"
+    os.makedirs(env["HOME"], exist_ok=True)
+    proc = subprocess.Popen(
+        [str(WFWEB_BIN), "-p", str(web_port), "--manufacturer", "3",
+         "--lan", "127.0.0.1",
+         "--lan-control", str(radio.control_port),
+         "--lan-audio", str(radio.vita_port),
+         "--on-demand", "30"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+
+    def result(reader):
+        for text in reader.frames(5.0):
+            m = json.loads(text)
+            if m.get("type") == "leaveResult":
+                return m
+        return None
+
+    try:
+        assert _wait(lambda: requests.get(f"{rest}/info", timeout=2).status_code == 200,
+                     timeout=30), "wfweb did not start"
+        st, a, abuf = _ws(web_port, None)
+        assert " 101" in st, st
+        st, b, _ = _ws(web_port, None)
+        assert " 101" in st, st
+        assert _wait(lambda: radio.find("slice create"), timeout=15), "no radio session"
+        assert _wait(lambda: requests.get(f"{rest}/info", timeout=2).json().get("connected"), timeout=15)
+        reader = _Reader(a, abuf)
+
+        _ws_send(a, {"cmd": "leaveSession"})
+        r = result(reader)
+        assert r and r["released"] is False and r["others"] == 1, r
+        time.sleep(1.0)
+        assert radio._writer is not None, "released while another browser is on"
+
+        b.close()
+        time.sleep(1.0)
+        _ws_send(a, {"cmd": "leaveSession"})
+        r = result(reader)
+        assert r and r["released"] is True and r["others"] == 0, r
+        assert _wait(lambda: radio._writer is None, timeout=5), "the last browser's DISCONNECT did not release the radio"
+        a.close()
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)
+
+
 def test_kicked_by_another_client():
     """Kicked by another client (forced=1): wfweb closes the session and does
     not reconnect on its own; the page's Connect (reconnectLan) does."""
