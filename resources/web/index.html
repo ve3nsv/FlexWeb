@@ -3922,7 +3922,8 @@ function userBtnClick() {
 // once (disconnectLan) instead of after the on-demand wait; with others on,
 // only this browser leaves. RECONNECT on the screen it leaves comes back.
 var sessionClosed = false, discBtnTimer = null;
-function discOthers() { return peopleList.filter(function (p) { return !p.you; }).length; }
+// Other signed-in browsers (guests and listeners never hold the radio).
+function discOthers() { return peopleList.filter(function (p) { return !p.you && !p.guest && !p.listener; }).length; }
 function discBtnClick() {
     var b = document.getElementById('discBtn');
     if (b.classList.contains('confirm')) { disconnectSession(); return; }
@@ -3944,20 +3945,35 @@ function disconnectSession() {
     if (talkOn && typeof toggleTalk === 'function') try { toggleTalk(); } catch (e) {}
     if (micEnabled || micStarting) stopMic();
     if (audioEnabled) stopAudio();
-    var release = !guestView && discOthers() === 0 && lanConnected;
-    if (release) send({ cmd: 'disconnectLan' });
     sessionClosed = true;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
-    // let the commands above leave before the socket closes
-    setTimeout(function () { if (wsTransport) wsTransport.close(); }, 300);
     var sc = document.createElement('div');
     sc.id = 'discScreen';
-    sc.innerHTML = '<b>Disconnected</b><div>' + (release ? 'The radio was released.' :
-        'This browser left; the radio stays with the others.') + '</div>' +
+    sc.innerHTML = '<b>Disconnected</b><div id="discText">Leaving\u2026</div>' +
         '<button type="button" id="discReconnect">RECONNECT</button>';
     document.body.appendChild(sc);
     document.getElementById('discReconnect').onclick = reconnectSession;
+    // The server decides whether this was the last browser and releases the
+    // radio (leaveResult); the socket closes once it has answered.
+    var done = false;
+    function finish(res) {
+        if (done) return;
+        done = true;
+        leaveWaiter = null;
+        var t = document.getElementById('discText');
+        if (t) t.textContent = guestView ? 'This browser left.'
+            : !res ? 'This browser left (no answer from the server about the radio).'
+            : res.released ? 'The radio was released.'
+            : res.others ? 'This browser left; the radio stays with ' + res.others + ' other browser' + (res.others > 1 ? 's' : '') + '.'
+            : 'This browser left.';
+        if (wsTransport) wsTransport.close();
+    }
+    if (guestView) { setTimeout(function () { finish(null); }, 300); return; }
+    leaveWaiter = finish;
+    send({ cmd: 'leaveSession' });
+    setTimeout(function () { finish(null); }, 2000);
 }
+var leaveWaiter = null;
 function reconnectSession() {
     var sc = document.getElementById('discScreen');
     if (sc) sc.remove();
@@ -4117,6 +4133,9 @@ function handleMessage(msg) {
             if (document.getElementById('nnrOverlay').classList.contains('visible')) renderNnrOverlay();
             if (document.getElementById('flexAntOverlay').classList.contains('visible')) renderFlexAntOverlay();
             if (currentPanel === 'func') renderFuncOverlay();
+            break;
+        case 'leaveResult':
+            if (leaveWaiter) leaveWaiter(msg);
             break;
         case 'clients':
             peopleList = msg.list || [];
