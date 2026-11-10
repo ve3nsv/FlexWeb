@@ -1561,6 +1561,16 @@ TUNE state after a mock radio reconnect matches the radio.
        equaliser on the mic audio before it is sent).
     Tests: wfweb's #147 tests ported; the hold on the mock rig (COMP off
     at key, back at unkey, untouched when it was off).
+    Done (2026-11-10, user "Go"): server - rigInfo / rigConnected
+    hasCompressor / hasCompLevel, status + updates compressor / compLevel,
+    setCompLevel (14 0E, 0-255). Page - FUNC COMP tile (level 0-10 or
+    ON / OFF), GAIN COMP row, "COMP n" spectrum readout in USB / LSB; the
+    data-mode hold is FlexWeb's clean receive path (modeCleanApply /
+    Restore): COMP off while FT8 / FT4, JS8, FreeDV / RADE or SSTV is open,
+    back after, never in FM, a COMP press meanwhile wins. The Flex keeps
+    its PROC tile (already held off for FM / FreeDV). Not done: packet
+    (its panel is not a clean-path profile), 77b, the first-PTT fix
+    (FlexWeb's queue differs - not seen here).
 
 76. Page settings per radio and per user (user, 2026-11-06; medium).
     Today the page keeps its view settings in the browser's localStorage

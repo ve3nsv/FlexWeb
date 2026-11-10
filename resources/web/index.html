@@ -2213,6 +2213,12 @@ body.amp-noanswer #ampBody .amp-tile { opacity: 0.45; filter: grayscale(1); }
     top: 144px;  /* clears the 14px-tall RFG readout above (118 + 26) */
     font-size: 14px;
 }
+/* Speech compressor on (punch list 77): a rig-state readout, grey like P.AMP. */
+#compIndicator {
+    top: 170px;  /* under the VOL readout (144 + 26) */
+    font-size: 14px;
+    color: #888;
+}
 
 /* RF-KIT amplifier: a readout in the scope's top-right corner (left of it is
    the rig-state stack), opening the AMP panel. Green while in OPERATE. */
@@ -3061,6 +3067,14 @@ try {
                     <input type="range" id="rfPowerSlider" min="0" max="255" value="128"></div>
                 <span class="gain-val" id="rfPowerVal">50%</span>
             </div>
+            <!-- Speech compressor level (punch list 77), 0-10 as on the radio;
+                 rigs whose caps declare it (not the Flex: its PROC is in FUNC). -->
+            <div class="gain-row tx" id="compLevelRow" style="display:none" title="Speech compressor level, as the radio's COMP 0-10">
+                <span class="gain-label">COMP</span>
+                <div class="gain-bar-bg"><div class="gain-bar-fill" id="compLevelFill" style="width:0%"></div>
+                    <input type="range" id="compLevelSlider" min="0" max="255" value="0"></div>
+                <span class="gain-val" id="compLevelVal">0</span>
+            </div>
             <!-- TUNE carrier power (Flex tunePower, punch list 1); shown once
                  the radio has reported it (syncTunePwrRow). -->
             <div class="gain-row tx" id="tunePwrRow" style="display:none" title="Power of the TUNE carrier, kept in the radio">
@@ -3236,6 +3250,7 @@ try {
         <div id="preampAttIndicator" class="spectrum-warning" style="display: none;"></div>
         <div id="dupIndicator" class="spectrum-warning" style="display: none;" onclick="openDupModal()"></div>
         <div id="toneIndicator" class="spectrum-warning" style="display: none;" onclick="openToneModal()"></div>
+        <div id="compIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('gain')"></div>
         <div id="rfGainIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('gain')"></div>
         <div id="rxVolIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('gain')"></div>
         <div id="ampIndicator" class="spectrum-warning" style="display: none;" onclick="togglePanel('amp')" title="RF-KIT amplifier"></div>
@@ -3480,6 +3495,8 @@ var nbOn = false;
 var nrOn = false;
 var anfOn = false;
 var tunerState = 0;
+var hasCompressor = false, hasCompLevel = false;   // punch list 77 (Icom COMP, CI-V 16 44 / 14 0E)
+var compressorOn = false, compLevel = 0;            // compLevel 0-255; the rig shows 0-10
 var hasTuner = false;         // rig declares the ATU command (CI-V 0x1C 0x01)
 var currentPreamp = 0;
 var lastPreampAttSig = '';  // preamp/att steps valid at currentFreq (band-change watch)
@@ -4295,6 +4312,7 @@ function handleMessage(msg) {
                 if (msg.hasDuplex !== undefined) hasDuplex = !!msg.hasDuplex;
                 updateToneCaps(msg);
                 if (msg.hasTuner !== undefined) updateHasTuner(!!msg.hasTuner);
+                if (msg.hasCompressor !== undefined) { hasCompressor = !!msg.hasCompressor; hasCompLevel = !!msg.hasCompLevel; syncCompUi(); }
                 if (msg.txMeters !== undefined) setTxMeterCaps(msg.txMeters, msg.poCal);
                 if (msg.cwSpeedRange) applyCwSpeedRange(msg.cwSpeedRange);
                 if (msg.manufacturer !== undefined) { cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal'; setDigiDriveCaps(msg.manufacturer); }
@@ -4335,6 +4353,7 @@ function handleMessage(msg) {
             if (msg.hasDuplex !== undefined) hasDuplex = !!msg.hasDuplex;
             updateToneCaps(msg);
             if (msg.hasTuner !== undefined) updateHasTuner(!!msg.hasTuner);
+            if (msg.hasCompressor !== undefined) { hasCompressor = !!msg.hasCompressor; hasCompLevel = !!msg.hasCompLevel; syncCompUi(); }
             if (msg.txMeters !== undefined) setTxMeterCaps(msg.txMeters, msg.poCal);
                 if (msg.cwSpeedRange) applyCwSpeedRange(msg.cwSpeedRange);
                 if (msg.manufacturer !== undefined) { cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal'; setDigiDriveCaps(msg.manufacturer); }
@@ -4396,6 +4415,11 @@ function handleMessage(msg) {
             if (msg.micGain !== undefined) updateSlider('micGain', msg.micGain);
             if (msg.monitor !== undefined) { monitorEnabled = msg.monitor; if (currentPanel === 'func') renderFuncOverlay(); }
             if (msg.monitorGain !== undefined) { monitorLevel = msg.monitorGain; updateSlider('monitorLevel', msg.monitorGain); if (currentPanel === 'func') renderFuncOverlay(); }
+            if (msg.compressor !== undefined || msg.compLevel !== undefined) {
+                if (msg.compressor !== undefined) compressorOn = !!msg.compressor;
+                if (msg.compLevel !== undefined) compLevel = msg.compLevel;
+                syncCompUi();
+            }
             if (msg.split !== undefined) updateSplit(msg.split);
             if (msg.duplex !== undefined) updateDuplex(msg.duplex);
             updateToneStatus(msg);
@@ -4446,6 +4470,11 @@ function handleMessage(msg) {
             if (msg.micGain !== undefined) updateSlider('micGain', msg.micGain);
             if (msg.monitor !== undefined) { monitorEnabled = msg.monitor; if (currentPanel === 'func') renderFuncOverlay(); }
             if (msg.monitorGain !== undefined) { monitorLevel = msg.monitorGain; updateSlider('monitorLevel', msg.monitorGain); if (currentPanel === 'func') renderFuncOverlay(); }
+            if (msg.compressor !== undefined || msg.compLevel !== undefined) {
+                if (msg.compressor !== undefined) compressorOn = !!msg.compressor;
+                if (msg.compLevel !== undefined) compLevel = msg.compLevel;
+                syncCompUi();
+            }
             if (msg.split !== undefined) updateSplit(msg.split);
             if (msg.duplex !== undefined) updateDuplex(msg.duplex);
             updateToneStatus(msg);
@@ -5256,6 +5285,12 @@ function modeCleanApply(profile) {
             sendFlexDsp('proc', 0, 0, true);
         }
     }
+    // Icom COMP (punch list 77): it stays in the USB / LSB path and distorts
+    // FT8 tones, JS8, RADE and SSTV. Off while they run, back after.
+    if (!flexDsp && hasCompressor && compressorOn && profile !== 'fm') {
+        if (saved.comp === undefined) saved.comp = 1;
+        send({ cmd: 'setCompressor', value: false });
+    }
     if (profile !== 'fm' && saved.filterWidth === undefined && currentFilterWidth > 0 && currentFilterWidth !== 3000) {
         saved.filterWidth = currentFilterWidth;
         saved.filter = currentFilter;
@@ -5273,6 +5308,7 @@ function modeCleanRestore() {
     if (sv.anf) send({ cmd: 'setAutoNotch', value: true });
     ['nnr', 'apf', 'wnb', 'tnfEnabled'].forEach(function (k) { if (sv[k] && flexDsp) sendFlexDsp(k, 0, 1, true); });
     if (sv.nnr && !flexDsp && nnrState) nnrSend('nnr', 1, true);
+    if (sv.comp && !flexDsp) send({ cmd: 'setCompressor', value: true });
     if (sv.proc && flexDsp) {
         sendFlexDsp('proc', 0, 1, true);
         if (sv.procLevel !== undefined) sendFlexDsp('procLevel', 0, sv.procLevel, true);
@@ -5290,6 +5326,7 @@ function modeCleanRestore() {
 }
 var modeCleanLastSide = '';
 function modeCleanCheck() {
+    syncCompIndicator();
     if (!ws || ws.readyState !== WebSocket.OPEN || !currentMode || currentMode === '---' || !(currentFreq > 0)) return;
     var p = modeCleanProfile();
     var cur = modeClean ? modeClean.profile : null;
@@ -5407,6 +5444,19 @@ function initSliderTracking() {
             document.getElementById('monitorLevelFill').style.width = (val / 255 * 100) + '%';
             throttledSend('monitorLevel', 'setMonitorGain', val);
             if (currentPanel === 'func') renderFuncOverlay();
+        });
+    })();
+    // Speech compressor level (punch list 77): CI-V 0-255, shown 0-10.
+    (function() {
+        var slider = document.getElementById('compLevelSlider');
+        if (!slider) return;
+        ['mousedown', 'touchstart'].forEach(function (e) { slider.addEventListener(e, function() { sliderDragging['compLevel'] = true; }); });
+        ['mouseup', 'touchend', 'mouseleave', 'touchcancel'].forEach(function (e) { slider.addEventListener(e, function() { sliderDragging['compLevel'] = false; }); });
+        slider.addEventListener('input', function() {
+            compLevel = parseInt(slider.value);
+            sliderSetTimes['compLevel'] = Date.now();
+            syncCompUi();
+            throttledSend('compLevel', 'setCompLevel', compLevel);
         });
     })();
     // Filter overlay sliders
@@ -5883,6 +5933,30 @@ function dspSlider(input, onValue) {
 // TUNE row in the TX gain rows (sidebar / GAIN panel): the radio's TUNE
 // carrier power, the PROC overlay's TUNE PWR.
 var tunePwrWired = false;
+// Speech compressor (punch list 77): GAIN row, FUNC tile, spectrum readout.
+function compStep() { return Math.round((compLevel || 0) * 10 / 255); }
+function syncCompUi() {
+    var icom = !flexDsp;
+    var row = document.getElementById('compLevelRow');
+    if (row) row.style.display = (icom && hasCompLevel) ? '' : 'none';
+    var slider = document.getElementById('compLevelSlider');
+    if (slider && !sliderDragging['compLevel'] && (Date.now() - (sliderSetTimes['compLevel'] || 0)) >= SLIDER_DEBOUNCE_MS)
+        slider.value = compLevel;
+    var fill = document.getElementById('compLevelFill');
+    if (fill) fill.style.width = (compLevel / 255 * 100) + '%';
+    var val = document.getElementById('compLevelVal');
+    if (val) val.textContent = String(compStep());
+    syncCompIndicator();
+    if (currentPanel === 'func') renderFuncOverlay();
+}
+function syncCompIndicator() {
+    var ind = document.getElementById('compIndicator');
+    if (!ind) return;
+    var show = !flexDsp && hasCompressor && compressorOn && /^(USB|LSB)$/.test(currentMode || '');
+    ind.textContent = hasCompLevel ? 'COMP ' + compStep() : 'COMP';
+    ind.style.display = show ? '' : 'none';
+}
+
 function syncTunePwrRow() {
     var row = document.getElementById('tunePwrRow');
     if (!row) return;
@@ -8170,6 +8244,17 @@ function renderFuncOverlay() {
         send({ cmd: 'setMonitor', value: monitorEnabled });
         renderFuncOverlay();
     }));
+
+    // Speech compressor (punch list 77). The Flex has its PROC tile instead.
+    if (hasCompressor && !flexDsp)
+        grid.appendChild(makeFuncBtn('COMP', compressorOn ? (hasCompLevel ? String(compStep()) : 'ON') : 'OFF', compressorOn, function() {
+            compressorOn = !compressorOn;
+            // The operator's word wins over the data-mode hold: the end of
+            // FT8 / JS8 / FreeDV must not put the old state back on top.
+            if (modeClean && modeClean.saved && modeClean.saved.comp) { delete modeClean.saved.comp; modeCleanSave(); }
+            send({ cmd: 'setCompressor', value: compressorOn });
+            syncCompUi();
+        }));
 
     // Look: the AetherSDR skin and layout, or the classic wfweb page.
     if (webRole === 'admin' && webLoginOn) {

@@ -577,6 +577,9 @@ void webServer::receiveRigCaps(rigCapabilities *caps)
         // follow that capability instead of appearing on every rig.
         obj["hasTuner"] = rigCaps->commands.contains(funcTunerStatus);
         obj["hasPowerControl"] = rigCaps->commands.contains(funcPowerControl);
+        // Speech compressor (punch list 77): FUNC COMP tile, GAIN COMP row.
+        obj["hasCompressor"] = rigCaps->commands.contains(funcCompressor);
+        obj["hasCompLevel"] = rigCaps->commands.contains(funcCompressorLevel);
         obj["powerOnNeedsRemoteJack"] = powerOnNeedsRemoteJack(rigCaps);
         addToneCaps(obj);
         addBandCaps(obj);
@@ -2558,6 +2561,11 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         bool on = cmd["value"].toBool();
         queue->add(priorityImmediate, queueItem(funcCompressor, QVariant::fromValue<uchar>(on ? 1 : 0), false, 0));
     }
+    else if (type == "setCompLevel") {
+        // CI-V 14 0E, 0-255 (the rig shows 0-10).
+        ushort val = static_cast<ushort>(qBound(0, cmd["value"].toInt(), 255));
+        queue->addUnique(priorityImmediate, queueItem(funcCompressorLevel, QVariant::fromValue<ushort>(val), false, 0));
+    }
     else if (type == "setAudioCodec") {
         // AUDIO > QUALITY: "opus" or "pcm" for this browser's receive audio.
         const int rate = rigSampleRate ? int(rigSampleRate) : 48000;
@@ -4080,6 +4088,8 @@ QJsonObject webServer::buildInfoJson() const
         info["rigAudioInputName"] = rigCaptureDeviceName;
         info["hasFilterSettings"] = rigCaps->commands.contains(funcPBTInner);
         info["hasPowerControl"] = rigCaps->commands.contains(funcPowerControl);
+        info["hasCompressor"] = rigCaps->commands.contains(funcCompressor);
+        info["hasCompLevel"] = rigCaps->commands.contains(funcCompressorLevel);
         info["powerOnNeedsRemoteJack"] = powerOnNeedsRemoteJack(rigCaps);
         info["hasMainSub"] = rigCaps->hasCommand29;
         // Repeater duplex: only the rigs whose .rig declares the offset
@@ -4494,6 +4504,17 @@ QJsonObject webServer::buildStatusJson()
     cacheItem monGain = queue->getCache(funcMonitorGain, 0);
     if (monGain.value.isValid()) status["monitorGain"] = monGain.value.toInt();
 
+    // Speech compressor and its level - only asked on rigs that have them
+    // (getCache() re-requests a miss).
+    if (rigCaps && rigCaps->commands.contains(funcCompressor)) {
+        cacheItem comp = queue->getCache(funcCompressor, 0);
+        if (comp.value.isValid()) status["compressor"] = comp.value.toBool();
+    }
+    if (rigCaps && rigCaps->commands.contains(funcCompressorLevel)) {
+        cacheItem compLevel = queue->getCache(funcCompressorLevel, 0);
+        if (compLevel.value.isValid()) status["compLevel"] = compLevel.value.toInt();
+    }
+
     // Tuner (0=off, 1=on, 2=tuning)
     cacheItem tuner = queue->getCache(funcTunerStatus, 0);
     if (tuner.value.isValid()) status["tuner"] = tuner.value.toInt();
@@ -4809,6 +4830,12 @@ void webServer::receiveCache(cacheItem item)
         break;
     case funcMonitorGain:
         update["monitorGain"] = item.value.toInt();
+        break;
+    case funcCompressor:
+        update["compressor"] = item.value.toBool();
+        break;
+    case funcCompressorLevel:
+        update["compLevel"] = item.value.toInt();
         break;
     case funcSplitStatus:
         update["split"] = item.value.toBool();
