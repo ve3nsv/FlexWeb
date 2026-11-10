@@ -146,7 +146,7 @@ jobs:
         with:
           name: wfweb-${{ matrix.arch }}-ubuntu2404-deb
           path: FlexWeb_*-ubuntu2404_${{ matrix.deb_arch }}.deb
-          retention-days: 30
+          retention-days: 2
 
   build-linux-debian12:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' }}
@@ -285,7 +285,7 @@ jobs:
         with:
           name: wfweb-${{ matrix.arch }}-debian12-deb
           path: FlexWeb_*-debian12_${{ matrix.deb_arch }}.deb
-          retention-days: 30
+          retention-days: 2
 
   build-linux-debian13:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' }}
@@ -424,7 +424,7 @@ jobs:
         with:
           name: wfweb-${{ matrix.arch }}-debian13-deb
           path: FlexWeb_*-debian13_${{ matrix.deb_arch }}.deb
-          retention-days: 30
+          retention-days: 2
 
   build-linux-appimage:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' }}
@@ -602,7 +602,7 @@ jobs:
         with:
           name: wfweb-${{ matrix.arch }}-appimage
           path: FlexWeb_*-${{ matrix.arch }}.AppImage
-          retention-days: 30
+          retention-days: 2
 
   build-macos:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' }}
@@ -670,7 +670,7 @@ jobs:
         with:
           name: wfweb-macos-arm64
           path: FlexWeb*-macos-arm64.zip
-          retention-days: 30
+          retention-days: 2
 
   build-windows:
     name: Windows x86_64
@@ -894,7 +894,7 @@ jobs:
         with:
           name: wfweb-windows-x86_64
           path: FlexWeb*-windows-x86_64.zip
-          retention-days: 30
+          retention-days: 2
 
   release:
     name: Publish release
