@@ -3148,6 +3148,15 @@ try {
                     <input type="range" id="micGainSlider" min="0" max="255" value="128"></div>
                 <span class="gain-val" id="micGainVal">50%</span>
             </div>
+            <!-- Punch list 80: the browser's own gain on the microphone, applied
+                 before the audio leaves the page (the Flex's MIC row does this
+                 on the server). Not on a Flex. Kept in this browser only. -->
+            <div class="gain-row tx" id="micLocalRow" style="display:none" title="Gain of this browser's microphone before it is sent to the radio (0 dB = unchanged)">
+                <span class="gain-label">PC MIC</span>
+                <div class="gain-bar-bg"><div class="gain-bar-fill" id="micLocalFill" style="width:25%"></div>
+                    <input type="range" id="micLocalSlider" min="-10" max="30" step="1" value="0"></div>
+                <span class="gain-val" id="micLocalVal">0 dB</span>
+            </div>
             <div class="gain-row tx mic-vu-row" title="Microphone level going to the radio (dBFS), live whenever the mic is on">
                 <span class="gain-label">LVL</span>
                 <div class="mic-vu" id="micVu"><div class="mic-vu-fill" id="micVuFill"></div><div class="mic-vu-peak" id="micVuPeak"></div></div>
@@ -6632,7 +6641,10 @@ function setDigiDriveCaps(manufacturer) {
     // the level of this browser's microphone into the radio: say so.
     var rl = document.getElementById('rfGainLabel'), ml = document.getElementById('micGainLabel');
     if (rl) { rl.textContent = flex ? 'AGC-T' : 'RF'; rl.title = flex ? 'AGC threshold (SmartSDR AGC-T)' : ''; }
-    if (ml) { ml.textContent = flex ? 'MIC' : 'USB MIC'; ml.title = flex ? 'Level of the browser microphone sent to the radio (75 % = unchanged)' : ''; }
+    if (ml) { ml.textContent = flex ? 'MIC' : 'USB MIC'; ml.title = flex ? 'Level of the browser microphone sent to the radio (75 % = unchanged)' : 'The radio\'s USB MOD level'; }
+    var lr = document.getElementById('micLocalRow');
+    if (lr) lr.style.display = flex ? 'none' : '';
+    micLocalApply();
     if (flex) updateRfGainIndicator(0);
     // A Flex with the AetherSDR look: MOX latches by default, as in
     // AetherSDR / SmartSDR. A choice made in FUNC > PTT still wins.
@@ -11803,11 +11815,11 @@ function startMic() {
         var source = micAudioCtx.createMediaStreamSource(stream);
         var captureCode = [
             'class WfwebCaptureProcessor extends AudioWorkletProcessor {',
-            '  constructor() { super(); }',
+            '  constructor() { super(); this.g = 1; var self = this; this.port.onmessage = function(e) { if (e.data && typeof e.data.gain === "number") self.g = e.data.gain; }; }',
             '  process(inputs) {',
             '    var input = inputs[0]; if (!input || !input[0] || input[0].length === 0) return true;',
-            '    var samples = input[0]; var int16 = new Int16Array(samples.length);',
-            '    for (var i = 0; i < samples.length; i++) { var s = Math.max(-1, Math.min(1, samples[i])); int16[i] = s < 0 ? s * 32768 : s * 32767; }',
+            '    var samples = input[0]; var int16 = new Int16Array(samples.length), g = this.g;',
+            '    for (var i = 0; i < samples.length; i++) { var s = Math.max(-1, Math.min(1, samples[i] * g)); int16[i] = s < 0 ? s * 32768 : s * 32767; }',
             '    this.port.postMessage(int16.buffer, [int16.buffer]); return true;',
             '  }',
             '}',
@@ -11820,6 +11832,7 @@ function startMic() {
             if (gen !== micStartGen) return;   // stopMic() already closed it
             micWorkletNode = new AudioWorkletNode(micAudioCtx, 'wfweb-capture-processor');
             source.connect(micWorkletNode);
+            micLocalApply();
             micWorkletNode.port.onmessage = function(e) {
                 // Suppress during DIGI TX or TUNE (FT8/JS8/tune audio uses
                 // the same type-0x03 channel)
@@ -11857,6 +11870,32 @@ function startMic() {
         }).catch(function(err) { if (gen === micStartGen) micStartFailed('Mic AudioWorklet failed:', err); });
     }).catch(function(err) { if (gen === micStartGen) micStartFailed('getUserMedia failed:', err); });
 }
+
+// Punch list 80: PC MIC, the browser's gain on the microphone for every
+// radio but the Flex (whose MIC row is applied by the server), -10..+30 dB,
+// applied in the capture worklet so the radio, the recorder and the VU all
+// get the scaled audio. A device setting: this browser only (wfMicLocalDb).
+var micLocalDb = 0;
+try { var _mld = parseInt(localStorage.getItem('wfMicLocalDb'), 10); if (!isNaN(_mld)) micLocalDb = Math.max(-10, Math.min(30, _mld)); } catch (e) {}
+function micLocalApply() {
+    var sl = document.getElementById('micLocalSlider');
+    if (sl && parseInt(sl.value, 10) !== micLocalDb) sl.value = micLocalDb;
+    var v = document.getElementById('micLocalVal'), f = document.getElementById('micLocalFill');
+    if (v) v.textContent = (micLocalDb > 0 ? '+' : '') + micLocalDb + ' dB';
+    if (f) f.style.width = ((micLocalDb + 10) / 40 * 100) + '%';
+    var g = isFlexRig ? 1 : Math.pow(10, micLocalDb / 20);
+    if (micWorkletNode) micWorkletNode.port.postMessage({ gain: g });
+}
+document.addEventListener('DOMContentLoaded', function() {
+    var sl = document.getElementById('micLocalSlider');
+    if (!sl) return;
+    sl.addEventListener('input', function() {
+        micLocalDb = parseInt(sl.value, 10) || 0;
+        try { localStorage.setItem('wfMicLocalDb', String(micLocalDb)); } catch (e) {}
+        micLocalApply();
+    });
+    micLocalApply();
+});
 
 // Also cancels a start in flight: its callbacks see a newer micStartGen.
 // Mic VU: peak of each mic frame, scaled by the MIC slider as the server

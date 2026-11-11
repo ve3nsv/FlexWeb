@@ -1618,6 +1618,35 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+80. IC-7300 TX audio level cannot be adjusted (user, 2026-11-11, 1.0.139/
+    140, RS-BA1 LAN; small; diagnosis open). Screenshot: TX CONTROLS with
+    USB MIC 56 %, LVL -23 dBFS. That slider sends setMicGain ->
+    funcUSBModLevel (IC-7300.rig 1A 05 00 65, range 0-255, get + set) - the
+    rig file and the server path look right. To tell apart: the slider
+    springs back (the rig refuses / the read-back differs), the radio's
+    level does not change (Remote Utility's own TX level, the PC's
+    "Microphone (USB Audio CODEC)" level, or DATA OFF MOD not USB), or LVL
+    does not move (LVL is the browser mic before the radio - USB MIC is the
+    radio's gain after it and never moves LVL). Needs: what "cannot adjust"
+    looks like, and a server log of one slider move (rigTraffic shows the
+    1A 05 00 65 frame and the reply).
+    Done (user asked for a local mic adjustment like the Flex's): PC MIC
+    row in TX CONTROLS on every radio but the Flex, -10..+30 dB, applied
+    in the browser's capture worklet before the audio is sent, so the
+    radio, the recorder and LVL all see the scaled audio. A device
+    setting, kept in this browser only (localStorage wfMicLocalDb, not in
+    PAGE_PREF_SCOPE). USB MIC stays the radio's USB MOD level.
+
+79. Tone control: + / - do nothing on the IC-7300 (user, 2026-11-11, screen
+    recording; small). The panel read the rig (all 0) but a set never
+    reached it: IC-7300.rig (and IC-7300MK2.rig) declare the 12 bass /
+    treble items with Min=0 Max=0, and icomCommander::getCommand refuses
+    a value outside the rig file's range without a word, so only "0"
+    could be sent and the read-back put the panel back. Fixed: Max=10 on
+    those 24 entries (TBW was already 0-2); setToneCtl now logs a warning
+    when a value is outside the rig file's range. Other rig files with
+    these items: none.
+
 78. Tone controls on the page (user, 2026-11-07; medium). The IC-7300's
     MENU > SET > Tone Control / TBW is all in its rig file (via 1A 05)
     and the server can already set and read it - only the page is
