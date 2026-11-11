@@ -1525,6 +1525,22 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+81. TX meter refresh on polled rigs: Po fastest (user, 2026-11-11; small).
+    IC-7300 over LAN, from the code: one command every 70 ms, the
+    Highest slot every other one (140 ms). While keyed the slot rotates
+    S, Po, SWR, ALC (plus COMP / Vd / Id if the second TX bar shows one),
+    so Po refreshes every ~560 ms (~700 ms). wfview drops the S meter on
+    PTT and polls Po alone by default (~140 ms); wfweb polled all four
+    always. Wanted: while transmitting, no S meter poll, and Po every
+    other Highest turn with SWR / ALC (/ the second-bar meter) sharing
+    the turns between - Po ~280 ms, SWR and ALC ~560 ms each. Back to
+    the S meter alone at unkey. In webServer::setTxMeterPolling /
+    applyTxMeterPoll (posted, never from inside receiveCache); a .rig
+    file that polls a meter itself keeps its poll; -S and the Flex
+    untouched. Test: extend tests/test_meter_polling.py (no S meter reads
+    while keyed, Po at least twice as often as SWR, S meter back after
+    unkey).
+
 80. IC-7300 TX audio level cannot be adjusted (user, 2026-11-11, 1.0.139/
     140, RS-BA1 LAN; small; diagnosis open). Screenshot: TX CONTROLS with
     USB MIC 56 %, LVL -23 dBFS. That slider sends setMicGain ->
