@@ -1537,6 +1537,12 @@ TUNE state after a mock radio reconnect matches the radio.
     radio's gain after it and never moves LVL). Needs: what "cannot adjust"
     looks like, and a server log of one slider move (rigTraffic shows the
     1A 05 00 65 frame and the reply).
+    Done (user asked for a local mic adjustment like the Flex's): PC MIC
+    row in TX CONTROLS on every radio but the Flex, -10..+30 dB, applied
+    in the browser's capture worklet before the audio is sent, so the
+    radio, the recorder and LVL all see the scaled audio. A device
+    setting, kept in this browser only (localStorage wfMicLocalDb, not in
+    PAGE_PREF_SCOPE). USB MIC stays the radio's USB MOD level.
 
 79. Tone control: + / - do nothing on the IC-7300 (user, 2026-11-11, screen
     recording; small). The panel read the rig (all 0) but a set never
