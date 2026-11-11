@@ -2599,6 +2599,12 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
             if (key != QLatin1String(t.key) || !rigCaps->commands.contains(t.func)) continue;
             const int hi = t.func == funcSSBTXBandwidth ? 2 : 10;
             const uchar v = static_cast<uchar>(qBound(0, cmd["value"].toInt(), hi));
+            const auto c = rigCaps->commands.value(t.func);
+            if (v < c.minVal || v > c.maxVal)
+                // The commander refuses a value outside the rig file's range
+                // without a word (IC-7300.rig once had bass / treble Max=0).
+                qWarning().noquote() << QString("Web: %1 = %2 is outside the rig file's range %3-%4 - the radio will not get it")
+                    .arg(key).arg(v).arg(c.minVal).arg(c.maxVal);
             queue->addUnique(priorityImmediate, queueItem(t.func, QVariant::fromValue<uchar>(v), false, 0));
             queue->add(priorityImmediate, t.func, false, 0);   // read back: the page shows what the rig took
             break;
