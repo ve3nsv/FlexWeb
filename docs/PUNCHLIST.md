@@ -1525,6 +1525,17 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+82. Launcher kept "Rig: FLEX-6400" after the page's DISCONNECT (user,
+    2026-11-12, 1.0.142; small). The server had released the Flex
+    ("Web: DISCONNECT by ... releasing the radio", "disconnectLan()
+    closing rig LAN session", no Flex traffic after), but LogParser only
+    knew the on-demand timer's "On-demand: no browser for" line, so the
+    status stayed on the rig-model hint, in green. Done: the
+    "disconnectLan() closing rig LAN session" line - every release of a
+    network rig goes through it (on demand, DISCONNECT, eviction) - is
+    RigReleased too: "released, waiting for a browser". Test:
+    tests/launcher_test.cpp.
+
 81. TX meter refresh on polled rigs: Po fastest (user, 2026-11-11; small).
     IC-7300 over LAN, from the code: one command every 70 ms, the
     Highest slot every other one (140 ms). While keyed the slot rotates
