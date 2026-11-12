@@ -310,6 +310,8 @@ int main()
 
         e = classified("On-demand: no browser for 30 s, releasing the rig");
         require(e.kind == LogEvent::RigReleased, "on-demand release");
+        e = classified("disconnectLan() closing rig LAN session");
+        require(e.kind == LogEvent::RigReleased, "DISCONNECT / any LAN release");
         e = classified("On-demand: browser connected, connecting to the rig");
         require(e.kind == LogEvent::RigReconnecting, "on-demand reconnect");
         e = classified("On-demand: connecting to the rig when a browser opens the page, releasing it 30 s after the last one closes");

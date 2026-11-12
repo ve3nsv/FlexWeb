@@ -1618,6 +1618,33 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+82. Launcher kept "Rig: FLEX-6400" after the page's DISCONNECT (user,
+    2026-11-12, 1.0.142; small). The server had released the Flex
+    ("Web: DISCONNECT by ... releasing the radio", "disconnectLan()
+    closing rig LAN session", no Flex traffic after), but LogParser only
+    knew the on-demand timer's "On-demand: no browser for" line, so the
+    status stayed on the rig-model hint, in green. Done: the
+    "disconnectLan() closing rig LAN session" line - every release of a
+    network rig goes through it (on demand, DISCONNECT, eviction) - is
+    RigReleased too: "released, waiting for a browser". Test:
+    tests/launcher_test.cpp.
+
+81. TX meter refresh on polled rigs: Po fastest (user, 2026-11-11; small).
+    IC-7300 over LAN, from the code: one command every 70 ms, the
+    Highest slot every other one (140 ms). While keyed the slot rotates
+    S, Po, SWR, ALC (plus COMP / Vd / Id if the second TX bar shows one),
+    so Po refreshes every ~560 ms (~700 ms). wfview drops the S meter on
+    PTT and polls Po alone by default (~140 ms); wfweb polled all four
+    always. Wanted: while transmitting, no S meter poll, and Po every
+    other Highest turn with SWR / ALC (/ the second-bar meter) sharing
+    the turns between - Po ~280 ms, SWR and ALC ~560 ms each. Back to
+    the S meter alone at unkey. In webServer::setTxMeterPolling /
+    applyTxMeterPoll (posted, never from inside receiveCache); a .rig
+    file that polls a meter itself keeps its poll; -S and the Flex
+    untouched. Test: extend tests/test_meter_polling.py (no S meter reads
+    while keyed, Po at least twice as often as SWR, S meter back after
+    unkey).
+
 80. IC-7300 TX audio level cannot be adjusted (user, 2026-11-11, 1.0.139/
     140, RS-BA1 LAN; small; diagnosis open). Screenshot: TX CONTROLS with
     USB MIC 56 %, LVL -23 dBFS. That slider sends setMicGain ->

@@ -102,6 +102,10 @@ LogEvent classify(const QString &message)
 
     // --on-demand (src/webserver.cpp onDemand*, src/servermain.cpp)
     if (s.startsWith("On-demand: no browser for")) return event(LogEvent::RigReleased);
+    // Every release of a network rig goes through servermain::disconnectLan:
+    // the on-demand timer, the page's DISCONNECT, a Flex evicting us (punch
+    // list 82: after DISCONNECT the status kept the model name, in green).
+    if (s.startsWith("disconnectLan() closing rig LAN session")) return event(LogEvent::RigReleased);
     if (s.startsWith("On-demand: browser connected")) return event(LogEvent::RigReconnecting);
     if (s.startsWith("On-demand: connecting to the rig when a browser")) return event(LogEvent::RigOnDemand);
 
