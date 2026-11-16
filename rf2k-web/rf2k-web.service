@@ -1,0 +1,19 @@
+# systemd unit for rf2k-web. Adjust User and the paths, then:
+#   sudo cp rf2k-web.service /etc/systemd/system/
+#   sudo systemctl enable --now rf2k-web
+[Unit]
+Description=rf2k-web: web interface for the RF-KIT RF2K-S amplifier
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/rf2k-web
+ExecStart=/usr/bin/python3 /home/pi/rf2k-web/rf2kweb.py --amp 10.0.0.25:8080
+# Optional: a control password, one line, readable only by User.
+# ExecStart=/usr/bin/python3 /home/pi/rf2k-web/rf2kweb.py --amp 10.0.0.25:8080 --password-file /home/pi/.rf2k-web-password
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

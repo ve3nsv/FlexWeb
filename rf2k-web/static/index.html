@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RF2K-S</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <span class="brand">RF2K-S</span>
+  <button type="button" id="chip" class="chip" title="Tap for the compact view">AMP &mdash;</button>
+  <span class="spacer"></span>
+  <span id="who" class="who"></span>
+  <button type="button" id="signBtn" class="link-btn" hidden>Sign in</button>
+</header>
+
+<form id="signForm" class="sign-form" hidden>
+  <input type="password" id="signPw" placeholder="Control password" autocomplete="current-password" required>
+  <button type="submit" class="btn">Sign in</button>
+  <button type="button" id="signCancel" class="link-btn">Cancel</button>
+</form>
+
+<main id="panel">
+  <div class="head">
+    <b id="devName">RF-KIT</b>
+    <span><span id="linkState">&mdash;</span> <span id="target" class="dim"></span></span>
+  </div>
+  <div id="offline" class="offline" hidden></div>
+  <div id="errBanner" class="err-banner" hidden>
+    <div><b>Error:</b> <span id="errText"></span></div>
+    <div class="err-hint">Fix the cause, then RESET: the amplifier comes back in STANDBY.</div>
+  </div>
+
+  <div class="bars">
+    <div class="bar" id="barFwd" title="Forward power, 0-1600 W">
+      <span class="lbl">FWD</span>
+      <div class="track"><div class="fill"></div><i class="peak"></i></div>
+      <span class="val"><span class="num">&mdash;</span><small class="pk"></small></span>
+    </div>
+    <div class="bar" id="barRef" title="Reflected power, 0-200 W, coloured by the SWR it means">
+      <span class="lbl">REF</span>
+      <div class="track"><div class="fill"></div><i class="peak"></i></div>
+      <span class="val"><span class="num">&mdash;</span><small class="pk"></small></span>
+    </div>
+    <div class="bar" id="barSwr" title="SWR on the amplifier's scale: 1 / 1.5 / 2 / 3 / 5 / &infin;">
+      <span class="lbl">SWR</span>
+      <div class="track swr-track"><div class="fill"></div>
+        <span class="tick" style="left:20%">1.5</span><span class="tick" style="left:40%">2</span>
+        <span class="tick" style="left:60%">3</span><span class="tick" style="left:80%">5</span>
+      </div>
+      <span class="val"><span class="num">&mdash;</span></span>
+    </div>
+  </div>
+
+  <div class="tiles">
+    <div class="tile" id="tBand">BAND<span>&mdash;</span></div>
+    <div class="tile" id="tFreq">FREQ<span>&mdash;</span></div>
+    <div class="tile" id="tTemp">TEMP<span>&mdash;</span></div>
+    <div class="tile" id="tVolts">VOLTS<span>&mdash;</span></div>
+    <div class="tile" id="tAmps">CURRENT<span>&mdash;</span></div>
+    <div class="tile" id="tAtu" title="">ATU<span>&mdash;</span></div>
+    <div class="tile" id="tIface">INTERFACE<span>&mdash;</span></div>
+  </div>
+
+  <div class="ctl-rows">
+    <div class="ctl-row">
+      <button type="button" class="ctl" id="opBtn" disabled>&mdash;</button>
+      <button type="button" class="ctl tune" id="tuneBtn" hidden disabled>TUNE</button>
+      <button type="button" class="ctl" id="resetBtn" disabled>RESET</button>
+    </div>
+    <div class="ctl-row">
+      <span class="ctl-lbl">ANT</span>
+      <button type="button" class="ctl ant" data-ant="1" disabled>1</button>
+      <button type="button" class="ctl ant" data-ant="2" disabled>2</button>
+      <button type="button" class="ctl ant" data-ant="3" disabled>3</button>
+      <button type="button" class="ctl ant" data-ant="4" disabled>4</button>
+      <button type="button" class="ctl ant ext" data-ant="ext" disabled title="External antenna (indicator only)">EXT</button>
+    </div>
+    <div class="note" id="note"></div>
+  </div>
+
+  <div class="foot">
+    <button type="button" class="link-btn" id="meterMode" title="PEAK reads like the amplifier's own screen (rises at once, holds, falls slowly). RAW shows each reading as it comes.">METER: PEAK</button>
+    <span class="dim" id="fw"></span>
+  </div>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
