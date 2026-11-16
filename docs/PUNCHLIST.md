@@ -1618,6 +1618,14 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+88. "Powering on, please wait" spins for ever (user, 2026-11-16, screen
+    shot of the IC-9700; small). A radio that never answers Power On left
+    the spinner up with nothing to do but reload. Done: 30 s after Power On
+    with no power state from the server the spinner goes, Power On / Connect
+    LAN come back and the screen says "<radio> did not answer in 30 s.
+    Check that it is in standby with Network Control on, then try again or
+    choose another radio." (the RADIO row stays).
+
 87. DISCONNECT releases the radio with other browsers on (user,
     2026-11-16; small). A radio nobody uses must not stay held by the
     server: until now DISCONNECT released it only for the last signed-in
@@ -1656,6 +1664,12 @@ TUNE state after a mock radio reconnect matches the radio.
     radio's watchdog stayed quiet; now a member. Possibly related to 84.
     Not testable here (no 9700 mock with standby); check the next log for
     the line above, then "Got Radio" and replies from a2.
+    b. 1.0.150 log (2026-11-15 21:02): the address is used (probe and
+       power-on "fe fe a2 e1 ..."), the audio stream runs, and still not one
+       CI-V byte comes back. Diagnostics: icomUdpCivData logs "Received I am
+       ready", the first CI-V data, and every 5 s while silent what was sent
+       (frames, open requests) and received on the stream by packet type,
+       so the next log shows whether the radio acknowledges the open at all.
 
 85. No RADIO menu on the Disconnected screen (user, 2026-11-16, screen
     shot; small). After DISCONNECT (punch list 30) the screen offered only

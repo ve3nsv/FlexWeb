@@ -11102,8 +11102,24 @@ function doPowerOn() {
     if (pOnBtn) pOnBtn.style.display = 'none';
     if (lanBtn) lanBtn.style.display = 'none';
     if (spin) spin.style.display = 'block';
+    // Punch list 88: a radio that never answers left this spinning for ever.
+    clearTimeout(powerOnTimer);
+    powerOnTimer = setTimeout(powerOnNoAnswer, 30000);
+}
+var powerOnTimer = null;
+function powerOnNoAnswer() {
+    powerOnTimer = null;
+    if (!rigPoweringOn) return;
+    rigPoweringOn = false;
+    var spin = document.getElementById('powerOnSpinner');
+    if (spin) spin.style.display = 'none';
+    refreshPowerOffButtons();
+    var msg = document.getElementById('powerOffMsg');
+    var name = (radioList[radioIndex] || {}).name || 'The radio';
+    if (msg) msg.textContent = name + ' did not answer in 30 s. Check that it is in standby with Network Control on, then try again or choose another radio.';
 }
 function updatePowerState(on) {
+    clearTimeout(powerOnTimer); powerOnTimer = null;
     rigPoweredOn = on;
     var btn = document.getElementById('powerBtn');
     var overlay = document.getElementById('powerOffOverlay');

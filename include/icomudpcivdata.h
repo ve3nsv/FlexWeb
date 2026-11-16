@@ -51,6 +51,16 @@ private:
 	QTimer* startCivDataTimer = Q_NULLPTR;
 	bool splitWaterfall = false;
 	bool alerted = false;      // watchdog warned for this stream
+	// Punch list 86b: what the CI-V stream did, logged every 5 s while the
+	// radio has sent no CI-V data (a radio that logs in and streams audio
+	// but never answers on CI-V).
+	QElapsedTimer silentFor;
+	qint64 lastSilentReport = 0;
+	bool gotCivData = false, gotReady = false;
+	int framesSent = 0, framesDropped = 0, openRequests = 0;
+	int rxControl = 0, rxPing = 0, rxOpenClose = 0, rxRetransmit = 0, rxOther = 0, rxEmptyData = 0;
+	QByteArray lastOther;
+	void reportSilence();
 };
 
 

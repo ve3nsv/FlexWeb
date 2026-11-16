@@ -31,6 +31,7 @@ icomUdpCivData::icomUdpCivData(QHostAddress local, QHostAddress ip, quint16 civP
     connect(startCivDataTimer, &QTimer::timeout, this, std::bind(&icomUdpCivData::sendOpenClose, this, false));
     connect(areYouThereTimer, &QTimer::timeout, this, std::bind(&icomUdpBase::sendControl, this, false, 0x03, 0));
     watchdogTimer->start(WATCHDOG_PERIOD);
+    silentFor.start();
     // Start sending are you there packets - will be stopped once "I am here" received
     // send ping packets every 100 ms (maybe change to less frequent?)
     pingTimer->start(PING_PERIOD);
@@ -63,6 +64,26 @@ void icomUdpCivData::watchdog()
     {
         alerted = false;
     }
+    if (!gotCivData) reportSilence();
+}
+
+// Punch list 86b: while the radio has sent no CI-V data, every 5 s what
+// went out and what came back on this stream (types by size), so a radio
+// that streams audio but stays silent on CI-V shows where it stops.
+void icomUdpCivData::reportSilence()
+{
+    const qint64 ms = silentFor.elapsed();
+    if (ms - lastSilentReport < 5000) return;
+    lastSilentReport = ms;
+    qInfo(logUdp()).noquote() << QString("CI-V stream to %1:%2: no CI-V data from the radio after %3 s - "
+                                         "sent %4 frames (%5 dropped before open), %6 open requests; "
+                                         "received: I am ready %7, control %8, ping %9, open/close %10, "
+                                         "retransmit %11, empty data %12, other %13%14")
+        .arg(radioIP.toString()).arg(port).arg(ms / 1000)
+        .arg(framesSent).arg(framesDropped).arg(openRequests)
+        .arg(gotReady ? "yes" : "no").arg(rxControl).arg(rxPing).arg(rxOpenClose)
+        .arg(rxRetransmit).arg(rxEmptyData).arg(rxOther)
+        .arg(lastOther.isEmpty() ? QString() : QString(" (last other: %1)").arg(QString(lastOther.left(32).toHex(' '))));
 }
 
 void icomUdpCivData::send(QByteArray d)
@@ -75,8 +96,10 @@ void icomUdpCivData::send(QByteArray d)
     // probe repeats every 500 ms and the queue re-polls, so dropping is safe.
     if (remoteId == 0) {
         qDebug(logUdp()) << "icomUdpCivData: stream not open yet, CI-V frame dropped";
+        framesDropped++;
         return;
     }
+    framesSent++;
     data_packet p;
     memset(p.packet, 0x0, sizeof(p)); // We can't be sure it is initialized with 0x00!
     p.len = (quint32)sizeof(p) + d.length();
@@ -102,6 +125,7 @@ void icomUdpCivData::sendOpenClose(bool close)
     {
         magic = 0x00;
     }
+    else openRequests++;
 
     openclose_packet p;
     memset(p.packet, 0x0, sizeof(p)); // We can't be sure it is initialized with 0x00!
@@ -128,6 +152,15 @@ void icomUdpCivData::dataReceived()
         //qInfo(logUdp()) << "Received: " << datagram.data();
         QByteArray r = datagram.data();
 
+        switch (r.length()) {      // punch list 86b: counted for reportSilence
+        case CONTROL_SIZE: rxControl++; break;
+        case PING_SIZE: rxPing++; break;
+        case OPENCLOSE_SIZE: rxOpenClose++; break;
+        case RETRANSMIT_RANGE_SIZE: rxRetransmit++; break;
+        default:
+            if (r.length() <= 0x15) { rxOther++; lastOther = r; }
+            break;
+        }
 
         switch (r.length())
         {
@@ -140,6 +173,8 @@ void icomUdpCivData::dataReceived()
             }
             else if (in->type == 0x06)
             {
+                if (!gotReady) qInfo(logUdp()) << "icomUdpCivData: Received I am ready - requesting CI-V data";
+                gotReady = true;
                 // Update remoteId
                 remoteId = in->sentid;
                 // Manually send a CIV start request and start the timer if it isn't received.
@@ -163,6 +198,12 @@ void icomUdpCivData::dataReceived()
                         startCivDataTimer->stop();
                     }
                     lastReceived = QTime::currentTime();
+                    if (in->datalen == 0) rxEmptyData++;
+                    else if (!gotCivData) {
+                        gotCivData = true;
+                        qInfo(logUdp()).noquote() << QString("icomUdpCivData: first CI-V data from the radio after %1 ms: %2")
+                            .arg(silentFor.elapsed()).arg(QString(r.mid(0x15, 24).toHex(' ')));
+                    }
                     if (quint16(in->datalen + 0x15) == (quint16)in->len)
                     {
                         //if (r.mid(0x15).length() != 157)
