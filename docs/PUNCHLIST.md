@@ -1525,6 +1525,20 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+87. DISCONNECT releases the radio with other browsers on (user,
+    2026-11-16; small). A radio nobody uses must not stay held by the
+    server: until now DISCONNECT released it only for the last signed-in
+    browser, and with another tab or PC open the radio stayed connected.
+    Done: leaveSession releases whenever the radio is connected, except
+    from a guest or while another browser is transmitting (the release
+    would cut that over; leaveResult keyedBy, "the radio stays: X is
+    transmitting"). The other browsers get {type:'radioReleased', by} and
+    their power-off screen reads "Radio released by X" with Connect LAN and
+    the RADIO choices. A browser that connects afterwards reopens it
+    (--on-demand), as before. The confirm reads "RELEASE? N others on".
+    A radio switch already closes the previous radio (punch list 73).
+    tests/test_flex.py test_disconnect_button_releases updated.
+
 86. IC-9700 on the LAN: login fine, CI-V silent (user, 2026-11-15/16 logs;
     small). The 9700 (direct, 192.168.25.217, CI-V A2) logged in, opened its
     CI-V and audio streams, then never answered; Power On did nothing. The

@@ -3099,24 +3099,39 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         Q_UNUSED(n);
     }
     else if (type == "leaveSession") {
-        // The page's DISCONNECT: this browser leaves; if no other signed-in
-        // browser is on, the radio is released now. Decided here, not by the
-        // page: its people list also counts guests, listeners and a socket
-        // left over from a reload, and then it never released (user, 1.0.135).
+        // The page's DISCONNECT: this browser leaves and the radio is
+        // released now, whoever else is on (punch list 87: a radio nobody
+        // uses must not stay held by the server). The other browsers get
+        // radioReleased and their power-off screen (Connect LAN, RADIO).
+        // Not by a guest, and not while another browser is transmitting -
+        // the release would cut that over off the air.
         int others = 0;
         for (QWebSocket *c : wsClients)
             if (c != client && !isGuest(c) && c->state() == QAbstractSocket::ConnectedState) others++;
-        const bool release = others == 0 && lanConnected;
-        qInfo().noquote() << QString("Web: DISCONNECT by %1 - %2").arg(client ? clientLabel(client) : QString("?"),
-            release ? QStringLiteral("last browser, releasing the radio")
-                    : others ? QString("%1 other browser%2 on, the radio stays").arg(others).arg(others > 1 ? "s" : "")
-                             : QStringLiteral("the radio is not connected"));
+        QWebSocket *keyer = (pttClient && pttClient != client) ? pttClient : nullptr;
+        const bool guest = client && isGuest(client);
+        const bool release = lanConnected && !keyer && !guest;
+        const QString who = client ? clientLabel(client) : QStringLiteral("?");
+        qInfo().noquote() << QString("Web: DISCONNECT by %1 - %2").arg(who,
+            release ? (others ? QString("releasing the radio (%1 other browser%2 on)").arg(others).arg(others > 1 ? "s" : "")
+                              : QStringLiteral("releasing the radio"))
+                    : !lanConnected ? QStringLiteral("the radio is not connected")
+                    : keyer ? QString("%1 is transmitting, the radio stays").arg(clientLabel(keyer))
+                            : QStringLiteral("a guest, the radio stays"));
         QJsonObject r;
         r["type"] = "leaveResult";
         r["released"] = release;
         r["others"] = others;
+        if (keyer && lanConnected) r["keyedBy"] = clientLabel(keyer);
         if (client) sendJsonTo(client, r);
-        if (release) emit requestLanDisconnect();
+        if (release) {
+            QJsonObject n;
+            n["type"] = "radioReleased";
+            n["by"] = who;
+            for (QWebSocket *c : wsClients)
+                if (c != client) sendJsonTo(c, n);
+            emit requestLanDisconnect();
+        }
     }
     else if (type == "reconnectLan") {
         emit requestLanReconnect();

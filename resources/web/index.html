@@ -3992,8 +3992,9 @@ function userBtnClick() {
 // DISCONNECT (punch list 30). Tap twice: this browser unkeys, stops its
 // audio and mic and closes its connection, so it no longer holds the radio
 // for --on-demand. The last browser on the server also releases the radio at
-// once (disconnectLan) instead of after the on-demand wait; with others on,
-// only this browser leaves. RECONNECT on the screen it leaves comes back.
+// once (disconnectLan) instead of after the on-demand wait. Punch list 87:
+// it is released with other browsers on too (not while one transmits).
+// RECONNECT on the screen it leaves comes back.
 var sessionClosed = false, discBtnTimer = null;
 // Other signed-in browsers (guests and listeners never hold the radio).
 function discOthers() { return peopleList.filter(function (p) { return !p.you && !p.guest && !p.listener; }).length; }
@@ -4002,7 +4003,8 @@ function discBtnClick() {
     if (b.classList.contains('confirm')) { disconnectSession(); return; }
     var n = discOthers();
     b.classList.add('confirm');
-    b.textContent = n ? 'LEAVE? ' + n + ' other' + (n > 1 ? 's' : '') + ' stay' : 'DISCONNECT?';
+    // punch list 87: DISCONNECT releases the radio for everyone on
+    b.textContent = n ? 'RELEASE? ' + n + ' other' + (n > 1 ? 's' : '') + ' on' : 'DISCONNECT?';
     clearTimeout(discBtnTimer);
     discBtnTimer = setTimeout(function () { b.classList.remove('confirm'); b.innerHTML = '&#x23CF;'; }, 3000);
 }
@@ -4039,7 +4041,7 @@ function disconnectSession() {
         if (t) t.textContent = guestView ? 'This browser left.'
             : !res ? 'This browser left (no answer from the server about the radio).'
             : res.released ? 'The radio was released.'
-            : res.others ? 'This browser left; the radio stays with ' + res.others + ' other browser' + (res.others > 1 ? 's' : '') + '.'
+            : res.keyedBy ? 'This browser left; the radio stays: ' + res.keyedBy + ' is transmitting.'
             : 'This browser left.';
         if (wsTransport) wsTransport.close();
     }
@@ -4214,6 +4216,10 @@ function handleMessage(msg) {
             break;
         case 'leaveResult':
             if (leaveWaiter) leaveWaiter(msg);
+            break;
+        case 'radioReleased':       // punch list 87: another browser's DISCONNECT
+            radioReleasedBy = msg.by || 'another browser';
+            refreshPowerOffButtons();
             break;
         case 'clients':
             peopleList = msg.list || [];
@@ -10756,8 +10762,10 @@ function updatePowerState(on) {
     refreshPowerOffButtons();
 }
 
+var radioReleasedBy = '';   // punch list 87: who released it (DISCONNECT), until it is connected again
 function updateLanStatus(il, conn) {
     var wasConnected = lanConnected;
+    if (conn) radioReleasedBy = '';
     isLan = il;
     lanConnected = conn;
     if (isLan && !lanConnected) {
@@ -10793,7 +10801,7 @@ function refreshPowerOffButtons() {
     } else {
         lanBtn.textContent = 'Connect LAN';
         pOnBtn.style.display = 'none';
-        if (msg) msg.textContent = 'Disconnected from radio';
+        if (msg) msg.textContent = radioReleasedBy ? 'Radio released by ' + radioReleasedBy : 'Disconnected from radio';
     }
 }
 
