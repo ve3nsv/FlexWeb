@@ -1583,6 +1583,15 @@ TUNE state after a mock radio reconnect matches the radio.
        path (this PC reaches 192.168.25.217 through a Tailscale subnet route;
        the radio sees it as 192.168.25.131) or the client. Next: Remote
        Utility from this PC over the same path, and how the owner connects.
+    d. Found (user, 2026-11-16): wfview works once its CI-V address is set
+       to A2 instead of Auto - this IC-9700 never answers the 19 00
+       transceiver-ID query (no reply at 0x00 or at A2 in any FlexWeb log),
+       and Auto waits for exactly that answer. Fix: when the LAN server's
+       CI-V address is a known default address (a rig file has it),
+       icomCommander::receiveLanCivAddr takes the model from it (setRigID,
+       the same path as --civ) instead of querying; an unknown address still
+       probes there. Log: "LAN: the server gives CI-V address 0xa2 for this
+       radio (IC-9700) - using it without the ID query".
 
 85. No RADIO menu on the Disconnected screen (user, 2026-11-16, screen
     shot; small). After DISCONNECT (punch list 30) the screen offered only
