@@ -1525,6 +1525,23 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+84. Icom LAN: after a RADIO switch the next radio's CI-V stays silent
+    until the server is restarted (user, 2026-11-15, 1.0.146; medium,
+    diagnosis open). 20:12 log: start on the IC-9700 (direct LAN, login,
+    audio and "I am here" on the CI-V stream, but no CI-V data - the 9700
+    probably off), switch to the IC-7300 via the Acer's RS-BA1 server:
+    login, audio and CI-V "I am here" again, one CI-V reply 220 ms after
+    the power-on command ("Valid response while rigPoweredOn=false"),
+    then "CIV Watchdog: no CIV data received for 2s" and silence. Stop +
+    start the server, IC-7300 first: it works. Same pattern at 19:24/
+    19:31 (7300 -> 9700 -> 7300, then a fresh start that also failed).
+    To find: whether the server-side session of the previous radio or
+    something carried across switchRadio (queue, power-probe state,
+    icomUdpCivData sequence / retransmit state, the "power off" state
+    from the first radio) keeps the next radio's CI-V from flowing.
+    Reproduce against two mock_radio.py instances: the first answers the
+    login but never CI-V, switch, the second must identify within 5 s.
+
 83. Icom LAN login refused: the page is not told, the probe never stops
     (user, 2026-11-15, 1.0.142 log; small). IC-9700 direct over a
     Tailscale route: "I am here" / "I am ready" from 192.168.25.217, then
