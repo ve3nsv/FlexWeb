@@ -1606,6 +1606,16 @@ TUNE state after a mock radio reconnect matches the radio.
        Fix: send() drops frames until "I am ready" is in and the open
        request has gone (gotReady), as wfview orders it. Check the next
        log for "icomUdpCivData: first CI-V data from the radio".
+    f. 1.0.158 log (2026-11-15 22:18): the gate works (one frame held
+       back before "I am ready") and the radio is still silent on CI-V for
+       41 s, Power On included. So 86e was not it. The CI-V stream code is
+       now compared with upstream wfview (gitlab master, 2026-11-02): the
+       same apart from FlexWeb's logging and the gate. Diagnostics: the
+       silence report counts the radio's control packets by type, and the
+       first 12 packets each way on the CI-V stream are logged in hex
+       ("CI-V stream sent / sent open / received #n"). Also wanted: wfview
+       with A2 on this PC again, with its log, to confirm it still gets
+       CI-V now (rules out the radio being in standby / its LAN CI-V off).
 
 85. No RADIO menu on the Disconnected screen (user, 2026-11-16, screen
     shot; small). After DISCONNECT (punch list 30) the screen offered only

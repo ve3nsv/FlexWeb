@@ -78,12 +78,23 @@ void icomUdpCivData::reportSilence()
     qInfo(logUdp()).noquote() << QString("CI-V stream to %1:%2: no CI-V data from the radio after %3 s - "
                                          "sent %4 frames (%5 dropped before open), %6 open requests; "
                                          "received: I am ready %7, control %8, ping %9, open/close %10, "
-                                         "retransmit %11, empty data %12, other %13%14")
+                                         "retransmit %11, empty data %12, other %13%14; control by type 00:%15 01:%16 03:%17 04:%18 05:%19 06:%20 other:%21")
         .arg(radioIP.toString()).arg(port).arg(ms / 1000)
         .arg(framesSent).arg(framesDropped).arg(openRequests)
         .arg(gotReady ? "yes" : "no").arg(rxControl).arg(rxPing).arg(rxOpenClose)
         .arg(rxRetransmit).arg(rxEmptyData).arg(rxOther)
-        .arg(lastOther.isEmpty() ? QString() : QString(" (last other: %1)").arg(QString(lastOther.left(32).toHex(' '))));
+        .arg(lastOther.isEmpty() ? QString() : QString(" (last other: %1)").arg(QString(lastOther.left(32).toHex(' '))))
+        .arg(rxCtlType[0]).arg(rxCtlType[1]).arg(rxCtlType[3]).arg(rxCtlType[4]).arg(rxCtlType[5]).arg(rxCtlType[6]).arg(rxCtlType[2] + rxCtlType[7]);
+}
+
+// The first packets each way on this stream, in hex (punch list 86f): what
+// the radio answers to the open request and to the first CI-V frames.
+void icomUdpCivData::dumpPacket(const char* dir, const QByteArray& p, int& count)
+{
+    if (gotCivData || count >= 12) return;
+    ++count;
+    qInfo(logUdp()).noquote() << QString("CI-V stream %1 #%2 (%3 bytes, %4 ms): %5")
+        .arg(dir).arg(count).arg(p.size()).arg(silentFor.elapsed()).arg(QString(p.left(48).toHex(' ')));
 }
 
 void icomUdpCivData::send(QByteArray d)
@@ -116,6 +127,7 @@ void icomUdpCivData::send(QByteArray d)
     QByteArray t = QByteArray::fromRawData((const char*)p.packet, sizeof(p));
     t.append(d);
     sendTrackedPacket(t);
+    dumpPacket("sent", t, txDumped);   // the outer seq (bytes 6-7) is set on the copy sent, shown here as 00 00
     sendSeqB++;
     return;
 }
@@ -142,7 +154,9 @@ void icomUdpCivData::sendOpenClose(bool close)
 
     sendSeqB++;
 
-    sendTrackedPacket(QByteArray::fromRawData((const char*)p.packet, sizeof(p)));
+    const QByteArray pkt((const char*)p.packet, sizeof(p));
+    sendTrackedPacket(pkt);
+    if (!close) dumpPacket("sent open", pkt, txDumped);
     return;
 }
 
@@ -157,12 +171,19 @@ void icomUdpCivData::dataReceived()
         QByteArray r = datagram.data();
 
         switch (r.length()) {      // punch list 86b: counted for reportSilence
-        case CONTROL_SIZE: rxControl++; break;
+        case CONTROL_SIZE: {
+            rxControl++;
+            const quint8 t = quint8(r.at(4));
+            rxCtlType[t < 7 ? t : 7]++;
+            if (t != 0x00) dumpPacket("received", r, rxDumped);   // idle packets would fill the dump
+            break;
+        }
         case PING_SIZE: rxPing++; break;
         case OPENCLOSE_SIZE: rxOpenClose++; break;
-        case RETRANSMIT_RANGE_SIZE: rxRetransmit++; break;
+        case RETRANSMIT_RANGE_SIZE: rxRetransmit++; dumpPacket("received", r, rxDumped); break;
         default:
             if (r.length() <= 0x15) { rxOther++; lastOther = r; }
+            dumpPacket("received", r, rxDumped);
             break;
         }
 
