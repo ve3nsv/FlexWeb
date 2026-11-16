@@ -1631,6 +1631,13 @@ TUNE state after a mock radio reconnect matches the radio.
     (--on-demand), as before. The confirm reads "RELEASE? N others on".
     A radio switch already closes the previous radio (punch list 73).
     tests/test_flex.py test_disconnect_button_releases updated.
+    b. Not from another user (user, 2026-11-16): the release happens only
+       when every other signed-in browser on belongs to the same user (or
+       login is off). With a different user on, only this browser leaves
+       and the radio stays (leaveResult otherUsers, "the radio stays with
+       amy"); the confirm reads "LEAVE? N other user(s) keep(s) it". When
+       that user's last browser closes, --on-demand releases it as before.
+       tests/test_web_login.py test_disconnect_leaves_radio_to_other_user.
 
 86. IC-9700 on the LAN: login fine, CI-V silent (user, 2026-11-15/16 logs;
     small). The 9700 (direct, 192.168.25.217, CI-V A2) logged in, opened its

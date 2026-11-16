@@ -4007,13 +4007,23 @@ function userBtnClick() {
 var sessionClosed = false, discBtnTimer = null;
 // Other signed-in browsers (guests and listeners never hold the radio).
 function discOthers() { return peopleList.filter(function (p) { return !p.you && !p.guest && !p.listener; }).length; }
+// Other signed-in users (not this user's other browsers); none with login off.
+function discOtherUsers() {
+    if (!webUser) return 0;
+    var seen = {};
+    peopleList.forEach(function (p) { if (!p.you && !p.guest && !p.listener && p.name !== webUser) seen[p.name] = 1; });
+    return Object.keys(seen).length;
+}
 function discBtnClick() {
     var b = document.getElementById('discBtn');
     if (b.classList.contains('confirm')) { disconnectSession(); return; }
     var n = discOthers();
     b.classList.add('confirm');
-    // punch list 87: DISCONNECT releases the radio for everyone on
-    b.textContent = n ? 'RELEASE? ' + n + ' other' + (n > 1 ? 's' : '') + ' on' : 'DISCONNECT?';
+    // punch list 87: DISCONNECT releases the radio for this user's other
+    // browsers too, but leaves it to another signed-in user (87b)
+    var u = discOtherUsers();
+    b.textContent = u ? 'LEAVE? ' + u + ' other user' + (u > 1 ? 's' : '') + ' keep' + (u > 1 ? '' : 's') + ' it'
+        : n ? 'RELEASE? ' + n + ' other' + (n > 1 ? 's' : '') + ' on' : 'DISCONNECT?';
     clearTimeout(discBtnTimer);
     discBtnTimer = setTimeout(function () { b.classList.remove('confirm'); b.innerHTML = '&#x23CF;'; }, 3000);
 }
@@ -4051,6 +4061,7 @@ function disconnectSession() {
             : !res ? 'This browser left (no answer from the server about the radio).'
             : res.released ? 'The radio was released.'
             : res.keyedBy ? 'This browser left; the radio stays: ' + res.keyedBy + ' is transmitting.'
+            : res.otherUsers ? 'This browser left; the radio stays with ' + res.otherUsers + '.'
             : 'This browser left.';
         if (wsTransport) wsTransport.close();
     }
