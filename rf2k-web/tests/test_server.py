@@ -4,7 +4,11 @@ Timing constants are shortened so the suite runs in well under a minute.
 """
 
 import asyncio
+import http.client
 import json
+import shutil
+import ssl
+import tempfile
 import os
 import socket
 import sys
@@ -18,6 +22,7 @@ import ampclient  # noqa: E402
 from ampclient import Amp  # noqa: E402
 from mock_amp import MockAmp  # noqa: E402
 from webapp import WebApp  # noqa: E402
+import tlscert  # noqa: E402
 
 FAST = dict(FIRST_WAKE_DELAY_S=0.3, RECONNECT_STEPS_S=(0.5, 1.0), SILENCE_TIMEOUT_S=3.0,
             NO_ANSWER_SHOW_S=1.0, TX_HOLD_S=1.0)
@@ -428,6 +433,88 @@ class Web(Bench):
         cookie = await self.sign_in()
         st, body, _ = await self.call("POST", "/api/command", {"cmd": "reset"}, cookie=cookie)
         self.assertEqual((st, body["error"]), (403, "View only"))
+
+    async def test_keep_alive(self):
+        cookie = await self.sign_in()
+
+        def three_on_one_connection():
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+            out = []
+            for _ in range(3):
+                c.request("GET", "/api/state", headers={"Cookie": cookie})
+                r = c.getresponse()
+                out.append((r.status, r.getheader("Connection"), id(c.sock)))
+                r.read()
+            c.close()
+            return out
+        out = await asyncio.to_thread(three_on_one_connection)
+        self.assertEqual([o[0] for o in out], [200, 200, 200])
+        self.assertEqual(len({o[2] for o in out}), 1, "the connection was not reused")
+        self.assertNotEqual(out[0][1], "close")
+
+
+@unittest.skipUnless(shutil.which("openssl"), "openssl not installed")
+class Https(Bench):
+    async def asyncSetUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.ctx, self.cert = tlscert.ensure(None, None, self.tmp)
+        tlscert.quiet_handshake_errors(asyncio.get_running_loop())
+        self.a = self.amp()
+        self.app = WebApp(self.a, password="s3cret", secure=True)
+        self.server = await asyncio.start_server(self.app.handle, "127.0.0.1", 0, ssl=self.ctx)
+        self.port = self.server.sockets[0].getsockname()[1]
+        self.a.set_browsers(0, 0)
+
+    async def asyncTearDown(self):
+        self.server.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+        await super().asyncTearDown()
+
+    def test_certificate_files(self):
+        key = os.path.join(self.tmp, "key.pem")
+        self.assertEqual(os.stat(key).st_mode & 0o777, 0o600)
+        fp = tlscert.fingerprint(self.cert)
+        self.assertEqual(len(fp.split(":")), 32)
+        before = os.stat(self.cert).st_mtime_ns
+        tlscert.ensure(None, None, self.tmp)              # made once, then reused
+        self.assertEqual(os.stat(self.cert).st_mtime_ns, before)
+        pem = ssl.PEM_cert_to_DER_cert(open(self.cert).read())
+        self.assertIn(b"localhost", pem)
+
+    async def test_sign_in_and_control_over_https(self):
+        client_ctx = ssl.create_default_context(cafile=str(self.cert))
+        client_ctx.check_hostname = False            # the test connects by IP
+
+        def session():
+            c = http.client.HTTPSConnection("127.0.0.1", self.port, timeout=10, context=client_ctx)
+            c.request("POST", "/api/login", body=json.dumps({"password": "s3cret"}),
+                      headers={"Content-Type": "application/json"})
+            r = c.getresponse()
+            set_cookie = r.getheader("Set-Cookie")
+            r.read()
+            sock = id(c.sock)
+            c.request("GET", "/api/state", headers={"Cookie": set_cookie.split(";")[0]})
+            r = c.getresponse()
+            body = json.loads(r.read())
+            same = id(c.sock) == sock
+            c.close()
+            return set_cookie, r.status, body, same
+        set_cookie, st, body, same = await asyncio.to_thread(session)
+        self.assertIn("; Secure", set_cookie)
+        self.assertEqual(st, 200)
+        self.assertTrue(body["session"]["canControl"])
+        self.assertTrue(same, "the HTTPS connection was not reused")
+
+    async def test_plain_http_to_https_port_gets_nothing(self):
+        def plain():
+            c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+            try:
+                c.request("GET", "/api/state")
+                return c.getresponse().status
+            except (OSError, http.client.HTTPException):
+                return None
+        self.assertIsNone(await asyncio.to_thread(plain))
+
 
 if __name__ == "__main__":
     unittest.main()

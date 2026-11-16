@@ -15,6 +15,7 @@ can watch and control. --read-only removes control in either case.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hmac
 import json
 import logging
@@ -34,6 +35,10 @@ MAX_BODY_BYTES = 4 * 1024
 SSE_KEEPALIVE_S = 15
 SESSION_MAX_AGE_S = 30 * 24 * 3600
 COOKIE = "rf2k_session"
+KEEP_ALIVE_S = 60             # an idle browser connection is closed after this
+
+# Whether the response being written ends its connection (per connection task).
+_closing = contextvars.ContextVar("closing", default=True)
 
 STATUS_TEXT = {200: "OK", 204: "No Content", 400: "Bad Request", 401: "Unauthorized",
                403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed",
@@ -55,8 +60,9 @@ class SseClient:
 
 
 class WebApp:
-    def __init__(self, amp, password=None, read_only=False):
+    def __init__(self, amp, password=None, read_only=False, secure=False):
         self.amp = amp
+        self.secure = secure          # served over HTTPS: the cookie is Secure
         self.password = password or None
         self.read_only = read_only
         self.sessions = {}             # token -> expiry (wall clock)
@@ -106,19 +112,31 @@ class WebApp:
     # ── HTTP ──
 
     async def handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        """One connection, kept open between requests (HTTP/1.1 keep-alive) so
+        a button press does not pay a new TLS handshake."""
         try:
-            try:
-                method, target, headers, body = await asyncio.wait_for(_read_request(reader), 30)
-            except (asyncio.TimeoutError, asyncio.IncompleteReadError, ConnectionError):
-                return
-            except HttpError as e:
-                await _send(writer, e.status, {"error": str(e) or STATUS_TEXT.get(e.status, "")})
-                return
-            path = urlsplit(target).path
-            try:
-                await self._route(method, path, headers, body, reader, writer)
-            except HttpError as e:
-                await _send(writer, e.status, {"error": str(e) or STATUS_TEXT.get(e.status, "")})
+            first = True
+            while True:
+                try:
+                    method, target, version, headers, body = await asyncio.wait_for(
+                        _read_request(reader), 30 if first else KEEP_ALIVE_S)
+                except (asyncio.TimeoutError, asyncio.IncompleteReadError, asyncio.LimitOverrunError,
+                        ConnectionError):
+                    return
+                except HttpError as e:
+                    _closing.set(True)     # the rest of the request is unread
+                    await _send(writer, e.status, {"error": str(e) or STATUS_TEXT.get(e.status, "")})
+                    return
+                first = False
+                conn = headers.get("connection", "").lower()
+                _closing.set(version != "HTTP/1.1" or "close" in conn)
+                path = urlsplit(target).path
+                try:
+                    await self._route(method, path, headers, body, reader, writer)
+                except HttpError as e:
+                    await _send(writer, e.status, {"error": str(e) or STATUS_TEXT.get(e.status, "")})
+                if _closing.get() or path == "/api/events" or writer.is_closing():
+                    return
         except (ConnectionError, asyncio.CancelledError):
             pass
         except Exception:
@@ -160,7 +178,7 @@ class WebApp:
                     c.revoked = True
                     c.event.set()
             await _send(writer, 200, {"ok": True},
-                        extra=[f"Set-Cookie: {COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"])
+                        extra=[f"Set-Cookie: {COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict{self._secure_attr()}"])
         elif path in STATIC_FILES:
             _require(method, "GET", "HEAD")
             f = STATIC_DIR / STATIC_FILES[path]
@@ -192,7 +210,11 @@ class WebApp:
         self.sessions[token] = now + SESSION_MAX_AGE_S
         log.info("browser signed in")
         await _send(writer, 200, {"ok": True}, extra=[
-            f"Set-Cookie: {COOKIE}={token}; Path=/; Max-Age={SESSION_MAX_AGE_S}; HttpOnly; SameSite=Strict"])
+            f"Set-Cookie: {COOKIE}={token}; Path=/; Max-Age={SESSION_MAX_AGE_S}; HttpOnly; "
+            f"SameSite=Strict{self._secure_attr()}"])
+
+    def _secure_attr(self):
+        return "; Secure" if self.secure else ""
 
     async def _events(self, headers, reader, writer):
         client = SseClient(self.can_control(headers), _cookie(headers.get("cookie", ""), COOKIE))
@@ -275,7 +297,7 @@ async def _read_request(reader):
     parts = lines[0].split(" ")
     if len(parts) != 3:
         raise HttpError(400)
-    method, target, _ = parts
+    method, target, version = parts
     headers = {}
     for line in lines[1:]:
         if line:
@@ -287,7 +309,7 @@ async def _read_request(reader):
         if not n.isdigit() or int(n) > MAX_BODY_BYTES:
             raise HttpError(413)
         body = await reader.readexactly(int(n))
-    return method, target, headers, body
+    return method, target, version, headers, body
 
 
 async def _send(writer, status, obj, extra=()):
@@ -297,7 +319,9 @@ async def _send(writer, status, obj, extra=()):
 
 async def _send_raw(writer, status, ctype, data, extra=()):
     head = [f"HTTP/1.1 {status} {STATUS_TEXT.get(status, '')}", f"Content-Type: {ctype}",
-            f"Content-Length: {len(data)}", "Connection: close", "X-Content-Type-Options: nosniff",
+            f"Content-Length: {len(data)}",
+            "Connection: close" if _closing.get() else f"Keep-Alive: timeout={KEEP_ALIVE_S}",
+            "X-Content-Type-Options: nosniff",
             "Referrer-Policy: no-referrer", *extra]
     writer.write(("\r\n".join(head) + "\r\n\r\n").encode() + data)
     await writer.drain()

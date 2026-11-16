@@ -6,16 +6,17 @@ passes commands to the amp in the same queue as the polls. No FlexWeb and no rad
 needed.
 
 ```
-browsers ──SSE / POST──▶ rf2kweb.py ──one HTTP request at a time──▶ RF2K-S :8080
+browsers ──HTTPS (SSE / POST)──▶ rf2kweb.py ──plain HTTP, one request at a time──▶ RF2K-S :8080
 ```
 
-Python 3.9 or newer, standard library only (no `pip install`). Runs on the shack
-PC or a Raspberry Pi.
+Python 3.9 or newer, standard library only (no `pip install`), plus the `openssl`
+command to make the HTTPS certificate on first run. Runs on the shack PC or a
+Raspberry Pi.
 
 ## Run it
 
 ```bash
-python3 rf2kweb.py --amp 10.0.0.25:8080          # then open http://<this machine>:8088/
+python3 rf2kweb.py --amp 10.0.0.25:8080          # then open https://<this machine>:8088/
 ```
 
 | Option | Default | |
@@ -26,6 +27,9 @@ python3 rf2kweb.py --amp 10.0.0.25:8080          # then open http://<this machin
 | `--read-only` | off | nobody can control the amp from the page |
 | `--keep-awake SECS` | `60` | repeat the wake request this often while a controlling browser is open (`0` = once) |
 | `--grace SECS` | `30` | stop polling this long after the last browser closes |
+| `--http` | off | serve plain HTTP instead of HTTPS |
+| `--cert FILE` `--key FILE` | — | your own certificate and key (PEM) instead of the self-signed one |
+| `--cert-dir DIR` | `~/.config/rf2k-web` | where the self-signed certificate is made and kept |
 | `-v` | | debug log |
 
 `?compact` in the URL (or a tap on the AMP chip) shows only the chip, e.g. for a
@@ -55,10 +59,38 @@ The amp's REST server handles one connection at a time. **Run FlexWeb without
   in is still needed to watch.
 
 Commands must be POSTed as JSON from the same origin, and the sign-in cookie is
-`HttpOnly` and `SameSite=Strict`, so another web page can't use your browser to
-press buttons. The server speaks plain HTTP, so the password crosses the network
-unencrypted. That's fine on your own LAN, but don't expose the server to the
-internet. For access from outside, use a VPN, or a reverse proxy with HTTPS.
+`HttpOnly`, `SameSite=Strict` and (over HTTPS) `Secure`, so another web page can't
+use your browser to press buttons.
+
+## HTTPS
+
+The server uses HTTPS by default, so the password, the sign-in cookie and the
+readings are encrypted between the browser and rf2k-web. The link from rf2k-web to
+the amp stays plain HTTP: the amp's API has no encryption and no password, so
+keep the amp on your own network.
+
+- **First run:** rf2k-web makes a self-signed certificate (ECDSA P-256, 10 years)
+  in `~/.config/rf2k-web/` with `openssl`. The key file is readable by its owner
+  only. The certificate names this machine's hostname, `<hostname>.local`,
+  `localhost` and its LAN addresses. Delete the two files to make a new one,
+  for example after the machine's address changes.
+- **Each browser warns once,** because no public authority signed the
+  certificate. At startup the server logs the certificate's SHA-256 fingerprint.
+  Compare it with the one the browser shows under the certificate details, then
+  accept.
+- **No warning at all:** give `--cert` and `--key` from your own local CA, such as
+  one made with `mkcert`, which installs its CA in your browsers.
+- **Use `https://`.** The port doesn't answer plain `http://`, and the browser
+  shows an empty reply.
+- **Cost:** about 1.5 ms of handshake when a browser connects (more on a Pi), and
+  tens of microseconds per update. Connections stay open between requests, so a
+  button press doesn't pay a new handshake.
+- `--http` turns it off. The server then warns that the password crosses the
+  network unencrypted.
+
+For access from outside your LAN, a VPN is still the better choice than opening
+the port: the self-signed certificate protects the traffic, but the page is then
+open to password guessing from the whole internet.
 
 ## What it does to the amp
 
@@ -121,6 +153,7 @@ the mock never sees two requests at once.
 | `ampclient.py` | the HTTP client, request queue, poll schedule, wake, offline/backoff (port of FlexWeb's `RfkitConnection`) |
 | `rfkit.py` | the API codec and presentation helpers (port of FlexWeb's `rfkitprotocol`) |
 | `webapp.py` | HTTP server, SSE, commands, sign-in |
+| `tlscert.py` | HTTPS: makes and loads the certificate |
 | `static/` | the page (`index.html`, `app.js`, `style.css`) |
 | `mock_amp.py` | fake RF2K-S for development and tests |
 | `tests/` | `unittest` suites |

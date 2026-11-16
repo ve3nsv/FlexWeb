@@ -10,7 +10,10 @@ Wants=network-online.target
 User=pi
 WorkingDirectory=/home/pi/rf2k-web
 ExecStart=/usr/bin/python3 /home/pi/rf2k-web/rf2kweb.py --amp 10.0.0.25:8080
-# Optional: a control password, one line, readable only by User.
+# HTTPS is on by default: the self-signed certificate is made on first start
+# in ~User/.config/rf2k-web/ (needs the openssl command). The log
+# (journalctl -u rf2k-web) shows its fingerprint for the browser warning.
+# Optional: a password, one line, readable only by User.
 # ExecStart=/usr/bin/python3 /home/pi/rf2k-web/rf2kweb.py --amp 10.0.0.25:8080 --password-file /home/pi/.rf2k-web-password
 Restart=on-failure
 RestartSec=5
