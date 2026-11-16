@@ -1618,6 +1618,24 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+83. Icom LAN login refused: the page is not told, the probe never stops
+    (user, 2026-11-15, 1.0.142 log; small). IC-9700 direct over a
+    Tailscale route: "I am here" / "I am ready" from 192.168.25.217, then
+    "Invalid Username/Password" - and nothing more. servermain::
+    receiveError only logs it; the page shows a radio that never comes
+    up, and "Searching for rig via LAN" (CI-V 19 00) goes on every
+    500 ms for as long as a browser is open, on a link that has no
+    session. Wanted: the error reaches the page ({type:'rigError'},
+    "IC-9700 refused the user name or password - check MENU > SET >
+    Network > Network User1 on the radio") and the probe stops until the
+    next connect / RADIO switch. The launcher already shows it
+    (LanLoginFailed). Same for a login that gets no answer at all
+    (2026-11-15 19:24 log: IC-7300 via the Acer, "Sending login packet"
+    and then silence for 28 s, no line saying so): after ~5 s without a
+    login reply, log "LAN: <host> answered but did not reply to the
+    login" and tell the page. Test: mock_radio.py answering a wrong
+    login, and one that never answers the login.
+
 82. Launcher kept "Rig: FLEX-6400" after the page's DISCONNECT (user,
     2026-11-12, 1.0.142; small). The server had released the Flex
     ("Web: DISCONNECT by ... releasing the radio", "disconnectLan()
