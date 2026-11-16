@@ -1525,6 +1525,24 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+86. IC-9700 on the LAN: login fine, CI-V silent (user, 2026-11-15/16 logs;
+    small). The 9700 (direct, 192.168.25.217, CI-V A2) logged in, opened its
+    CI-V and audio streams, then never answered; Power On did nothing. The
+    radio is reachable from Icom's own utility. The server's radio list
+    names each radio's CI-V address ("CIV: a2", the 7300 "CIV: 94"), but
+    icomUdpHandler stored it (civId) and nothing used it: with the CI-V
+    address on auto (0) the identify probe and the power-on frame went to
+    the broadcast 0x00, which a radio in standby does not act on.
+    Done: icomUdpHandler emits haveCivAddress for the chosen radio;
+    icomCommander::receiveLanCivAddr uses it while the address is still 0
+    and no reply has come (a --civ / RigCIVuInt setting still wins). Log:
+    "LAN: the server gives CI-V address 0xa2 for this radio - ...".
+    Also: icomUdpCivData::watchdog's "already warned" flag was a function
+    static shared by every stream, so after a silent stream the next
+    radio's watchdog stayed quiet; now a member. Possibly related to 84.
+    Not testable here (no 9700 mock with standby); check the next log for
+    the line above, then "Got Radio" and replies from a2.
+
 85. No RADIO menu on the Disconnected screen (user, 2026-11-16, screen
     shot; small). After DISCONNECT (punch list 30) the screen offered only
     RECONNECT, which comes back to the same radio; choosing another radio

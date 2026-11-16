@@ -40,6 +40,7 @@ public slots:
     // UDP:
     void handleNewData(const QByteArray& data) override;
     void receiveBaudRate(quint32 baudrate) override;
+    void receiveLanCivAddr(quint8 civ);
 
     // Serial port (probe retry / per-rig baud cap):
     void setSerialBaudRate(quint32 newBaud);

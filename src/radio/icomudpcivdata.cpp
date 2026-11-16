@@ -46,7 +46,8 @@ icomUdpCivData::~icomUdpCivData()
 
 void icomUdpCivData::watchdog()
 {
-    static bool alerted = false;
+    // alerted is per stream (punch list 86): a function static carried a
+    // silent stream's "already warned" into the next radio after a switch.
     if (lastReceived.msecsTo(QTime::currentTime()) > 2000)
     {
         if (!alerted) {

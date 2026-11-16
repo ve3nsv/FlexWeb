@@ -684,6 +684,10 @@ void icomUdpHandler::setCurrentRadio(quint8 radio) {
     devName =radios[radio].name;
     audioType = radios[radio].audio;
     civId = radios[radio].civ;
+    // Punch list 86: the server says which CI-V address the radio answers on
+    // (IC-7300 0x94, IC-9700 0xA2). Without it the commander probes and
+    // powers on at the broadcast 0x00, which a radio in standby ignores.
+    if (civId) emit haveCivAddress(civId);
     rxSampleRates = radios[radio].rxsample;
     txSampleRates = radios[radio].txsample;
 

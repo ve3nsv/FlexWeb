@@ -50,6 +50,7 @@ private:
 
 	QTimer* startCivDataTimer = Q_NULLPTR;
 	bool splitWaterfall = false;
+	bool alerted = false;      // watchdog warned for this stream
 };
 
 

@@ -69,6 +69,7 @@ signals:
 	void haveNetworkStatus(networkStatus);
     void haveNetworkAudioLevels(networkAudioLevels);
     void haveBaudRate(quint32 baudrate);
+    void haveCivAddress(quint8 civ);   // the chosen radio's CI-V address, from the server's radio list
 	void requestRadioSelection(QList<radio_cap_packet> radios);
     void setRadioUsage(quint8, bool admin, quint8 busy, QString name, QString mac);
 
