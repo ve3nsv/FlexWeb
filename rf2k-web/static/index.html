@@ -4,23 +4,28 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RF2K-S</title>
+<meta name="robots" content="noindex">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="booting">
+<section id="login" class="login">
+  <form id="loginForm" class="login-card">
+    <div class="login-title">RF2K-S</div>
+    <div class="login-sub">Sign in to see and control the amplifier</div>
+    <input type="password" id="loginPw" placeholder="Password" autocomplete="current-password" required>
+    <button type="submit" class="btn" id="loginBtn">Sign in</button>
+    <div class="login-err" id="loginErr"></div>
+  </form>
+</section>
+
 <header class="topbar">
   <span class="brand">RF2K-S</span>
   <button type="button" id="chip" class="chip" title="Tap for the compact view">AMP &mdash;</button>
   <span class="spacer"></span>
   <span id="who" class="who"></span>
-  <button type="button" id="signBtn" class="link-btn" hidden>Sign in</button>
+  <button type="button" id="signOut" class="link-btn" hidden>Sign out</button>
 </header>
-
-<form id="signForm" class="sign-form" hidden>
-  <input type="password" id="signPw" placeholder="Control password" autocomplete="current-password" required>
-  <button type="submit" class="btn">Sign in</button>
-  <button type="button" id="signCancel" class="link-btn">Cancel</button>
-</form>
 
 <main id="panel">
   <div class="head">

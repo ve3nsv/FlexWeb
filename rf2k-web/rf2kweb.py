@@ -49,8 +49,8 @@ def main(argv=None):
                     help="the amplifier's REST server, host[:port] (default 10.0.0.25:8080)")
     ap.add_argument("--listen", default=os.environ.get("RF2K_LISTEN", "0.0.0.0:8088"),
                     help="where browsers connect, host[:port] (default 0.0.0.0:8088)")
-    ap.add_argument("--password-file", help="file holding the control password "
-                    "(else $RF2K_WEB_PASSWORD); with one, browsers are view-only until signed in")
+    ap.add_argument("--password-file", help="file holding the password "
+                    "(else $RF2K_WEB_PASSWORD); with one, the page shows nothing until signed in")
     ap.add_argument("--read-only", action="store_true", help="nobody can control the amp from the page")
     ap.add_argument("--keep-awake", type=int, default=60, metavar="SECS",
                     help="send the wake request this often while a browser is open (0 = only once)")
@@ -76,12 +76,13 @@ def main(argv=None):
         amp.set_browsers(0, 0)
         log.info("amp %s:%d - nothing is sent to it until a browser opens", amp_host, amp_port)
         log.info("listening on http://%s:%d/", listen_host, listen_port)
+        if password:
+            log.info("password set: the page shows nothing until the browser signs in")
+        else:
+            log.warning("no password: every browser that can reach this port can see%s the amp",
+                        "" if args.read_only else " and control")
         if args.read_only:
             log.info("read-only: the page cannot control the amp")
-        elif password:
-            log.info("control needs the password; without it browsers are view-only")
-        else:
-            log.warning("no password: every browser that can reach this port can control the amp")
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):

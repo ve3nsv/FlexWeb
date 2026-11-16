@@ -22,7 +22,7 @@ python3 rf2kweb.py --amp 10.0.0.25:8080          # then open http://<this machin
 |---|---|---|
 | `--amp host[:port]` | `10.0.0.25:8080` | the amp's REST server (`$RF2K_AMP`) |
 | `--listen host[:port]` | `0.0.0.0:8088` | where browsers connect (`$RF2K_LISTEN`) |
-| `--password-file FILE` | — | control password (or `$RF2K_WEB_PASSWORD`). With one, browsers are view-only until they sign in |
+| `--password-file FILE` | — | password (or `$RF2K_WEB_PASSWORD`). With one, the page shows nothing until you sign in |
 | `--read-only` | off | nobody can control the amp from the page |
 | `--keep-awake SECS` | `60` | repeat the wake request this often while a controlling browser is open (`0` = once) |
 | `--grace SECS` | `30` | stop polling this long after the last browser closes |
@@ -39,19 +39,26 @@ user and copy it to `/etc/systemd/system/`.
 The amp's REST server handles one connection at a time. **Run FlexWeb without
 `--rfkit` while rf2k-web is running.**
 
-## Who may control it
+## Who may see and control it
 
-- **No password (the default):** every browser that reaches port 8088 can control
-  the amp. The server prints a warning at startup. Fine on a trusted shack LAN.
-- **Password** (`--password-file` or `RF2K_WEB_PASSWORD`): everyone can watch; only
-  a browser that has signed in can press OPERATE, TUNE, RESET or the antennas.
-  Sign-in lasts 30 days, until the server restarts, or until you sign out.
-- **`--read-only`:** a display only.
+- **Password** (`--password-file` or `RF2K_WEB_PASSWORD`): the page shows only a
+  sign-in screen until the password is entered. The server sends nothing about
+  the amp before that (`/api/state`, `/api/events` and `/api/command` answer 401),
+  and a browser that hasn't signed in doesn't count as open, so the amp isn't
+  even polled for it. Once signed in, the browser can watch and control. Sign-in
+  lasts 30 days, until the server restarts, or until **Sign out**, which also
+  ends that browser's live stream at once. A wrong password costs a 1 s wait.
+- **No password (the default):** every browser that reaches port 8088 can watch
+  and control the amp. The server prints a warning at startup. Fine on a trusted
+  shack LAN.
+- **`--read-only`:** nobody can control from the page. With a password, signing
+  in is still needed to watch.
 
 Commands must be POSTed as JSON from the same origin, and the sign-in cookie is
-`SameSite=Strict`, so another web page cannot use your browser to press buttons.
-The server speaks plain HTTP. Don't expose it to the internet. For access from
-outside, use a VPN, or a reverse proxy with HTTPS and its own login.
+`HttpOnly` and `SameSite=Strict`, so another web page can't use your browser to
+press buttons. The server speaks plain HTTP, so the password crosses the network
+unencrypted. That's fine on your own LAN, but don't expose the server to the
+internet. For access from outside, use a VPN, or a reverse proxy with HTTPS.
 
 ## What it does to the amp
 
@@ -88,8 +95,9 @@ These are the rules FlexWeb learned from the real amp:
 7. **Only while someone looks.** Nothing is sent before the first browser opens,
    and polling stops `--grace` seconds after the last one closes.
 
-`/api/state` returns the latest state as JSON (for scripts). It doesn't count as
-a browser, so it doesn't start polling.
+`/api/state` returns the latest state as JSON (for scripts; with a password it
+needs the sign-in cookie). It doesn't count as a browser, so it doesn't start
+polling.
 
 ## Develop and test
 

@@ -6,9 +6,10 @@ the amp's own result, so a refusal (the amp's 400/409 reason) goes back to
 whoever sent it. An open event stream is what "a browser is open" means to the
 poller: no stream, no traffic to the amp.
 
-Control: with a password configured, everyone can watch and only a signed-in
-browser can control. Without one, every browser on the LAN can control, unless
---read-only.
+Access: with a password configured, nothing about the amp is shown until the
+browser signs in (the static page itself only holds the sign-in screen); a
+signed-in browser can watch and control. Without one, every browser on the LAN
+can watch and control. --read-only removes control in either case.
 """
 
 from __future__ import annotations
@@ -46,8 +47,10 @@ class HttpError(Exception):
 
 
 class SseClient:
-    def __init__(self, can_control):
+    def __init__(self, can_control, token):
         self.can_control = can_control
+        self.token = token
+        self.revoked = False          # signed out: the stream ends
         self.event = asyncio.Event()
 
 
@@ -62,10 +65,9 @@ class WebApp:
         self._login_lock = asyncio.Lock()
         amp.on_change = self._on_amp_change
 
-    # ── who may control ──
+    # ── who may see and control ──
 
-    def _session_ok(self, headers) -> bool:
-        token = _cookie(headers.get("cookie", ""), COOKIE)
+    def _token_ok(self, token) -> bool:
         if not token:
             return False
         exp = self.sessions.get(token)
@@ -74,17 +76,21 @@ class WebApp:
             return False
         return True
 
+    def authorized(self, headers) -> bool:
+        """May see the amp at all."""
+        return self.password is None or self._token_ok(_cookie(headers.get("cookie", ""), COOKIE))
+
     def can_control(self, headers) -> bool:
-        if self.read_only:
-            return False
-        if self.password is None:
-            return True
-        return self._session_ok(headers)
+        return not self.read_only and self.authorized(headers)
+
+    def _require_auth(self, headers):
+        if not self.authorized(headers):
+            raise HttpError(401, "Sign in")
 
     def _session_info(self, headers) -> dict:
         return {"canControl": self.can_control(headers),
-                "loginRequired": self.password is not None and not self.read_only,
-                "signedIn": self.password is not None and self._session_ok(headers),
+                "loginRequired": self.password is not None,
+                "signedIn": self.password is not None and self.authorized(headers),
                 "readOnly": self.read_only}
 
     # ── amp state fan-out ──
@@ -123,16 +129,18 @@ class WebApp:
     async def _route(self, method, path, headers, body, reader, writer):
         if path == "/api/events":
             _require(method, "GET")
+            self._require_auth(headers)
             await self._events(headers, reader, writer)
         elif path == "/api/state":
             _require(method, "GET")
+            self._require_auth(headers)
             await _send(writer, 200, dict(self.state, session=self._session_info(headers)))
         elif path == "/api/command":
             _require(method, "POST")
             data = _json_body(headers, body)
+            self._require_auth(headers)
             if not self.can_control(headers):
-                raise HttpError(403, "View only" if self.read_only or self.password is None
-                                else "Sign in to control the amp")
+                raise HttpError(403, "View only")
             cmd = data.get("cmd")
             if not isinstance(cmd, str):
                 raise HttpError(400, "cmd missing")
@@ -147,6 +155,10 @@ class WebApp:
             _json_body(headers, body)
             token = _cookie(headers.get("cookie", ""), COOKIE)
             self.sessions.pop(token, None)
+            for c in self.clients:          # that browser's open streams end now
+                if token and c.token == token:
+                    c.revoked = True
+                    c.event.set()
             await _send(writer, 200, {"ok": True},
                         extra=[f"Set-Cookie: {COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict"])
         elif path in STATIC_FILES:
@@ -183,7 +195,7 @@ class WebApp:
             f"Set-Cookie: {COOKIE}={token}; Path=/; Max-Age={SESSION_MAX_AGE_S}; HttpOnly; SameSite=Strict"])
 
     async def _events(self, headers, reader, writer):
-        client = SseClient(self.can_control(headers))
+        client = SseClient(self.can_control(headers), _cookie(headers.get("cookie", ""), COOKIE))
         session = self._session_info(headers)
         writer.write(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\n"
                      b"Connection: keep-alive\r\nX-Accel-Buffering: no\r\n\r\n")
@@ -195,7 +207,7 @@ class WebApp:
         # The browser sends nothing more on this connection: EOF is it leaving.
         gone = asyncio.ensure_future(reader.read(1))
         try:
-            while not gone.done():
+            while not gone.done() and not client.revoked:
                 wait = asyncio.ensure_future(client.event.wait())
                 done, _ = await asyncio.wait({wait, gone}, timeout=SSE_KEEPALIVE_S,
                                              return_when=asyncio.FIRST_COMPLETED)
@@ -204,6 +216,8 @@ class WebApp:
                     break
                 if wait in done:
                     client.event.clear()
+                    if client.revoked or (self.password and not self._token_ok(client.token)):
+                        break
                     writer.write(_sse("state", self.state))
                 else:
                     wait.cancel()

@@ -335,46 +335,99 @@ class Web(Bench):
     async def call(self, *a, **kw):
         return await asyncio.to_thread(self.http, *a, **kw)
 
-    async def test_page_and_state(self):
-        st, _, h = await asyncio.to_thread(lambda: (lambda r: (r.status, r.read(), r.headers))(
-            urllib.request.urlopen(f"http://127.0.0.1:{self.port}/", timeout=5)))
-        self.assertEqual(st, 200)
-        st, body, _ = await self.call("GET", "/api/state", ctype=None)
-        self.assertEqual(body["session"]["canControl"], False)
-        self.assertTrue(body["session"]["loginRequired"])
-
-    async def test_control_needs_sign_in(self):
-        st, body, _ = await self.call("POST", "/api/command", {"cmd": "operate", "value": True})
-        self.assertEqual(st, 403)
-        st, _, _ = await self.call("POST", "/api/login", {"password": "nope"})
-        self.assertEqual(st, 401)
+    async def sign_in(self):
         st, _, h = await self.call("POST", "/api/login", {"password": "s3cret"})
         self.assertEqual(st, 200)
-        cookie = h["Set-Cookie"].split(";")[0]
         self.assertIn("HttpOnly", h["Set-Cookie"])
+        return h["Set-Cookie"].split(";")[0]
+
+    async def open_events(self, cookie=None):
+        r, w = await asyncio.open_connection("127.0.0.1", self.port)
+        w.write(b"GET /api/events HTTP/1.1\r\nHost: x\r\n" +
+                (f"Cookie: {cookie}\r\n".encode() if cookie else b"") + b"\r\n")
+        await w.drain()
+        return r, w
+
+    async def read_until(self, r, needle, timeout=5):
+        got = b""
+        end = time.monotonic() + timeout
+        while needle not in got and time.monotonic() < end:
+            chunk = await asyncio.wait_for(r.read(4096), timeout)
+            if not chunk:
+                break
+            got += chunk
+        return got
+
+    async def test_page_loads_but_shows_nothing_without_sign_in(self):
+        st, page = await asyncio.to_thread(lambda: (lambda r: (r.status, r.read()))(
+            urllib.request.urlopen(f"http://127.0.0.1:{self.port}/", timeout=5)))
+        self.assertEqual(st, 200)
+        self.assertIn(b'id="login"', page)
+        st, body, _ = await self.call("GET", "/api/state", ctype=None)
+        self.assertEqual(st, 401)
+        self.assertNotIn("target", body)
+        r, w = await self.open_events()
+        got = await self.read_until(r, b"\r\n\r\n")
+        self.assertIn(b" 401 ", got)
+        self.assertNotIn(b"event:", got)
+        w.close()
+        await asyncio.sleep(0.2)
+        self.assertEqual(self.a.browsers, 0)
+        self.assertEqual(self.mock.gets, [])      # the amp is not even contacted
+
+    async def test_control_needs_sign_in(self):
+        st, _, _ = await self.call("POST", "/api/command", {"cmd": "operate", "value": True})
+        self.assertEqual(st, 401)
+        st, body, _ = await self.call("POST", "/api/login", {"password": "nope"})
+        self.assertEqual((st, body["error"]), (401, "Wrong password"))
+        cookie = await self.sign_in()
+        st, body, _ = await self.call("GET", "/api/state", ctype=None, cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertTrue(body["session"]["canControl"])
         st, body, _ = await self.call("POST", "/api/command", {"cmd": "operate", "value": True}, cookie=cookie)
         self.assertEqual((st, body["ok"]), (200, False))   # offline: no browser stream open
         self.assertEqual(self.mock.puts, [])
+
+    async def test_forged_cookie_refused(self):
+        st, _, _ = await self.call("GET", "/api/state", ctype=None, cookie="rf2k_session=guess")
+        self.assertEqual(st, 401)
 
     async def test_cross_site_posts_refused(self):
         st, _, _ = await self.call("POST", "/api/login", {"password": "s3cret"}, ctype="text/plain")
         self.assertEqual(st, 415)
 
-    async def test_event_stream_is_a_browser(self):
-        r, w = await asyncio.open_connection("127.0.0.1", self.port)
-        w.write(b"GET /api/events HTTP/1.1\r\nHost: x\r\n\r\n")
-        await w.drain()
-        got = b""
-        end = time.monotonic() + 5
-        while b'"connected":true' not in got and time.monotonic() < end:
-            got += await asyncio.wait_for(r.read(4096), 5)
+    async def test_signed_in_stream_then_sign_out_ends_it(self):
+        cookie = await self.sign_in()
+        r, w = await self.open_events(cookie)
+        got = await self.read_until(r, b'"connected":true')
         self.assertIn(b"event: session", got)
         self.assertIn(b'"connected":true', got)
-        self.assertEqual(self.a.browsers, 1)
-        self.assertEqual(self.a.controllers, 0)          # not signed in: view only, no wake
+        self.assertEqual((self.a.browsers, self.a.controllers), (1, 1))
+        st, _, _ = await self.call("POST", "/api/logout", {}, cookie=cookie)
+        self.assertEqual(st, 200)
+        self.assertTrue(await until(lambda: self.a.browsers == 0, 3), "stream kept running after sign-out")
         w.close()
-        self.assertTrue(await until(lambda: self.a.browsers == 0, 2))
+        st, _, _ = await self.call("GET", "/api/state", ctype=None, cookie=cookie)
+        self.assertEqual(st, 401)
 
+    async def test_no_password_is_open(self):
+        app = WebApp(self.a)
+        server = await asyncio.start_server(app.handle, "127.0.0.1", 0)
+        port = server.sockets[0].getsockname()[1]
+        try:
+            st, body = await asyncio.to_thread(lambda: (lambda r: (r.status, json.loads(r.read())))(
+                urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=5)))
+            self.assertEqual(st, 200)
+            self.assertEqual(body["session"], {"canControl": True, "loginRequired": False,
+                                               "signedIn": False, "readOnly": False})
+        finally:
+            server.close()
+
+    async def test_read_only_with_password(self):
+        self.app.read_only = True
+        cookie = await self.sign_in()
+        st, body, _ = await self.call("POST", "/api/command", {"cmd": "reset"}, cookie=cookie)
+        self.assertEqual((st, body["error"]), (403, "View only"))
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,8 @@
 // rf2k-web page. The server is the amp's only client: it pushes the amp's
 // state here over Server-Sent Events, and commands go back as POSTs. Nothing
 // on this page latches: every control repaints only from the amp's readback.
+// With a password set on the server, the page shows only the sign-in screen
+// until the server accepts the session: the amp's state is never sent before.
 'use strict';
 
 var FWD_MAX = 1600, REF_MAX = 200;
@@ -20,6 +22,44 @@ try { if (localStorage.getItem('rf2kCompact') === '1' || /[?&]compact\b/.test(lo
 // ── events ──
 
 var es = null;
+var locked = true;
+
+// Ask the server whether this browser may see the amp: 401 = sign in.
+var checking = false;
+function check() {
+    if (checking) return;
+    checking = true;
+    fetch('api/state', { credentials: 'same-origin', cache: 'no-store' }).then(function (r) {
+        checking = false;
+        if (r.status === 401) { setLocked(true); return; }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json().then(function (j) {
+            session = j.session || session;
+            setLocked(false);
+            if (!es) openEvents();
+        });
+    }).catch(function () {
+        checking = false;              // the server is not reachable: try again
+        sseUp = false;
+        if (!locked) render();
+        setTimeout(check, 3000);
+    });
+}
+
+function setLocked(on) {
+    locked = on;
+    document.body.classList.remove('booting');
+    document.body.classList.toggle('locked', on);
+    if (on) {
+        if (es) { es.close(); es = null; }
+        st = null; sseUp = false;
+        peak.fwd = peak.ref = null; bal.fwd = bal.ref = null;
+        setTimeout(function () { $('loginPw').focus(); }, 0);
+    } else {
+        render();
+    }
+}
+
 function openEvents() {
     if (es) es.close();
     es = new EventSource('api/events');
@@ -30,9 +70,14 @@ function openEvents() {
         render();
     });
     es.onopen = function () { sseUp = true; };
-    es.onerror = function () { sseUp = false; render(); };   // EventSource retries by itself
+    es.onerror = function () {
+        sseUp = false;
+        render();
+        // A network error: EventSource retries by itself. A refusal (signed
+        // out, session expired, server restarted) closes it: ask again.
+        if (es && es.readyState === EventSource.CLOSED) { es = null; check(); }
+    };
 }
-openEvents();
 
 // ── helpers ──
 
@@ -190,7 +235,7 @@ function tile(id, value, state) {
 
 function lockReason() {
     if (session.readOnly) return 'View only';
-    if (!session.canControl) return session.loginRequired ? 'View only — sign in to control the amp' : 'View only';
+    if (!session.canControl) return 'View only';
     return '';
 }
 
@@ -199,10 +244,8 @@ function render() {
     renderChip();
     document.title = $('chip').textContent.replace(/^AMP/, 'RF2K-S');
 
-    // sign-in
-    $('signBtn').hidden = !session.loginRequired;
-    text($('signBtn'), session.signedIn ? 'Sign out' : 'Sign in');
-    text($('who'), session.readOnly ? 'read-only' : session.loginRequired ? (session.signedIn ? 'control' : 'view only') : '');
+    $('signOut').hidden = !session.loginRequired;
+    text($('who'), session.readOnly ? 'read-only' : '');
 
     // header
     text($('devName'), a.device || 'RF-KIT');
@@ -359,26 +402,27 @@ $('chip').onclick = function () {
 
 // ── sign-in ──
 
-$('signBtn').onclick = function () {
-    if (session.signedIn) {
-        post('api/logout').then(openEvents);
-    } else {
-        $('signForm').hidden = false;
-        $('signPw').focus();
-    }
-};
-$('signCancel').onclick = function () { $('signForm').hidden = true; };
-$('signForm').onsubmit = function (e) {
+$('loginForm').onsubmit = function (e) {
     e.preventDefault();
-    post('api/login', { password: $('signPw').value }).then(function (r) {
+    var btn = $('loginBtn');
+    btn.disabled = true;
+    text($('loginErr'), '');
+    post('api/login', { password: $('loginPw').value }).then(function (r) {
+        btn.disabled = false;
         if (r.httpStatus === 200) {
-            $('signPw').value = '';
-            $('signForm').hidden = true;
-            openEvents();          // the event stream carries who we are
+            $('loginPw').value = '';
+            check();
         } else {
-            toast(r.error || 'Sign-in failed');
+            text($('loginErr'), r.error || 'Sign-in failed');
+            $('loginPw').select();
         }
+    }).catch(function () {
+        btn.disabled = false;
+        text($('loginErr'), 'The rf2k-web server did not answer');
     });
 };
+$('signOut').onclick = function () {
+    post('api/logout').then(function () { setLocked(true); }, function () { setLocked(true); });
+};
 
-render();
+check();

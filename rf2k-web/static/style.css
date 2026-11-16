@@ -43,9 +43,20 @@ button { font: inherit; color: inherit; }
 .chip.fault { color: #fff; background: var(--red); border-color: var(--red-hi); }
 .link-btn { background: none; border: 0; color: var(--blue-hi); cursor: pointer; padding: 4px 2px; }
 
-.sign-form { display: flex; gap: 8px; padding: 10px 16px; background: #101317; border-bottom: 1px solid var(--line); }
-.sign-form input { flex: 1; min-width: 0; padding: 7px 9px; background: var(--panel); color: var(--text);
-  border: 1px solid var(--line); border-radius: 4px; font: inherit; }
+/* sign-in screen: the only thing shown until the server accepts the session */
+.login { display: none; min-height: 100vh; align-items: center; justify-content: center; padding: 16px; }
+body.locked .login { display: flex; }
+body.booting > * { visibility: hidden; }
+body.locked .topbar, body.locked main, body.locked .toast { display: none !important; }
+.login-card { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 10px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 22px 20px; }
+.login-title { font-weight: 700; font-size: 20px; letter-spacing: 1px; }
+.login-sub { color: var(--dim); font-size: 13px; margin-bottom: 4px; }
+.login-card input { padding: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 4px; font: inherit; font-size: 16px; }
+.login-card .btn { padding: 10px; font-weight: 600; }
+.login-card .btn:disabled { opacity: 0.6; cursor: default; }
+.login-err { color: var(--red-text); font-size: 13px; min-height: 17px; }
 .btn { padding: 7px 14px; border-radius: 4px; background: #0d4f8a; border: 1px solid var(--blue-hi); color: #fff; cursor: pointer; }
 
 /* ── panel ── */
@@ -118,7 +129,7 @@ body.stale .bars, body.stale .tiles { opacity: 0.45; filter: grayscale(1); }
   font-size: 13px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); }
 
 /* compact view: the chip alone */
-body.compact main, body.compact .brand, body.compact .who, body.compact #signBtn { display: none !important; }
+body.compact main, body.compact .brand, body.compact .who, body.compact #signOut { display: none !important; }
 body.compact .topbar { border: 0; justify-content: center; min-height: 100vh; }
 body.compact .chip { font-size: 22px; padding: 10px 18px; }
 
