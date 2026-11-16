@@ -1616,6 +1616,17 @@ TUNE state after a mock radio reconnect matches the radio.
        ("CI-V stream sent / sent open / received #n"). Also wanted: wfview
        with A2 on this PC again, with its log, to confirm it still gets
        CI-V now (rules out the radio being in standby / its LAN CI-V off).
+    g. 2026-11-16, a Claude session on the user's PC: wfview (CI-V A2)
+       and wfweb.exe (--civ 0xa2) run one at a time against the 9700 under
+       a pktmon capture of UDP 50002. Both get login and audio, both send
+       byte-for-byte the same open requests and CI-V frames (only session
+       IDs and sequence numbers differ), and the radio answers neither: no
+       CI-V data, no reply to any open request. The earlier wfview success
+       was not repeated (its earlier runs used another address). So the
+       radio side, not FlexWeb: next a power cycle of the 9700 and its
+       CI-V / remote settings (SET > Connectors > CI-V, the USB/LAN ->
+       REMOTE transceive address). No code change; 86e/86f stay (86f's
+       hex dump shows the radio's answers in the next log).
 
 85. No RADIO menu on the Disconnected screen (user, 2026-11-16, screen
     shot; small). After DISCONNECT (punch list 30) the screen offered only
