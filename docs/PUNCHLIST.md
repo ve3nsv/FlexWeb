@@ -1577,6 +1577,12 @@ TUNE state after a mock radio reconnect matches the radio.
        ready", the first CI-V data, and every 5 s while silent what was sent
        (frames, open requests) and received on the stream by packet type,
        so the next log shows whether the radio acknowledges the open at all.
+    c. 2026-11-16: wfview on the same PC shows the same thing (login and
+       audio, no CI-V), while the radio's owner controls it from home with
+       Icom's Remote Utility. So not FlexWeb's code; the difference is the
+       path (this PC reaches 192.168.25.217 through a Tailscale subnet route;
+       the radio sees it as 192.168.25.131) or the client. Next: Remote
+       Utility from this PC over the same path, and how the owner connects.
 
 85. No RADIO menu on the Disconnected screen (user, 2026-11-16, screen
     shot; small). After DISCONNECT (punch list 30) the screen offered only
