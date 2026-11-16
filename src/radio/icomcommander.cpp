@@ -590,9 +590,21 @@ toneInfo icomCommander::decodeTone(QByteArray eTone)
 void icomCommander::receiveLanCivAddr(quint8 civ)
 {
     if (civ == 0 || foundRig || civAddr != 0) return;
-    qInfo(logRig()).noquote() << QString("LAN: the server gives CI-V address 0x%1 for this radio - probing and powering on there instead of 0x00")
-                                     .arg(civ, 2, 16, QChar('0'));
     setCIVAddr(civ);
+    // Punch list 86d: an IC-9700 on the LAN (user, 2026-11-16) never answers
+    // the 19 00 transceiver-ID query, at 0x00 or at its own address - wfview
+    // on Auto stays silent too and works with the address set to A2. A known
+    // default address names the model, so take it as given, as a --civ
+    // setting does (setRigID), instead of waiting for an answer that never
+    // comes. An address no rig file uses keeps the probe, now at that address.
+    if (rigList.contains(civ)) {
+        qInfo(logRig()).noquote() << QString("LAN: the server gives CI-V address 0x%1 for this radio (%2) - using it without the ID query")
+                                         .arg(civ, 2, 16, QChar('0')).arg(rigList.value(civ).model);
+        setRigID(civ);
+    } else {
+        qInfo(logRig()).noquote() << QString("LAN: the server gives CI-V address 0x%1 for this radio - probing and powering on there instead of 0x00")
+                                         .arg(civ, 2, 16, QChar('0'));
+    }
 }
 
 void icomCommander::setCIVAddr(quint16 civAddr)
