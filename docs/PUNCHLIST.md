@@ -1618,6 +1618,26 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+89. The amplifier on a page of its own (user, 2026-11-16; medium). The
+    RF2K-S panel as a separate tab or a phone next to the amp, with the
+    same rights as on the radio page, while someone else may be using the
+    radio. Done: /amp (resources/web/amp.html, in web.qrc) - header and
+    state, the fault banner, FWD / REF / SWR on the amp's scales with the
+    PEAK ballistics and the over's peak, the tiles, OPERATE / TUNE / RESET
+    (second tap) / ANT 1-4, EXT shown; the radio page's AMP panel has
+    AMP PAGE > OPEN. Its WebSocket is "?amp=1" (webServer::ampOnly_): it
+    keeps the amp polled and awake, controls it through the same
+    ampControlAllowed (signed-in user, nobody else keyed), but it is not a
+    radio user - no on-demand connect, not counted by the on-demand
+    release, by DISCONNECT (leaveSession) or as an operator present for
+    guest tuning, no scope frames, and of the broadcasts only amp,
+    ampRefused, txState, serverLoad and radioSwitched (the page reloads).
+    On connect it gets ampPageInfo (user, guest, login, amp configured)
+    and the amp's last state. Signed out, /amp goes to /login?next=amp and
+    sign-in returns there (only "amp" is honoured as next). The browser
+    list tags it "amp page". tests/test_rfkit.py
+    test_amp_page_does_not_hold_the_radio.
+
 88. "Powering on, please wait" spins for ever (user, 2026-11-16, screen
     shot of the IC-9700; small). A radio that never answers Power On left
     the spinner up with nothing to do but reload. Done: 30 s after Power On
@@ -1699,6 +1719,27 @@ TUNE state after a mock radio reconnect matches the radio.
        Fix: send() drops frames until "I am ready" is in and the open
        request has gone (gotReady), as wfview orders it. Check the next
        log for "icomUdpCivData: first CI-V data from the radio".
+    f. 1.0.158 log (2026-11-15 22:18): the gate works (one frame held
+       back before "I am ready") and the radio is still silent on CI-V for
+       41 s, Power On included. So 86e was not it. The CI-V stream code is
+       now compared with upstream wfview (gitlab master, 2026-11-02): the
+       same apart from FlexWeb's logging and the gate. Diagnostics: the
+       silence report counts the radio's control packets by type, and the
+       first 12 packets each way on the CI-V stream are logged in hex
+       ("CI-V stream sent / sent open / received #n"). Also wanted: wfview
+       with A2 on this PC again, with its log, to confirm it still gets
+       CI-V now (rules out the radio being in standby / its LAN CI-V off).
+    g. 2026-11-16, a Claude session on the user's PC: wfview (CI-V A2)
+       and wfweb.exe (--civ 0xa2) run one at a time against the 9700 under
+       a pktmon capture of UDP 50002. Both get login and audio, both send
+       byte-for-byte the same open requests and CI-V frames (only session
+       IDs and sequence numbers differ), and the radio answers neither: no
+       CI-V data, no reply to any open request. The earlier wfview success
+       was not repeated (its earlier runs used another address). So the
+       radio side, not FlexWeb: next a power cycle of the 9700 and its
+       CI-V / remote settings (SET > Connectors > CI-V, the USB/LAN ->
+       REMOTE transceive address). No code change; 86e/86f stay (86f's
+       hex dump shows the radio's answers in the next log).
 
 85. No RADIO menu on the Disconnected screen (user, 2026-11-16, screen
     shot; small). After DISCONNECT (punch list 30) the screen offered only

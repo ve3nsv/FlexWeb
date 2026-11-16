@@ -4006,12 +4006,13 @@ function userBtnClick() {
 // RECONNECT on the screen it leaves comes back.
 var sessionClosed = false, discBtnTimer = null;
 // Other signed-in browsers (guests and listeners never hold the radio).
-function discOthers() { return peopleList.filter(function (p) { return !p.you && !p.guest && !p.listener; }).length; }
+// The amp page (punch list 89) does not hold the radio either.
+function discOthers() { return peopleList.filter(function (p) { return !p.you && !p.guest && !p.listener && !p.amp; }).length; }
 // Other signed-in users (not this user's other browsers); none with login off.
 function discOtherUsers() {
     if (!webUser) return 0;
     var seen = {};
-    peopleList.forEach(function (p) { if (!p.you && !p.guest && !p.listener && p.name !== webUser) seen[p.name] = 1; });
+    peopleList.forEach(function (p) { if (!p.you && !p.guest && !p.listener && !p.amp && p.name !== webUser) seen[p.name] = 1; });
     return Object.keys(seen).length;
 }
 function discBtnClick() {
@@ -6736,7 +6737,8 @@ function peopleHtml() {
         var tags = [];
         if (p.tx) tags.push('<b class="tx">TX</b>');
         if (p.talk) tags.push('<b class="talk">TALK</b>');
-        if (!p.audio) tags.push('audio off');
+        if (p.amp) tags.push('amp page');
+        else if (!p.audio) tags.push('audio off');
         if (p.listener) tags.push('listener');
         rows.push('<b>' + ampEsc(p.name) + '</b>' + (p.you ? ' (you)' : '') + (tags.length ? ' \u00b7 ' + tags.join(' \u00b7 ') : ''));
     });
@@ -9342,6 +9344,11 @@ function renderAmpOverlay() {
     var meterMode = makeFuncBtn('FWD METER', ampMeterRaw ? 'RAW' : 'PEAK', !ampMeterRaw, toggleAmpMeterMode);
     meterMode.title = 'PEAK: reads like the amplifier\'s own screen (rises at once, falls slowly). RAW: each reading as the amp sends it.';
     grid.appendChild(meterMode);
+    // Punch list 89: the amplifier on a page of its own (a tab, a phone
+    // next to the amp) - same readings and rights, never holds the radio.
+    var tab = makeFuncBtn('AMP PAGE', 'OPEN', false, function () { window.open('/amp', 'wfAmpPage'); });
+    tab.title = 'Open the amplifier on its own page (new tab). It does not connect or hold the radio.';
+    grid.appendChild(tab);
     var back = document.createElement('button');
     back.className = 'ov-btn back-btn';
     back.innerHTML = '&#x21A9;';

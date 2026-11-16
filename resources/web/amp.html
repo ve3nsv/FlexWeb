@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f0f1a">
+<title>Amplifier</title>
+<link rel="stylesheet" href="theme.css">
+<style>
+/* Punch list 89: the RF-KIT amplifier on a page of its own. Same readings,
+   same controls and the same rights as the AMP panel of the radio page; the
+   server sends this page the amp messages only and never connects the radio
+   for it. */
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: #0f0f1a; color: #c8d8e8;
+    font: 15px var(--font-ui, system-ui, -apple-system, "Segoe UI", sans-serif);
+    padding: max(12px, env(safe-area-inset-top)) 16px 24px; }
+main { max-width: 760px; margin: 0 auto; }
+header.top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+header.top h1 { margin: 0; font-size: 20px; color: #e6f0fa; flex: 1 1 auto; min-width: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.state { font-size: 13px; color: #8ea8c0; }
+.state.ok { color: #6fd38a; }
+.state.stale { color: #ffb84d; }
+.state.bad { color: #ff7070; }
+header.top a { color: #7fd3e6; font-size: 13px; text-decoration: none; white-space: nowrap; }
+.user { font-size: 12px; color: #6f879e; width: 100%; }
+.offline { margin: 8px 0; padding: 10px 12px; border-radius: 5px; background: #2a1418; color: #ffb4b4; font-size: 14px; }
+.banner { margin: 8px 0; padding: 10px 12px; border-radius: 5px; background: #6e1a1a;
+    border: 1px solid #e53935; color: #ffe8e8; font-weight: 700; letter-spacing: 0.4px; }
+.banner small { display: block; font-weight: 400; letter-spacing: 0; margin-top: 4px; color: #ffd0d0; }
+.bars { margin: 12px 0; }
+.bar { display: grid; grid-template-columns: 56px 1fr 120px; align-items: center; gap: 10px; margin: 10px 0; color: #aaa; }
+.bar > span:first-child { font-weight: 700; letter-spacing: 0.6px; }
+.track { position: relative; height: 22px; background: #1a1d22; border-radius: 3px; overflow: hidden; }
+.fill { position: absolute; left: 0; top: 0; bottom: 0; width: 0; background: #2f7fd0; }
+.fill.warn { background: #e09020; }
+.fill.bad { background: #e03030; }
+.peak { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; display: none;
+    background: #f4f8ff; box-shadow: 0 0 3px rgba(255,255,255,.7); }
+.val { text-align: right; color: #e6f0fa; font-size: 17px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.val small { font-size: 12px; color: #9fb3c8; margin-left: 4px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin: 14px 0; }
+.tile { background: #15181c; border-radius: 4px; padding: 8px 10px; font-size: 11px; color: #888; letter-spacing: 0.5px; }
+.tile span { display: block; font-size: 18px; color: #e6f0fa; margin-top: 3px; letter-spacing: 0;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tile.bad span { color: #ff6060; }
+.tile.good span { color: #6fd38a; }
+.row { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
+.row > button { flex: 1 1 0; min-width: 0; }
+.row .lbl { width: 36px; flex: none; font-size: 12px; color: #889; letter-spacing: 0.6px; }
+button.ctl { padding: 16px 6px; border-radius: 5px; cursor: pointer; font: 700 15px var(--font-ui, sans-serif);
+    letter-spacing: 0.6px; background: #16222e; color: #c9d6e2; border: 1px solid #2e4a62;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; touch-action: manipulation; }
+button.ctl:disabled { cursor: default; opacity: 0.55; }
+button.ctl.op-on { background: #1f7a3a; border-color: #2ecc55; color: #fff; opacity: 1; }
+button.ctl.op-standby { background: #8a5c00; border-color: #f5b400; color: #fff; opacity: 1; }
+button.ctl.tune { background: #101820; color: #5c7086; border-color: #22303e; }
+button.ctl.tune.ready { background: #0d4f8a; border-color: #3aa0ff; color: #fff; }
+button.ctl.tune.drive-ok { box-shadow: 0 0 0 2px #3aa0ff; }
+button.ctl.tune.tuning { background: #8a5c00; border-color: #f5b400; color: #fff; opacity: 1; animation: blink .8s ease-in-out infinite; }
+button.ctl.reset-fault { background: #8c1f1f; border-color: #e53935; color: #fff; opacity: 1; }
+button.ctl.ant-active { background: #0e5c8a; border-color: #3aa0ff; color: #fff; opacity: 1; }
+@keyframes blink { 50% { opacity: .55; } }
+.note { font-size: 13px; color: #8ea8c0; margin: 6px 0; min-height: 1.2em; }
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: calc(100vw - 32px);
+    padding: 10px 14px; border-radius: 6px; background: #3a1418; color: #ffd0d0; font-size: 14px; display: none; }
+.foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 18px; font-size: 12px; color: #6f879e; }
+.foot button { background: #1d2b3a; color: #c8d8e8; border: 1px solid #304050; border-radius: 4px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+body.noanswer .bars, body.noanswer .tiles { opacity: .45; filter: grayscale(1); }
+</style>
+</head>
+<body>
+<main>
+  <header class="top">
+    <h1 id="name">Amplifier</h1>
+    <span id="state" class="state">connecting…</span>
+    <a href="/" title="Open the radio page">Radio ›</a>
+    <div id="user" class="user"></div>
+  </header>
+  <div id="offline" class="offline" hidden></div>
+  <div id="banner" class="banner" hidden></div>
+  <section class="bars">
+    <div class="bar"><span>FWD</span><div class="track"><div class="fill" id="fFwd"></div><i class="peak" id="pFwd"></i></div><span class="val" id="vFwd">—</span></div>
+    <div class="bar"><span>REF</span><div class="track"><div class="fill" id="fRef"></div><i class="peak" id="pRef"></i></div><span class="val" id="vRef">—</span></div>
+    <div class="bar"><span>SWR</span><div class="track"><div class="fill" id="fSwr"></div></div><span class="val" id="vSwr">—</span></div>
+  </section>
+  <section class="tiles">
+    <div class="tile">BAND<span id="tBand">—</span></div>
+    <div class="tile">FREQ<span id="tFreq">—</span></div>
+    <div class="tile" id="tTempBox">TEMP<span id="tTemp">—</span></div>
+    <div class="tile">VOLTS<span id="tVolts">—</span></div>
+    <div class="tile">CURRENT<span id="tAmps">—</span></div>
+    <div class="tile" id="tAtuBox">ATU<span id="tAtu">—</span></div>
+    <div class="tile">INTERFACE<span id="tIface">—</span></div>
+  </section>
+  <section>
+    <div class="row">
+      <button type="button" class="ctl" id="bOp" disabled>—</button>
+      <button type="button" class="ctl tune" id="bTune" hidden disabled>TUNE</button>
+      <button type="button" class="ctl" id="bReset" disabled>RESET</button>
+    </div>
+    <div class="row" id="antRow"><span class="lbl">ANT</span></div>
+    <div class="note" id="note"></div>
+  </section>
+  <div class="foot">
+    <span id="target"></span>
+    <button type="button" id="bMeter" title="PEAK: reads like the amplifier's own screen (rises at once, falls slowly). RAW: each reading as the amp sends it.">FWD METER: PEAK</button>
+  </div>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+(function () {
+'use strict';
+var $ = function (id) { return document.getElementById(id); };
+
+var amp = null;              // the server's last {type:'amp'}
+var configured = true;
+var webUser = '', webLoginOn = false, guest = false, txOtherBy = '';
+var noAnswerAt = 0, tunePending = false, resetConfirmUntil = 0;
+var ws = null, retryMs = 1000, everOpen = false;
+
+// ---- connection --------------------------------------------------------
+function wsUrl() {
+    if (location.protocol === 'https:') return 'wss://' + location.hostname + ':' + (location.port || '443') + '/?amp=1';
+    return 'ws://' + location.hostname + ':' + (parseInt(location.port || '80', 10) + 1) + '/?amp=1';
+}
+function connect() {
+    ws = new WebSocket(wsUrl());
+    ws.onopen = function () { everOpen = true; retryMs = 1000; render(); };
+    ws.onmessage = function (e) {
+        if (typeof e.data !== 'string') return;
+        var m; try { m = JSON.parse(e.data); } catch (x) { return; }
+        onMessage(m);
+    };
+    ws.onclose = function (e) {
+        ws = null;
+        // The server refuses a browser without a valid sign-in.
+        if (e && e.code === 1008) { location.href = '/login?next=amp'; return; }
+        $('state').textContent = 'server not reachable - retrying';
+        $('state').className = 'state bad';
+        setTimeout(connect, retryMs);
+        retryMs = Math.min(retryMs * 2, 15000);
+    };
+}
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+
+function onMessage(m) {
+    switch (m.type) {
+    case 'ampPageInfo':
+        webUser = m.webUser || ''; guest = !!m.guest; webLoginOn = !!m.webLogin;
+        configured = !!m.ampConfigured;
+        $('target').textContent = m.target || '';
+        render();
+        break;
+    case 'amp':
+        amp = m;
+        noAnswerAt = m.connected && m.noAnswerMs ? Date.now() - m.noAnswerMs : 0;
+        tunePending = false;
+        peakFeed(m);
+        render();
+        break;
+    case 'ampRefused':
+        tunePending = false;
+        toast(m.reason === 'amp' ? 'Amp refused ' + (m.what || 'the command') + ': ' + (m.text || 'no reason given')
+            : m.reason === 'nousers' ? 'Amp controls need web login (no users are set up)'
+            : m.reason === 'signin' ? 'Sign in to use the amp controls'
+            : String(m.reason || '').indexOf('tx:') === 0 ? 'Amp controls are locked while ' + m.reason.slice(3) + ' transmits'
+            : 'Amp command refused');
+        render();
+        break;
+    case 'txState':
+        txOtherBy = m.on && !m.mine ? (m.by || 'another browser') : '';
+        render();
+        break;
+    case 'radioSwitched':
+        // The new radio's profile may name another amplifier.
+        setTimeout(function () { location.reload(); }, 500);
+        break;
+    }
+}
+
+var toastTimer = 0;
+function toast(t) {
+    var el = $('toast');
+    el.textContent = t; el.style.display = 'block';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { el.style.display = 'none'; }, 4000);
+}
+
+// ---- rights: the radio page's ampLockReason --------------------------------
+function lockReason() {
+    if (guest) return 'View only';
+    if (!webLoginOn) return 'Read-only: create a web user to control the amp';
+    if (!webUser) return 'Sign in to control the amp';
+    if (txOtherBy) return 'TX: ' + txOtherBy + ' has the radio';
+    return '';
+}
+
+// ---- FWD / REF ballistics and the over's peak (punch list 32, 35, 44) ------
+var HOLD_MS = 500, FALL = { fwd: 1000, ref: 200 }, MAX = { fwd: 1600, ref: 200 };
+var bal = { fwd: null, ref: null }, peak = { fwd: null, ref: null }, overKeyed = false;
+var meterRaw = false;
+try { meterRaw = localStorage.getItem('wfAmpMeter') === 'raw'; } catch (e) {}
+function shown(k, raw) {
+    var m = bal[k];
+    if (meterRaw || !m) return raw;
+    var age = performance.now() - m.at - HOLD_MS;
+    var v = age > 0 ? m.v - FALL[k] * age / 1000 : m.v;
+    return Math.max(v, m.raw);
+}
+function peakFeed(a) {
+    if (!a || !a.connected) { bal.fwd = bal.ref = null; peak.fwd = peak.ref = null; overKeyed = false; return; }
+    var keyed = a.keyed !== undefined ? !!a.keyed : (a.fwd >= 1);
+    if (keyed && !overKeyed) peak.fwd = peak.ref = null;      // a new over
+    overKeyed = keyed;
+    var fwdOn = a.fwd !== undefined && a.fwd >= 1;
+    if (keyed || fwdOn) ['fwd', 'ref'].forEach(function (k) {
+        var v = Number(a[k]) || 0, p = peak[k];
+        if (!fwdOn && !p) return;
+        if (!p || v > p) peak[k] = v;
+    });
+    if (!fwdOn) { bal.fwd = bal.ref = null; return; }
+    var now = performance.now();
+    ['fwd', 'ref'].forEach(function (k) {
+        var v = Number(a[k]) || 0, m = bal[k];
+        if (!m || v >= shown(k, 0)) bal[k] = { v: v, at: now, raw: v };
+        else m.raw = v;
+    });
+    kick();
+}
+var raf = 0;
+function kick() {
+    if (raf) return;
+    raf = requestAnimationFrame(function step() {
+        raf = 0;
+        paintPower();
+        if (bal.fwd || bal.ref) raf = requestAnimationFrame(step);
+    });
+}
+function pct(v, max) { return Math.max(0, Math.min(100, v / max * 100)) + '%'; }
+function swrLevel(s) { return s >= 2 ? 'bad' : (s >= 1.5 ? 'warn' : ''); }
+// SWR on the amplifier's own scale: 1 / 1.5 / 2 / 3 / 5 / inf evenly spaced.
+function swrFrac(swr) {
+    var pts = [1, 1.5, 2, 3, 5];
+    if (!(swr >= 1)) return 0;
+    for (var i = 1; i < pts.length; i++) if (swr <= pts[i]) return (i - 1 + (swr - pts[i - 1]) / (pts[i] - pts[i - 1])) / 5;
+    return Math.min(1, 0.8 + 0.2 * (1 - 5 / swr));
+}
+function paintPower() {
+    var a = amp || {}, up = !!a.connected;
+    var keyed = up && a.fwd !== undefined && a.fwd >= 1;
+    ['fwd', 'ref'].forEach(function (k) {
+        var K = k === 'fwd' ? 'Fwd' : 'Ref';
+        var raw = up && (k === 'fwd' || keyed) ? a[k] : undefined;
+        var v = raw === undefined ? undefined : (bal[k] ? shown(k, bal[k].raw) : raw);
+        var f = $('f' + K), p = $('p' + K);
+        f.style.width = v === undefined ? '0' : pct(v, MAX[k]);
+        if (k === 'ref') {
+            var lvl = '';
+            if (keyed && a.ref !== undefined) {
+                var rho = Math.sqrt(a.ref / a.fwd);
+                lvl = swrLevel(rho < 1 ? (1 + rho) / (1 - rho) : 99);
+            }
+            f.className = 'fill' + (lvl ? ' ' + lvl : '');
+        }
+        if (peak[k] !== null && up) { p.style.display = 'block'; p.style.left = pct(peak[k], MAX[k]); }
+        else p.style.display = 'none';
+        $('v' + K).innerHTML = v === undefined ? '—'
+            : Math.round(v) + ' W' + (peak[k] !== null ? '<small>pk ' + Math.round(peak[k]) + '</small>' : '');
+    });
+    var swr = keyed ? a.swr : undefined;
+    var fs = $('fSwr');
+    fs.style.width = swr === undefined ? '0' : (swrFrac(swr) * 100) + '%';
+    fs.className = 'fill' + (swr !== undefined && swrLevel(swr) ? ' ' + swrLevel(swr) : '');
+    $('vSwr').textContent = swr === undefined ? '—' : swr.toFixed(2) + ':1';
+}
+
+// ---- the page ------------------------------------------------------------
+function offlineText(a) {
+    switch (a && a.offlineReason) {
+    case 'refused': return 'Amp program not running (connection refused)';
+    case 'noanswer': return 'Amp not answering - busy, another program may be using it, or it is off';
+    case 'noroute': return 'Amp unreachable - the network cannot reach it';
+    case 'notrfkit': return 'Something other than an RF-KIT answers at ' + ((a && a.target) || 'that address');
+    }
+    return (a && a.error) || 'Amplifier not reachable';
+}
+function tile(id, text, cls) {
+    var el = $(id);
+    el.textContent = text === undefined || text === '' ? '—' : text;
+    if (cls !== undefined) el.parentNode.className = 'tile' + (cls ? ' ' + cls : '');
+}
+function render() {
+    var a = amp || {}, up = !!a.connected;
+    var lock = up ? lockReason() : '';
+    document.title = (a.device ? a.device + ' - ' : '') + 'Amplifier';
+    $('name').textContent = a.device || 'RF-KIT amplifier';
+    $('user').textContent = guest ? 'View only' : webUser ? 'Signed in as ' + webUser : '';
+    if (a.target) $('target').textContent = a.target;
+    var st = $('state');
+    if (!configured) { st.textContent = 'no amplifier set up on this server'; st.className = 'state bad'; }
+    else if (!amp) { st.textContent = 'waiting for the amplifier…'; st.className = 'state'; }
+    else if (!up) { st.textContent = 'offline'; st.className = 'state bad'; }
+    else if (a.waking) { st.textContent = 'waking'; st.className = 'state stale'; }
+    else if (noAnswerAt) { st.textContent = 'no answer ' + Math.floor((Date.now() - noAnswerAt) / 1000) + ' s'; st.className = 'state stale'; }
+    else { st.textContent = a.operate ? 'connected - OPERATE' : 'connected - STANDBY'; st.className = 'state ok'; }
+    document.body.classList.toggle('noanswer', !!(up && noAnswerAt));
+
+    var off = $('offline');
+    off.hidden = !(amp && !up);
+    if (!off.hidden) off.textContent = offlineText(a);
+    var ban = $('banner');
+    ban.hidden = !(up && a.ampError);
+    if (!ban.hidden) ban.innerHTML = 'Error: ' + esc(a.ampError) +
+        '<small>Fix the cause, then RESET: the amplifier comes back in STANDBY.</small>';
+
+    paintPower();
+    tile('tBand', up ? a.band : undefined);
+    tile('tFreq', up ? a.freq : undefined);
+    tile('tTemp', up && a.temp !== undefined ? a.temp.toFixed(0) + ' °C' : undefined, up && a.temp >= 60 ? 'bad' : '');
+    tile('tVolts', up && a.volts !== undefined ? a.volts.toFixed(1) + ' V' : undefined);
+    tile('tAmps', up && a.amps !== undefined ? a.amps.toFixed(1) + ' A' : undefined);
+    tile('tAtu', up ? String(a.tunerPill || a.tuner || '').replace(/^ATU /, '') : undefined,
+         up && a.tunerAlert ? 'bad' : up && a.tunerInUse ? 'good' : '');
+    tile('tIface', up ? a.iface : undefined);
+
+    // OPERATE / STANDBY: unknown until /operate-mode has answered.
+    var op = $('bOp'), opKnown = up && a.operate !== undefined;
+    op.className = 'ctl' + (opKnown ? (a.operate ? ' op-on' : ' op-standby') : '');
+    op.textContent = opKnown ? (a.operate ? 'OPERATE' : 'STANDBY') : '—';
+    op.disabled = !opKnown || !!lock;
+    op.title = lock || (!up ? 'Amplifier offline' : !opKnown ? 'Amplifier state unknown'
+             : a.operate ? 'In OPERATE: tap for STANDBY' : 'In STANDBY: tap for OPERATE');
+
+    // TUNE: only on an amp whose server has the tune command.
+    var tb = $('bTune');
+    tb.hidden = !(up && a.tuneApi === 'supported');
+    if (!tb.hidden) {
+        var tuning = String(a.tuner || '').toUpperCase() === 'TUNING';
+        var ready = !lock && !!a.tuneAllowed && !tuning && !tunePending;
+        var drive = a.tuneDrive === 'good' || a.tuneDrive === 'low';
+        tb.className = 'ctl tune' + (tuning ? ' tuning' : ready ? ' ready' : '') + (drive && !tuning ? ' drive-ok' : '');
+        tb.textContent = tuning ? 'TUNING' : 'TUNE';
+        tb.disabled = !ready;
+        tb.title = lock ? lock
+            : tuning ? 'The amplifier is tuning'
+            : !a.tuneAllowed ? 'Tune needs the tuner in AUTO or MANUAL (not OFF or BYPASS)'
+            : !a.keyed ? 'Key a carrier first (4-39 W, 10 W or more recommended), then TUNE'
+            : a.tuneDrive === 'outside' ? 'Start the autotune. The amplifier tunes only with 4-39 W of drive'
+            : 'Start the amplifier\'s autotune';
+    }
+
+    // RESET: only while the amp reports an error, and a second tap confirms.
+    var rs = $('bReset'), fault = up && a.ampError ? String(a.ampError) : '';
+    var confirming = resetConfirmUntil > Date.now() && fault;
+    rs.className = 'ctl' + (fault ? ' reset-fault' : '');
+    rs.textContent = confirming ? 'CONFIRM?' : 'RESET';
+    rs.disabled = !up || !fault || !!lock;
+    rs.title = lock || (fault ? 'Reset the amplifier\'s error (' + fault + '). It comes back in STANDBY.' : 'No error to reset');
+
+    renderAntennas(a, up, lock);
+    var note = lock || (!tb.hidden && !a.keyed && a.tuneAllowed && !/TUNING/i.test(a.tuner || '') ? 'Key a carrier from the radio, then TUNE' : '');
+    $('note').textContent = note;
+    $('bMeter').textContent = 'FWD METER: ' + (meterRaw ? 'RAW' : 'PEAK');
+}
+var antSig = '';
+function renderAntennas(a, up, lock) {
+    var ants = (up && a.antennas) || [];
+    var sig = JSON.stringify([up, lock, ants]);
+    if (sig === antSig) return;
+    antSig = sig;
+    var row = $('antRow');
+    while (row.children.length > 1) row.removeChild(row.lastChild);
+    for (var n = 1; n <= 5; n++) {
+        var info = null;
+        for (var i = 0; i < ants.length; i++) {
+            if (n <= 4 && !ants[i].external && ants[i].num === n) info = ants[i];
+            if (n === 5 && ants[i].external) info = ants[i];
+        }
+        var ext = n === 5, active = !!(info && info.state === 'active');
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'ctl' + (active ? ' ant-active' : '');
+        b.textContent = ext ? (info && info.label ? info.label : 'EXT') : String(n);
+        // EXT is an indicator only; an internal antenna once the amp lists it.
+        b.disabled = ext || !up || !info || info.state === 'disabled' || active || !!lock;
+        b.title = ext ? 'External antenna (indicator)' : 'ANT ' + n + (info ? ' (' + info.state + ')' : ' (not enabled on this band)');
+        b.dataset.num = n;
+        b.onclick = function () { send({ cmd: 'ampAntenna', value: Number(this.dataset.num) }); };
+        row.appendChild(b);
+    }
+}
+function esc(t) {
+    return String(t).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
+
+$('bOp').onclick = function () {
+    if (this.disabled) return;
+    send({ cmd: 'ampOperate', value: !(amp && amp.operate) });
+};
+$('bTune').onclick = function () {
+    if (this.disabled) return;
+    tunePending = true;          // one START per press; the amp's reply repaints
+    render();
+    send({ cmd: 'ampTune' });
+};
+$('bReset').onclick = function () {
+    if (this.disabled) return;
+    if (resetConfirmUntil > Date.now()) {
+        resetConfirmUntil = 0;
+        send({ cmd: 'ampErrorReset' });
+    } else {
+        resetConfirmUntil = Date.now() + 3000;
+        setTimeout(render, 3100);
+    }
+    render();
+};
+$('bMeter').onclick = function () {
+    meterRaw = !meterRaw;
+    try { localStorage.setItem('wfAmpMeter', meterRaw ? 'raw' : 'peak'); } catch (e) {}
+    render();
+};
+// The "no answer N s" counter runs while the amp is silent.
+setInterval(function () { if (noAnswerAt) render(); }, 1000);
+
+render();
+connect();
+})();
+</script>
+</body>
+</html>

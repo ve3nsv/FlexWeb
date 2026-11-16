@@ -60,6 +60,11 @@ private:
 	int framesSent = 0, framesDropped = 0, openRequests = 0;
 	int rxControl = 0, rxPing = 0, rxOpenClose = 0, rxRetransmit = 0, rxOther = 0, rxEmptyData = 0;
 	QByteArray lastOther;
+	// Punch list 86f: control packets by type, and the first packets each
+	// way in hex, while the radio is silent.
+	int rxCtlType[8] = {0};    // types 0x00..0x06, [7] = any other
+	int rxDumped = 0, txDumped = 0;
+	void dumpPacket(const char* dir, const QByteArray& p, int& count);
 	void reportSilence();
 };
 

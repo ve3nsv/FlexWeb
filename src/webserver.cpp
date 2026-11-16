@@ -845,7 +845,7 @@ void webServer::onHttpReadyRead()
         if (path == "/login") {
             if (!loginOn) sendRedirect(socket, "/");
             else if (method == "POST") handleLogin(socket, body);
-            else serveLoginPage(socket, 200, QString());
+            else serveLoginPage(socket, 200, QString(), query.queryItemValue(QStringLiteral("next")));
             return;
         }
         if (path == "/request") {
@@ -874,6 +874,8 @@ void webServer::onHttpReadyRead()
                 QJsonObject err;
                 err["error"] = "login required";
                 sendRestResponse(socket, 401, err);
+            } else if (method == "GET" && (path == "/amp" || path == "/amp.html")) {
+                sendRedirect(socket, "/login?next=amp");   // punch list 89: back to the amp page
             } else if (method == "GET" && (path == "/" || path.endsWith(".html"))) {
                 sendRedirect(socket, "/login");
             } else {
@@ -915,6 +917,7 @@ void webServer::onHttpReadyRead()
     if (path == "/") {
         path = "/index.html";
     }
+    if (path == "/amp") path = "/amp.html";   // punch list 89: the amplifier page
 
     serveStaticFile(socket, path);
 }
@@ -1894,8 +1897,19 @@ void webServer::onWsNewConnection()
 
     wsClients.append(pSocket);
     browserCount_ = wsClients.size();
-    qInfo().noquote() << "Web client connected:" << pSocket->peerAddress().toString()
+    const bool ampPage = QUrlQuery(pSocket->requestUrl()).queryItemValue(QStringLiteral("amp")) == QLatin1String("1");
+    if (ampPage) ampOnly_.insert(pSocket);
+    qInfo().noquote() << (ampPage ? "Web client connected (amp page):" : "Web client connected:")
+                      << pSocket->peerAddress().toString()
                       << (user.isEmpty() ? QString() : QString("(%1)").arg(user));
+    if (ampPage) {
+        // Punch list 89: the amp page polls the amp, never the radio.
+        updateAmpPolling();
+        if (!isGuest(pSocket)) QTimer::singleShot(0, this, [this]() { updateAmpAwake(); });
+        sendAmpPageState(pSocket);
+        scheduleClientsBroadcast();
+        return;
+    }
     onDemandBrowserArrived();
     updateAmpPolling();
     // A signed-in operator takes the radio back from tuning guests and
@@ -1985,6 +1999,7 @@ void webServer::onWsDisconnected()
         packetUsbTxBuffer.clear();
         packetUsbTxActive = false;
         audioClients.remove(pClient);
+        ampOnly_.remove(pClient);
         wsUser.remove(pClient);
         wsRole.remove(pClient);
         txListen.remove(pClient);
@@ -3111,7 +3126,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         QSet<QString> otherUsers;
         const QString me = client ? wsUser.value(client) : QString();
         for (QWebSocket *c : wsClients) {
-            if (c == client || isGuest(c) || c->state() != QAbstractSocket::ConnectedState) continue;
+            if (c == client || isGuest(c) || isAmpOnly(c) || c->state() != QAbstractSocket::ConnectedState) continue;
             others++;
             if (wsUser.value(c) != me) otherUsers.insert(wsUser.value(c));
         }
@@ -4306,6 +4321,31 @@ void webServer::onRigCtlPtt(bool on)
     handleCommand(nullptr, cmd);
 }
 
+// Punch list 89: what the amp page needs on connect - who it is signed in
+// as, whether an amp is configured, the amp's last state and the TX lock.
+void webServer::sendAmpPageState(QWebSocket *client)
+{
+    QJsonObject info;
+    info["type"] = "ampPageInfo";
+    info["webUser"] = isAnonGuest(client) ? QStringLiteral("guest") : wsUser.value(client);
+    info["guest"] = isGuest(client);
+    info["role"] = wsRole.value(client);
+    info["webLogin"] = webAuth::hasUsers();
+    info["ampConfigured"] = !rfkitTarget_.isEmpty();
+    info["target"] = rfkitTarget_;
+    sendJsonTo(client, info);
+    if (!rfkitTarget_.isEmpty() && !ampJson_.isEmpty())
+        sendJsonTo(client, ampJson_);
+    if (pttClient) {
+        QJsonObject st;
+        st["type"] = "txState";
+        st["on"] = true;
+        st["by"] = clientLabel(pttClient);
+        st["mine"] = false;
+        sendJsonTo(client, st);
+    }
+}
+
 void webServer::sendCurrentState(QWebSocket *client)
 {
     QJsonObject info = buildInfoJson();
@@ -5213,7 +5253,17 @@ void webServer::sendPeriodicStatus()
 void webServer::sendJsonToAll(const QJsonObject &obj)
 {
     QByteArray data = QJsonDocument(obj).toJson(QJsonDocument::Compact);
+    // Punch list 89: the amp page gets the amp's own messages and the ones
+    // its controls depend on, not the radio's stream of updates and meters.
+    bool forAmpPage = false;
+    if (!ampOnly_.isEmpty()) {
+        const QString t = obj.value(QStringLiteral("type")).toString();
+        forAmpPage = t == QLatin1String("amp") || t == QLatin1String("ampRefused")
+                  || t == QLatin1String("txState") || t == QLatin1String("serverLoad")
+                  || t == QLatin1String("radioSwitched");
+    }
     for (QWebSocket *client : wsClients) {
+        if (!forAmpPage && ampOnly_.contains(client)) continue;
         client->sendTextMessage(QString::fromUtf8(data));
     }
 }
@@ -5227,6 +5277,7 @@ void webServer::sendJsonTo(QWebSocket *client, const QJsonObject &obj)
 void webServer::sendBinaryToAll(const QByteArray &data)
 {
     for (QWebSocket *client : wsClients) {
+        if (ampOnly_.contains(client)) continue;   // scope / spectrum: not on the amp page
         client->sendBinaryMessage(data);
     }
 }
@@ -5296,6 +5347,7 @@ void webServer::broadcastTalkers()
     for (auto it = talkLastMs.constBegin(); it != talkLastMs.constEnd(); ++it)
         who.append(clientLabel(it.key()));
     for (QWebSocket *c : wsClients) {
+        if (isAmpOnly(c)) continue;
         QJsonObject o;
         o["type"] = "talkers";
         o["who"] = who;
@@ -6290,7 +6342,7 @@ void webServer::setLanInfo(bool isLan, bool connected)
     // Disconnected (by the idle timer, or the page's Disconnect button):
     // nothing left to time out.
     if (!connected && onDemandTimer_) onDemandTimer_->stop();
-    if (firstReport && !connected && !wsClients.isEmpty()) onDemandBrowserArrived();
+    if (firstReport && !connected && radioClientsPresent()) onDemandBrowserArrived();
     if (!changed) return;
     QJsonObject obj;
     obj["type"] = "lanStatus";
@@ -9668,13 +9720,15 @@ void webServer::broadcastClients()
         for (QWebSocket *c : wsClients) {
             if (isAnonGuest(c)) { guests++; continue; }
             const QString user = wsUser.value(c);
-            names << (user.isEmpty() ? clientLabel(c) : user) + (c == pttClient ? QStringLiteral(" (TX)") : QString());
+            names << (user.isEmpty() ? clientLabel(c) : user) + (c == pttClient ? QStringLiteral(" (TX)")
+                                                                   : isAmpOnly(c) ? QStringLiteral(" (amp)") : QString());
         }
         if (guests) names << QString("%1 guest%2").arg(guests).arg(guests > 1 ? "s" : "");
         QMutexLocker l(&browserNamesMutex_);
         browserNames_ = names.join(QStringLiteral(", "));
     }
     for (QWebSocket *to : wsClients) {
+        if (isAmpOnly(to)) continue;   // punch list 89: the amp page has no browser list
         const bool toGuest = isAnonGuest(to);
         QJsonArray list;
         for (QWebSocket *c : wsClients) {
@@ -9688,6 +9742,7 @@ void webServer::broadcastClients()
             e["guest"] = guest;
             e["you"] = c == to;
             e["tx"] = c == pttClient;
+            e["amp"] = isAmpOnly(c);   // punch list 89: on the amplifier page only
             e["talk"] = talkLastMs.contains(c);
             e["audio"] = audioClients.contains(c);
             list.append(e);
@@ -9816,8 +9871,8 @@ void webServer::setGuestTune(bool on)
 
 bool webServer::operatorPresent() const
 {
-    for (QWebSocket *c : wsClients)
-        if (!wsUser.value(c).isEmpty() && !isGuest(c)) return true;
+    for (QWebSocket *c : wsClients)   // the amp page (punch list 89) does not operate the radio
+        if (!wsUser.value(c).isEmpty() && !isGuest(c) && !isAmpOnly(c)) return true;
     return false;
 }
 
@@ -10023,8 +10078,11 @@ void webServer::sendRedirect(QTcpSocket *socket, const QByteArray &location, con
     socket->disconnectFromHost();
 }
 
-void webServer::serveLoginPage(QTcpSocket *socket, int status, const QString &error)
+void webServer::serveLoginPage(QTcpSocket *socket, int status, const QString &error, const QString &next)
 {
+    // Punch list 89: the one page sign-in may return to besides the radio's.
+    const QString nextField = next == QLatin1String("amp")
+        ? QStringLiteral("<input type=\"hidden\" name=\"next\" value=\"amp\">") : QString();
     QString title = instanceName_.isEmpty() ? QStringLiteral("wfweb") : instanceName_;
     QString page = QStringLiteral(R"HTML(<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -10055,20 +10113,20 @@ form.guest p.sub{margin:8px 0 0;text-align:center}
 <label for="u">User name</label><input id="u" name="user" type="text" autocomplete="username" autocapitalize="none" required autofocus>
 <label for="p">Password</label><input id="p" name="password" type="password" autocomplete="current-password" required>
 <label class="row"><input type="checkbox" name="remember" value="1" checked> Keep me signed in on this device</label>
-<button type="submit">Sign in</button>%2
+<button type="submit">Sign in</button>%2%5
 </form>%3%4</body></html>
 )HTML");
     const QString err = error.isEmpty() ? QString() : QString("<div class=\"err\" role=\"alert\">%1</div>").arg(error.toHtmlEscaped());
     // Guest view-only (setGuestView): a second form, no password.
     const QString guest = !guestView_ ? QString() : QStringLiteral(
-        "<form method=\"post\" action=\"/login\" class=\"guest\"><input type=\"hidden\" name=\"guest\" value=\"1\">"
+        "<form method=\"post\" action=\"/login\" class=\"guest\"><input type=\"hidden\" name=\"guest\" value=\"1\">%1"
         "<button type=\"submit\">View only (no password)</button>"
-        "<p class=\"sub\">See and hear the radio; nothing can be changed or transmitted.</p></form>");
+        "<p class=\"sub\">See and hear the radio; nothing can be changed or transmitted.</p></form>").arg(nextField);
     // Request access (punch list 41)
     const QString req = !allowRequests_ ? QString() : QStringLiteral(
         "<p class=\"sub\" style=\"margin:0\"><a href=\"/request\" style=\"color:#7fd3e6\">Request access</a>"
         " - the station owner approves each request</p>");
-    page = page.arg(title.toHtmlEscaped(), err, guest, req);
+    page = page.arg(title.toHtmlEscaped(), err, guest, req, nextField);
     sendHttpResponse(socket, status, status == 200 ? "OK" : (status == 429 ? "Too Many Requests" : "Unauthorized"),
                      "text/html; charset=utf-8", page.toUtf8());
 }
@@ -10079,40 +10137,42 @@ void webServer::handleLogin(QTcpSocket *socket, const QByteArray &body)
     const QString user = form.queryItemValue("user", QUrl::FullyDecoded).trimmed();
     const QString password = form.queryItemValue("password", QUrl::FullyDecoded);
     const bool remember = form.queryItemValue("remember") == "1";
+    const QString next = form.queryItemValue("next") == QLatin1String("amp") ? QStringLiteral("amp") : QString();
+    const QByteArray home = next.isEmpty() ? QByteArrayLiteral("/") : QByteArrayLiteral("/amp");
     const QString address = socket->peerAddress().toString();
     int left = 0;
     if (auth.lockedOut(address, &left)) {
         serveLoginPage(socket, 429, QString("Too many wrong passwords from this address. Try again in %1 min.")
-                                        .arg((left + 59) / 60));
+                                        .arg((left + 59) / 60), next);
         return;
     }
     if (form.queryItemValue("guest") == "1") {
         if (!guestView_) {
-            serveLoginPage(socket, 401, "View only is not available on this server.");
+            serveLoginPage(socket, 401, "View only is not available on this server.", next);
             return;
         }
         qInfo().noquote() << "Web: guest (view only) from" << address;
         QByteArray cookie = webAuth::setCookieHeader(webAuth::createSession(QLatin1String(webAuth::kGuest), false), false);
         if (!sslEnabled) cookie.replace("; Secure", "");
-        sendRedirect(socket, "/", cookie);
+        sendRedirect(socket, home, cookie);
         return;
     }
     // PBKDF2 off the web thread: audio keeps flowing to the other browsers.
     QPointer<QTcpSocket> sock(socket);
     QPointer<webServer> self(this);
-    QThreadPool::globalInstance()->start([self, sock, user, password, remember, address]() {
+    QThreadPool::globalInstance()->start([self, sock, user, password, remember, address, next, home]() {
         bool ok = webAuth::checkPassword(user, password);
         // Punch list 41: say why instead of "wrong password".
         const bool suspended = ok && webAuth::role(user) == QLatin1String("suspended");
         const bool pending = !ok && webAuth::checkRequestPassword(user, password);
         if (suspended) ok = false;
         if (!self) return;
-        QMetaObject::invokeMethod(self.data(), [self, sock, user, remember, address, ok, suspended, pending]() {
+        QMetaObject::invokeMethod(self.data(), [self, sock, user, remember, address, ok, suspended, pending, next, home]() {
             if (suspended || pending) {
                 qInfo().noquote() << "Web:" << user << (suspended ? "is suspended" : "is waiting for approval") << "- sign-in from" << address;
                 if (sock) self->serveLoginPage(sock, 401, suspended
                     ? QStringLiteral("This account is suspended. Ask the station owner.")
-                    : QStringLiteral("Your request is waiting for the station owner's approval."));
+                    : QStringLiteral("Your request is waiting for the station owner's approval."), next);
                 return;
             }
             if (ok) {
@@ -10121,16 +10181,16 @@ void webServer::handleLogin(QTcpSocket *socket, const QByteArray &body)
                 QByteArray cookie = webAuth::setCookieHeader(webAuth::createSession(user, remember), remember);
                 // Plain-HTTP fallback (no certificate): a Secure cookie would never come back.
                 if (!self->sslEnabled) cookie.replace("; Secure", "");
-                if (sock) self->sendRedirect(sock, "/", cookie);
+                if (sock) self->sendRedirect(sock, home, cookie);
             } else {
                 self->auth.recordFailure(address);
                 qWarning().noquote() << "Web: failed sign-in" << (user.isEmpty() ? QString() : "as " + user) << "from" << address;
                 int wait = 0;
                 if (!sock) return;
                 if (self->auth.lockedOut(address, &wait))
-                    self->serveLoginPage(sock, 429, QString("Too many wrong passwords from this address. Try again in %1 min.").arg((wait + 59) / 60));
+                    self->serveLoginPage(sock, 429, QString("Too many wrong passwords from this address. Try again in %1 min.").arg((wait + 59) / 60), next);
                 else
-                    self->serveLoginPage(sock, 401, "Wrong user name or password.");
+                    self->serveLoginPage(sock, 401, "Wrong user name or password.", next);
             }
         }, Qt::QueuedConnection);
     });
@@ -10429,14 +10489,14 @@ void webServer::setOnDemand(int idleSeconds)
         onDemandTimer_ = new QTimer(this);
         onDemandTimer_->setSingleShot(true);
         connect(onDemandTimer_, &QTimer::timeout, this, [this]() {
-            if (!wsClients.isEmpty() || !lanConnected) return;
+            if (radioClientsPresent() || !lanConnected) return;
             qInfo() << "On-demand: no browser for" << onDemandIdleSec_
                     << "s, releasing the rig";
             emit requestLanDisconnect();
         });
     }
     // A browser may already be connected (it raced the startup).
-    if (!wsClients.isEmpty()) onDemandBrowserArrived();
+    if (radioClientsPresent()) onDemandBrowserArrived();
 }
 
 void webServer::onDemandBrowserArrived()
@@ -10452,7 +10512,7 @@ void webServer::onDemandBrowserArrived()
 
 void webServer::onDemandBrowserLeft()
 {
-    if (onDemandIdleSec_ == 0 || !wsClients.isEmpty() || !onDemandTimer_) return;
+    if (onDemandIdleSec_ == 0 || radioClientsPresent() || !onDemandTimer_) return;
     if (!lanConnected && !onDemandPending_) return;
     qInfo() << "On-demand: last browser closed, releasing the rig in"
             << onDemandIdleSec_ << "s unless one comes back";
