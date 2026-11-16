@@ -89,12 +89,16 @@ void icomUdpCivData::reportSilence()
 void icomUdpCivData::send(QByteArray d)
 {
     //qInfo(logUdp()) << "Sending: (" << d.length() << ") " << d;
-    // Not before the server's "I am here": a frame stamped rcvdid 0 is
-    // thrown away, its retransmits (the same bytes) too, and the server then
-    // holds every later frame waiting for it - the rig never hears another
-    // command (seen after a radio switch, punch list 73). The commander's ID
-    // probe repeats every 500 ms and the queue re-polls, so dropping is safe.
-    if (remoteId == 0) {
+    // Not before the stream is open: the radio's "I am ready" and our
+    // open request (sendOpenClose) come first, as in wfview. A frame sent
+    // earlier is thrown away, its retransmits (the same bytes) too, and the
+    // radio then holds every later frame waiting for it - the rig never
+    // hears another command (punch list 73). "I am here" alone (remoteId
+    // set) is not enough: a frame between it and "I am ready" took the
+    // first inner sequence number ahead of the open request, and the
+    // IC-9700 never sent one CI-V byte (punch list 86e). The commander's
+    // probe repeats and the queue re-polls, so dropping is safe.
+    if (!gotReady || remoteId == 0) {
         qDebug(logUdp()) << "icomUdpCivData: stream not open yet, CI-V frame dropped";
         framesDropped++;
         return;

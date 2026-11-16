@@ -1685,6 +1685,20 @@ TUNE state after a mock radio reconnect matches the radio.
        the same path as --civ) instead of querying; an unknown address still
        probes there. Log: "LAN: the server gives CI-V address 0xa2 for this
        radio (IC-9700) - using it without the ID query".
+    e. 1.0.156 log (2026-11-15 21:54): the model loads from A2 at once,
+       polling starts, audio runs, and the CI-V stream still gets nothing
+       (37 s, 342 open requests, no retransmit request, no data). The
+       difference from wfview: the guard in icomUdpCivData::send only
+       waited for "I am here" (remoteId set), so a CI-V frame (16 44, at
+       14.121) went out 25 ms before the radio's "I am ready" (14.146),
+       ahead of our open request - it took the first inner sequence
+       number, and the radio never opened the stream. 86d made polling
+       start earlier, so the window was always hit; with Auto the 19 00
+       probe could land in it the same way, which fits wfview failing on
+       Auto too, and fits 84 (one reply, then silence, after a switch).
+       Fix: send() drops frames until "I am ready" is in and the open
+       request has gone (gotReady), as wfview orders it. Check the next
+       log for "icomUdpCivData: first CI-V data from the radio".
 
 85. No RADIO menu on the Disconnected screen (user, 2026-11-16, screen
     shot; small). After DISCONNECT (punch list 30) the screen offered only
