@@ -358,6 +358,30 @@ def test_tx_lock(server):
         b.close()
 
 
+def test_disconnect_leaves_radio_to_other_user(server):
+    """Punch list 87b: one user's DISCONNECT (leaveSession) does not take the
+    radio from another signed-in user - only this browser leaves."""
+    base, port, _, radio = server
+    tok_tom = _login(base, "tom", PASSWORD).cookies["wfweb_session"]
+    tok_amy = _login(base, "amy", "amy-password").cookies["wfweb_session"]
+    st, a, abuf = _ws(port, tok_tom)
+    assert " 101" in st
+    st, b, bbuf = _ws(port, tok_amy)
+    assert " 101" in st
+    ra = _Reader(a, abuf)
+    try:
+        assert _drain_until(ra, lambda m: m.get("type") == "rigInfo")
+        assert radio._writer is not None
+        _ws_send(a, {"cmd": "leaveSession"})
+        r = _drain_until(ra, lambda m: m.get("type") == "leaveResult")
+        assert r and r["released"] is False and r.get("otherUsers") == "amy", r
+        time.sleep(1.0)
+        assert radio._writer is not None, "tom's DISCONNECT released the radio amy is using"
+    finally:
+        a.close()
+        b.close()
+
+
 def test_intercom(server):
     """While tom transmits: amy on OPERATOR hears tom's microphone (flagged
     as intercom) instead of the receiver; on ON-AIR she hears the radio,
