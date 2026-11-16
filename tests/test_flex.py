@@ -1057,10 +1057,11 @@ def test_reconnect_resumes_slice():
 
 
 def test_disconnect_button_releases():
-    """The page's DISCONNECT (leaveSession): the server decides. With another
-    signed-in browser on, this one leaves and the radio stays; as the last
-    one, the radio is released at once (not after the on-demand wait - 30 s
-    here, so a release can only come from the button)."""
+    """The page's DISCONNECT (leaveSession) releases the radio at once (not
+    after the on-demand wait - 30 s here, so a release can only come from
+    the button), with another signed-in browser on too (punch list 87): that
+    one is told (radioReleased) and its Connect (reconnectLan) brings the
+    radio back; its own DISCONNECT, as the last one, releases it again."""
     if not WFWEB_BIN.exists():
         pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
     from test_web_login import _Reader, _ws, _ws_send
@@ -1097,25 +1098,37 @@ def test_disconnect_button_releases():
                      timeout=30), "wfweb did not start"
         st, a, abuf = _ws(web_port, None)
         assert " 101" in st, st
-        st, b, _ = _ws(web_port, None)
+        st, b, bbuf = _ws(web_port, None)
         assert " 101" in st, st
         assert _wait(lambda: radio.find("slice create"), timeout=15), "no radio session"
         assert _wait(lambda: requests.get(f"{rest}/info", timeout=2).json().get("connected"), timeout=15)
         reader = _Reader(a, abuf)
+        breader = _Reader(b, bbuf)
 
         _ws_send(a, {"cmd": "leaveSession"})
         r = result(reader)
-        assert r and r["released"] is False and r["others"] == 1, r
-        time.sleep(1.0)
-        assert radio._writer is not None, "released while another browser is on"
+        assert r and r["released"] is True and r["others"] == 1, r
+        assert _wait(lambda: radio._writer is None, timeout=5), \
+            "DISCONNECT with another browser on did not release the radio"
+        told = None
+        for text in breader.frames(5.0):
+            m = json.loads(text)
+            if m.get("type") == "radioReleased":
+                told = m
+                break
+        assert told and told.get("by"), "the other browser was not told"
+        a.close()
 
-        b.close()
-        time.sleep(1.0)
-        _ws_send(a, {"cmd": "leaveSession"})
-        r = result(reader)
+        # The other browser's Connect brings it back; it stays while b is on.
+        _ws_send(b, {"cmd": "reconnectLan"})
+        assert _wait(lambda: radio._writer is not None, timeout=15), "Connect did not reopen the radio"
+        assert _wait(lambda: requests.get(f"{rest}/info", timeout=2).json().get("connected"), timeout=15)
+
+        _ws_send(b, {"cmd": "leaveSession"})
+        r = result(breader)
         assert r and r["released"] is True and r["others"] == 0, r
         assert _wait(lambda: radio._writer is None, timeout=5), "the last browser's DISCONNECT did not release the radio"
-        a.close()
+        b.close()
     finally:
         proc.terminate()
         try:

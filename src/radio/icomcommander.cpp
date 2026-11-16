@@ -171,6 +171,7 @@ void icomCommander::commSetup(QHash<quint16,rigInfo> rigList, quint16 rigCivAddr
     connect(this, SIGNAL(haveChangeLatency(quint16)), udp, SLOT(changeLatency(quint16)));
     connect(this, SIGNAL(haveSetVolume(quint8)), udp, SLOT(setVolume(quint8)));
     connect(udp, SIGNAL(haveBaudRate(quint32)), this, SLOT(receiveBaudRate(quint32)));
+    connect(udp, SIGNAL(haveCivAddress(quint8)), this, SLOT(receiveLanCivAddr(quint8)));
     // Connect for errors/alerts
     connect(udp, SIGNAL(haveNetworkError(errorType)), this, SLOT(handlePortError(errorType)));
     connect(udp, SIGNAL(haveNetworkStatus(networkStatus)), this, SLOT(handleStatusUpdate(networkStatus)));
@@ -580,6 +581,18 @@ toneInfo icomCommander::decodeTone(QByteArray eTone)
         t.rinv = true;
 
     return t;
+}
+
+// Punch list 86: the LAN server's CI-V address for the chosen radio. Used
+// only while the address is still the auto-detect broadcast (0): a CI-V
+// address given in the settings or on the command line wins, and so does
+// the address a reply has already come from.
+void icomCommander::receiveLanCivAddr(quint8 civ)
+{
+    if (civ == 0 || foundRig || civAddr != 0) return;
+    qInfo(logRig()).noquote() << QString("LAN: the server gives CI-V address 0x%1 for this radio - probing and powering on there instead of 0x00")
+                                     .arg(civ, 2, 16, QChar('0'));
+    setCIVAddr(civ);
 }
 
 void icomCommander::setCIVAddr(quint16 civAddr)
