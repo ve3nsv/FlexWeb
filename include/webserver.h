@@ -352,6 +352,19 @@ private:
     quint16 webHttpsPort = 0;          // configured HTTPS/web-UI port, for the REST signpost (#69)
     QWebSocketServer *wsServer = nullptr;
     QList<QWebSocket *> wsClients;
+    // Punch list 89: browsers on the amplifier page (/amp.html, WebSocket
+    // "?amp=1"). They see the amp and control it with the same rights as on
+    // the radio page, but they are not radio users: they neither connect the
+    // radio on demand nor keep it held, are not counted by DISCONNECT, and get
+    // only the amp messages (ampOnlyTypes) - no scope, meters or audio.
+    QSet<QWebSocket *> ampOnly_;
+    bool isAmpOnly(QWebSocket *c) const { return ampOnly_.contains(c); }
+    // Any browser that uses the radio (not only the amp page).
+    bool radioClientsPresent() const {
+        for (QWebSocket *c : wsClients) if (!ampOnly_.contains(c)) return true;
+        return false;
+    }
+    void sendAmpPageState(QWebSocket *client);
     // Web login (webAuth): who each browser is signed in as.
     webAuth auth;
     QHash<QWebSocket *, QString> wsUser;
@@ -447,7 +460,9 @@ private:
     void ntpReadyRead();
     QJsonObject timeStatusJson() const;
     bool restAuthorized(QTcpSocket *socket, const QByteArray &headers);
-    void serveLoginPage(QTcpSocket *socket, int status, const QString &error);
+    // next: the page to return to after sign-in; only "amp" (punch list 89)
+    // is honoured, anything else goes to the radio page.
+    void serveLoginPage(QTcpSocket *socket, int status, const QString &error, const QString &next = QString());
     void handleLogin(QTcpSocket *socket, const QByteArray &body);
     void sendRedirect(QTcpSocket *socket, const QByteArray &location, const QByteArray &extraHeader = QByteArray());
     cachingQueue *queue = nullptr;

@@ -1,6 +1,7 @@
 <RCC>
     <qresource prefix="/web">
         <file alias="index.html">web/index.html</file>
+        <file alias="amp.html">web/amp.html</file>
         <file alias="debug.html">web/debug.html</file>
         <file alias="packet.js">web-shared/packet.js</file>
         <file alias="transport/rig-transport.js">web-shared/transport/rig-transport.js</file>

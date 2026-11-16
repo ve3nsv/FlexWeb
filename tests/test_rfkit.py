@@ -479,3 +479,82 @@ def test_amp_fault_shows_fast_in_tx_and_rx(bench):
         assert gets[i + 1] == "/data", gets
     finally:
         sock.close()
+
+
+def test_amp_page_does_not_hold_the_radio(bench):
+    """Punch list 89: the amplifier page (/amp, WebSocket "?amp=1") shows the
+    amp and controls it with the radio page's rights, but it is not a radio
+    user: with --on-demand it does not connect the radio, it gets the amp
+    messages only (no rig updates, no scope frames), and DISCONNECT on the
+    radio page does not count it. Sign-in from /amp comes back to /amp."""
+    env, radio, amp, procs = bench
+    add = subprocess.run([str(WFWEB_BIN), "--add-user", "tom"], input=b"tom-password-1\n",
+                         capture_output=True, env=env, timeout=20)
+    assert add.returncode == 0, add.stdout + add.stderr
+    proc, port = _start(env, radio, amp, ("--on-demand", "2"))
+    procs.append(proc)
+    base = f"https://127.0.0.1:{port}"
+
+    # Signed out: /amp goes to the sign-in page and back to /amp after it.
+    r = requests.get(base + "/amp", verify=False, allow_redirects=False, timeout=5)
+    assert r.status_code in (302, 303) and r.headers["Location"] == "/login?next=amp", (r.status_code, r.headers)
+    page = requests.get(base + "/login?next=amp", verify=False, timeout=5).text
+    assert 'name="next" value="amp"' in page
+    r = requests.post(base + "/login", data={"user": "tom", "password": "tom-password-1", "remember": "1",
+                                             "next": "amp"}, verify=False, allow_redirects=False, timeout=10)
+    assert r.headers.get("Location") == "/amp", r.headers
+    tom = r.cookies["wfweb_session"]
+    # Any other "next" is ignored: no redirect off the server.
+    r = requests.post(base + "/login", data={"user": "tom", "password": "tom-password-1",
+                                             "next": "https://example.com/"},
+                      verify=False, allow_redirects=False, timeout=10)
+    assert r.headers.get("Location") == "/", r.headers
+    r = requests.get(base + "/amp", verify=False, cookies={"wfweb_session": tom}, timeout=5)
+    assert r.status_code == 200 and 'id="antRow"' in r.text
+
+    st, a, abuf = _ws(port, tom, "/?amp=1")
+    assert " 101" in st
+    ra = _Reader(a, abuf)
+    b = None
+    try:
+        seen = []
+        info = _drain_until(ra, lambda m: seen.append(m.get("type")) or m.get("type") == "ampPageInfo")
+        assert info and info["webUser"] == "tom" and info["ampConfigured"], info
+        assert _drain_until(ra, lambda m: seen.append(m.get("type")) or (m.get("type") == "amp" and m.get("connected")),
+                            timeout=15), "the amp page never got the amp"
+        # Same rights as the radio page: a signed-in user, nobody keyed.
+        _ws_send(a, {"cmd": "ampOperate", "value": True})
+        assert _wait(lambda: ("/operate-mode", '{"operate_mode":"OPERATE"}') in amp.puts, timeout=5), amp.puts
+        # The radio stays untouched, and only amp messages arrive.
+        binary = 0
+        for op, payload in ra.all(3.0):
+            if op == 2:
+                binary += 1
+            elif op == 1:
+                seen.append(json.loads(payload).get("type"))
+        assert not radio.commands, "the amp page connected the radio"
+        assert binary == 0, f"{binary} binary frames (scope / audio) reached the amp page"
+        assert set(t for t in seen if t) <= {"ampPageInfo", "amp", "ampRefused", "txState", "serverLoad"}, seen
+
+        # The radio page connects the radio; its DISCONNECT releases it with
+        # the amp page still open (not counted as another user or browser).
+        st, b, bbuf = _ws(port, tom)
+        assert " 101" in st
+        rb = _Reader(b, bbuf)
+        assert _wait(lambda: radio.find("slice create"), timeout=15), "the radio page did not connect the radio"
+        assert _drain_until(rb, lambda m: m.get("type") == "rigInfo", timeout=10)
+        _ws_send(b, {"cmd": "leaveSession"})
+        res = _drain_until(rb, lambda m: m.get("type") == "leaveResult", timeout=10)
+        assert res and res["released"] and res["others"] == 0, res
+        assert _wait(lambda: radio._writer is None, timeout=10), "the radio was not released"
+        b.close()
+        b = None
+        # The amp page is still served and the amp still polled.
+        n = len(amp.gets)
+        assert _wait(lambda: len(amp.gets) > n + 2, timeout=5), "amp polling stopped with the amp page open"
+        time.sleep(3)
+        assert radio._writer is None, "the amp page brought the radio back"
+    finally:
+        a.close()
+        if b:
+            b.close()

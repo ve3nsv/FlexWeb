@@ -49,15 +49,16 @@ def _wait(pred, timeout=20.0):
     return None
 
 
-def _ws(port: int, cookie: str | None):
-    """WebSocket handshake on the HTTPS port; returns (status line, socket)."""
+def _ws(port: int, cookie: str | None, path: str = "/"):
+    """WebSocket handshake on the HTTPS port; returns (status line, socket).
+    path "/?amp=1" is the amplifier page's connection (punch list 89)."""
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
     sock = ctx.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=5))
     key = base64.b64encode(os.urandom(16)).decode()
     extra = f"Cookie: wfweb_session={cookie}\r\n" if cookie else ""
-    sock.sendall((f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
+    sock.sendall((f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n"
                   f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n{extra}"
                   "Sec-WebSocket-Version: 13\r\n\r\n").encode())
     head = b""
