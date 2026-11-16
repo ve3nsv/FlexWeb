@@ -1618,6 +1618,35 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+85. No RADIO menu on the Disconnected screen (user, 2026-11-16, screen
+    shot; small). After DISCONNECT (punch list 30) the screen offered only
+    RECONNECT, which comes back to the same radio; choosing another radio
+    took a browser refresh to reach the splash's list.
+    Done: the Disconnected screen carries the RADIO choices (the same
+    .radio-choices row as the splash and the power-off screen) when the
+    server has several radios. A tap reconnects; a radio other than the
+    last one is selected (selectRadio) once the reconnected socket's
+    rigInfo is in (radioPickAfterReconnect), the current one just
+    reconnects. With --on-demand the server opens the last radio on that
+    connect and the switch then closes it, as a switch from the page does.
+
+84. Icom LAN: after a RADIO switch the next radio's CI-V stays silent
+    until the server is restarted (user, 2026-11-15, 1.0.146; medium,
+    diagnosis open). 20:12 log: start on the IC-9700 (direct LAN, login,
+    audio and "I am here" on the CI-V stream, but no CI-V data - the 9700
+    probably off), switch to the IC-7300 via the Acer's RS-BA1 server:
+    login, audio and CI-V "I am here" again, one CI-V reply 220 ms after
+    the power-on command ("Valid response while rigPoweredOn=false"),
+    then "CIV Watchdog: no CIV data received for 2s" and silence. Stop +
+    start the server, IC-7300 first: it works. Same pattern at 19:24/
+    19:31 (7300 -> 9700 -> 7300, then a fresh start that also failed).
+    To find: whether the server-side session of the previous radio or
+    something carried across switchRadio (queue, power-probe state,
+    icomUdpCivData sequence / retransmit state, the "power off" state
+    from the first radio) keeps the next radio's CI-V from flowing.
+    Reproduce against two mock_radio.py instances: the first answers the
+    login but never CI-V, switch, the second must identify within 5 s.
+
 83. Icom LAN login refused: the page is not told, the probe never stops
     (user, 2026-11-15, 1.0.142 log; small). IC-9700 direct over a
     Tailscale route: "I am here" / "I am ready" from 192.168.25.217, then

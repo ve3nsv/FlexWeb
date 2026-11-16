@@ -138,6 +138,10 @@ body.guest-view:not(.guest-tune) .gain-row:not(.rx-vol-row) .gain-bar-fill { opa
 #discScreen b { font-size: 22px; color: #0aa; }
 #discScreen button { padding: 14px 44px; font-size: 18px; font-weight: bold; color: #000; border: none;
     border-radius: 8px; cursor: pointer; background: linear-gradient(135deg, #0aa 0%, #088 100%); }
+/* Punch list 85: the RADIO choices on it look as on the splash */
+#discScreen .radio-choices button { padding: 7px 14px; font-size: 13px; font-weight: normal; color: #ccc;
+    background: transparent; border: 1px solid #444; border-radius: 6px; }
+#discScreen .radio-choices button.cur { color: #0cf; border-color: #0aa; cursor: pointer; }
 #guestNotice {
     position: fixed; left: 50%; top: 52px; transform: translateX(-50%); z-index: 500;
     padding: 7px 14px; border-radius: 5px; background: #2b2110; color: #ffd27a;
@@ -4028,8 +4032,10 @@ function disconnectSession() {
     var sc = document.createElement('div');
     sc.id = 'discScreen';
     sc.innerHTML = '<b>Disconnected</b><div id="discText">Leaving\u2026</div>' +
-        '<button type="button" id="discReconnect">RECONNECT</button>';
+        '<button type="button" id="discReconnect">RECONNECT</button>' +
+        '<div class="radio-choices"></div>';
     document.body.appendChild(sc);
+    renderRadioChoices();   // punch list 85: another radio straight from here
     document.getElementById('discReconnect').onclick = reconnectSession;
     // The server decides whether this was the last browser and releases the
     // radio (leaveResult); the socket closes once it has answered.
@@ -4052,6 +4058,9 @@ function disconnectSession() {
     setTimeout(function () { finish(null); }, 2000);
 }
 var leaveWaiter = null;
+// Punch list 85: a radio picked on the Disconnected screen; sent once the
+// reconnected socket has its rigInfo.
+var radioPickAfterReconnect = -1;
 function reconnectSession() {
     var sc = document.getElementById('discScreen');
     if (sc) sc.remove();
@@ -4323,6 +4332,11 @@ function handleMessage(msg) {
             if (msg.reporterMessage !== undefined) setReporterMessageField(msg.reporterMessage);
             if (msg.ampConfigured !== undefined) { ampConfigured = !!msg.ampConfigured; renderAmpIndicator(); }
             if (msg.radios) { radioList = msg.radios; radioIndex = msg.radioIndex; updateRadioTag(); }
+            if (radioPickAfterReconnect >= 0) {
+                var rp = radioPickAfterReconnect;
+                radioPickAfterReconnect = -1;
+                if (msg.radios && rp !== msg.radioIndex && rp < msg.radios.length) pickRadio(rp);
+            }
             if (msg.version) {
                 serverVersion = msg.version;
                 var el = document.getElementById('splashVersion');
@@ -8553,6 +8567,12 @@ function applyPagePrefs(pp) {
 }
 
 function pickRadio(i) {
+    if (sessionClosed) {           // punch list 85: from the Disconnected screen
+        if (guestView) return false;
+        radioPickAfterReconnect = i === radioIndex ? -1 : i;
+        reconnectSession();
+        return true;
+    }
     if (i === radioIndex) return false;
     if (guestView) { guestNotice(); return false; }
     if (isTransmitting) { guestNotice('Not while transmitting - unkey first', 4000); return false; }
@@ -8572,7 +8592,8 @@ function renderRadioChoices() {
             var b = document.createElement('button');
             b.textContent = r.name;
             b.className = i === radioIndex ? 'cur' : '';
-            b.title = i === radioIndex ? 'In use' : 'Switch to ' + r.name;
+            b.title = sessionClosed ? (i === radioIndex ? 'Reconnect to ' : 'Connect to ') + r.name
+                : i === radioIndex ? 'In use' : 'Switch to ' + r.name;
             b.addEventListener('click', function (e) { e.stopPropagation(); pickRadio(i); });
             box.appendChild(b);
         });
