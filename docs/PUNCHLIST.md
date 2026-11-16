@@ -1536,7 +1536,12 @@ TUNE state after a mock radio reconnect matches the radio.
     "IC-9700 refused the user name or password - check MENU > SET >
     Network > Network User1 on the radio") and the probe stops until the
     next connect / RADIO switch. The launcher already shows it
-    (LanLoginFailed). Test: mock_radio.py answering a wrong login.
+    (LanLoginFailed). Same for a login that gets no answer at all
+    (2026-11-15 19:24 log: IC-7300 via the Acer, "Sending login packet"
+    and then silence for 28 s, no line saying so): after ~5 s without a
+    login reply, log "LAN: <host> answered but did not reply to the
+    login" and tell the page. Test: mock_radio.py answering a wrong
+    login, and one that never answers the login.
 
 82. Launcher kept "Rig: FLEX-6400" after the page's DISCONNECT (user,
     2026-11-12, 1.0.142; small). The server had released the Flex
