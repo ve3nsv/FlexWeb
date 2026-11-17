@@ -1304,3 +1304,74 @@ def test_smartlink():
                 proc.kill()
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=2)
+
+
+def test_mic_level_kept_across_connections():
+    """Punch list 90: on a Flex the MIC slider is FlexWeb's own gain on the
+    browser mic, and flexCommander starts every connection at 75 %. The
+    level the operator set comes back after the radio is released and
+    connected again; the digital modes' temporary level (temp) is not kept."""
+    if not WFWEB_BIN.exists():
+        pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
+    import tempfile
+    from test_web_login import _Reader, _ws, _ws_send
+
+    loop = asyncio.new_event_loop()
+    radio = MockFlexRadio()
+    loop.run_until_complete(radio.start())
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+
+    web_port = _free_port()
+    rest = f"http://127.0.0.1:{web_port + 1}/api/v1/radio"
+    home = tempfile.mkdtemp(prefix="wfweb-flex-mic-")
+    env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=f"{home}/.config", WFWEB_NO_TUI="1")
+    proc = subprocess.Popen(
+        [str(WFWEB_BIN), "-p", str(web_port), "--manufacturer", "3",
+         "--lan", "127.0.0.1",
+         "--lan-control", str(radio.control_port),
+         "--lan-audio", str(radio.vita_port),
+         "--on-demand", "30"],
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
+
+    def mic_levels(reader, secs):
+        out = []
+        for text in reader.frames(secs):
+            m = json.loads(text)
+            if "micGain" in m:
+                out.append(m["micGain"])
+        return out
+
+    def connected():
+        return requests.get(f"{rest}/info", timeout=2).json().get("connected")
+
+    try:
+        assert _wait(lambda: requests.get(f"{rest}/info", timeout=2).status_code == 200,
+                     timeout=30), "wfweb did not start"
+        st, a, abuf = _ws(web_port, None)
+        assert " 101" in st, st
+        reader = _Reader(a, abuf)
+        assert _wait(connected, timeout=15), "no radio session"
+        mic_levels(reader, 2.0)
+
+        _ws_send(a, {"cmd": "setMicGain", "value": 100})
+        assert 100 in mic_levels(reader, 3.0), "the MIC level was not applied"
+        # The digital modes' level must not replace the operator's.
+        _ws_send(a, {"cmd": "setMicGain", "value": 192, "temp": True})
+        assert 192 in mic_levels(reader, 3.0)
+
+        _ws_send(a, {"cmd": "leaveSession"})
+        assert _wait(lambda: radio._writer is None, timeout=10), "the radio was not released"
+        _ws_send(a, {"cmd": "reconnectLan"})
+        assert _wait(connected, timeout=20), "the radio did not come back"
+        levels = mic_levels(reader, 5.0)
+        assert levels and levels[-1] == 100, f"MIC level after reconnecting: {levels}"
+        a.close()
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=2)

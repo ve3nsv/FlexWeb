@@ -1525,6 +1525,18 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+90. The Flex's MIC level resets on every connection (user, 2026-11-17;
+    small). On a Flex the MIC slider is FlexWeb's own gain on the browser
+    mic (flexCommander::modLevel, 75 % = unity) - no radio setting holds
+    it - and flexCommander is rebuilt on every connect (on demand, a RADIO
+    switch), so it came back at 75 % each time. Done: webServer's
+    setMicGain keeps it per radio profile in QSettings("wfweb","flex")
+    MicGain/<profile>, and receiveRigCaps puts it back when a Flex
+    connects ("Web: Flex MIC level N %" in the log). The FT8 / JS8 panels'
+    temporary level is sent with temp and not kept. An Icom's USB MOD
+    level is the radio's own setting and is untouched.
+    tests/test_flex.py test_mic_level_kept_across_connections.
+
 89. The amplifier on a page of its own (user, 2026-11-16; medium). The
     RF2K-S panel as a separate tab or a phone next to the amp, with the
     same rights as on the radio page, while someone else may be using the

@@ -14337,7 +14337,9 @@ function toggleDigiBar() {
         // Set USB Mod Level to 75% for DIGI; save previous value
         var slider = document.getElementById('micGainSlider');
         digiSavedModLevel = slider ? parseInt(slider.value) : -1;
-        throttledSend('micGain', 'setMicGain', DIGI_MOD_LEVEL);
+        // temp: the digital modes' own level, not saved as the operator's (punch list 90)
+        if (sliderTimers.micGain) clearTimeout(sliderTimers.micGain);
+        send({ cmd: 'setMicGain', value: DIGI_MOD_LEVEL, temp: true });
         updateSlider('micGain', DIGI_MOD_LEVEL);
         ALC_SMOOTHED = 0; // reset ALC filter for new session
         // Tune to the FT8/FT4 frequency for the current band
