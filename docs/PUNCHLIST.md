@@ -1544,6 +1544,19 @@ TUNE state after a mock radio reconnect matches the radio.
     sign-in returns there (only "amp" is honoured as next). The browser
     list tags it "amp page". tests/test_rfkit.py
     test_amp_page_does_not_hold_the_radio.
+    b. User, 2026-11-17 (screen shots): with the IC-9700 selected the amp
+       page said "no amplifier set up on this server", and the splash /
+       power-off screen had no way to it. The amp went with the Flex's
+       profile only (73b), so another radio left the server without one.
+       Done: servermain::stationAmp - a profile's own amp, else the one amp
+       another profile names - so the amp stays configured whatever radio
+       is selected; a switch that keeps the same amp keeps its connection
+       (configureRfkit returns early: no request dropped mid-way). Only the
+       radio that owns the amp keys it (webServer::setAmpOwnedByRig: rig TX
+       status, the Flex interlock and kickFast are ignored for another
+       radio). The RADIO row of the splash, power-off and Disconnected
+       screens has an AMP button (shown without a RADIO list too) that
+       opens /amp.
 
 88. "Powering on, please wait" spins for ever (user, 2026-11-16, screen
     shot of the IC-9700; small). A radio that never answers Power On left

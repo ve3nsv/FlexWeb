@@ -2534,7 +2534,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
             queue->add(priorityImmediate, queueItem(funcTransceiverStatus, QVariant::fromValue<bool>(on), false, uchar(0)));
         // The amp's fast schedule starts with the request, before the radio
         // reports TRANSMITTING, so the first readings are not missed.
-        if (on && rfkit_) rfkit_->kickFast();
+        if (on && rfkit_ && ampOwnedByRig_) rfkit_->kickFast();
         pttClient = on ? client : nullptr;
         broadcastTxState();
         updateAutoMon();
@@ -3076,7 +3076,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
                 return;
             }
             pttClient = on ? client : nullptr;
-            if (on && rfkit_) rfkit_->kickFast();
+            if (on && rfkit_ && ampOwnedByRig_) rfkit_->kickFast();
             broadcastTxState();
             // Punch list 53 / 54c: the TUNE carrier takes the same fenced lane as PTT.
             const QString who = clientLabel(client);
@@ -4750,7 +4750,7 @@ void webServer::receiveCache(cacheItem item)
         break;
     case funcTransceiverStatus:
         nnrTx_ = item.value.toBool();
-        if (ampTxRig_ != nnrTx_) { ampTxRig_ = nnrTx_; updateAmpTx(); }
+        if (ampTxRig_ != (nnrTx_ && ampOwnedByRig_)) { ampTxRig_ = nnrTx_ && ampOwnedByRig_; updateAmpTx(); }
         // Not here: a queue call from inside receiveCache can deadlock on
         // an echo (CLAUDE.md, BAND picker) - posted, it runs after return.
         if (nnrTx_ != txMetersPolled_)
@@ -7886,9 +7886,19 @@ void webServer::wsjtxSendDecode(const QJsonObject &cmd)
     wsjtxSendDatagram(WsjtxMessage::decode(wsjtxId_, d));
 }
 
+void webServer::setAmpOwnedByRig(bool owned)
+{
+    ampOwnedByRig_ = owned;
+    if (!owned) { ampTxRig_ = false; ampTxAir_ = false; }
+    updateAmpTx();
+}
+
 void webServer::configureRfkit(const QString &target)
 {
     using namespace AetherSDR;
+    // Punch list 89b: a radio switch that keeps the same amp keeps its
+    // connection - the RF2K-S must never have a request dropped mid-way.
+    if (rfkit_ && target.trimmed() == rfkitTarget_) return;
     rfkitTarget_ = target.trimmed();
     ampSilentSinceMs_ = 0;
     if (rfkit_) {
@@ -10607,7 +10617,7 @@ void webServer::onRadioSwitched(int index, QString who)
 
 void webServer::onFlexOnAir(bool onAir)
 {
-    ampTxAir_ = onAir;
+    ampTxAir_ = onAir && ampOwnedByRig_;
     updateAmpTx();
     QJsonObject o;
     o["type"] = "onAir";

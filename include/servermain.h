@@ -258,6 +258,10 @@ private:
     int profileIndex = -1;
     void loadProfiles();
     void applyProfile(int index);
+    // Punch list 89b: the amp for this profile - its own, else the one amp
+    // another profile names (the station's), so the amp page works whatever
+    // radio is selected.
+    QString stationAmp(int index) const;
     void sendProfilesToWeb();
     void closeCurrentRig();
 
