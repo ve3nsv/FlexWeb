@@ -2254,7 +2254,8 @@ body.amp-noanswer #ampBody .amp-tile { opacity: 0.45; filter: grayscale(1); }
 .amp-error-banner { margin: 6px 12px 0; padding: 5px 8px; border-radius: 4px; background: #6e1a1a;
     border: 1px solid #e53935; color: #ffe8e8; font: 700 11px var(--font-ui, sans-serif); letter-spacing: 0.4px; }
 #ampOverlay .amp-error-banner { margin: 6px auto; max-width: 720px; box-sizing: border-box; }
-.amp-lock-note { color: var(--ae-text-dim, #889); font-size: 11px; }
+.amp-lock-note { color: var(--ae-text-dim, #889); font-size: 11px; line-height: 15px; height: 15px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #ampOverlay .amp-lock-note { margin: 4px auto 6px; max-width: 720px; }
 .ae-amp-ctl { display: flex; align-items: center; gap: 8px; padding: 6px 12px 0; flex-wrap: wrap; }
 .amp-ctl-rows { padding: 6px 12px 0; display: flex; flex-direction: column; gap: 5px; }
@@ -9267,7 +9268,12 @@ function ampControlRows(a, lock) {
     r2.insertBefore(lbl, r2.firstChild);
     box.appendChild(r2);
     var note = lock || (tb && !isTransmitting && a.tuneAllowed && !/TUNING/i.test(a.tuner || '') ? 'Key TUNE first, then TUNE' : '');
-    if (note) { var nt = document.createElement('div'); nt.className = 'amp-lock-note'; nt.textContent = note; box.appendChild(nt); }
+    // Punch list 89d: the line is always there (empty when there is nothing
+    // to say). Coming and going with TX, it moved everything under the
+    // applet - the TX CONTROLS' TUNE button jumped a line when pressed.
+    var nt = document.createElement('div'); nt.className = 'amp-lock-note';
+    nt.textContent = note || '\u00a0'; nt.title = note;
+    box.appendChild(nt);
     return box;
 }
 
@@ -14697,7 +14703,9 @@ function toggleDigiBar() {
         // Set USB Mod Level to 75% for DIGI; save previous value
         var slider = document.getElementById('micGainSlider');
         digiSavedModLevel = slider ? parseInt(slider.value) : -1;
-        throttledSend('micGain', 'setMicGain', DIGI_MOD_LEVEL);
+        // temp: the digital modes' own level, not saved as the operator's (punch list 90)
+        if (sliderTimers.micGain) clearTimeout(sliderTimers.micGain);
+        send({ cmd: 'setMicGain', value: DIGI_MOD_LEVEL, temp: true });
         updateSlider('micGain', DIGI_MOD_LEVEL);
         ALC_SMOOTHED = 0; // reset ALC filter for new session
         // Tune to the FT8/FT4 frequency for the current band

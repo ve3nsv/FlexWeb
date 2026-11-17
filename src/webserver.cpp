@@ -575,6 +575,18 @@ static bool powerOnNeedsRemoteJack(const rigCapabilities *caps)
 void webServer::receiveRigCaps(rigCapabilities *caps)
 {
     rigCaps = caps;
+    // Punch list 90: the Flex's MIC level as the operator last set it
+    // (flexCommander starts every connection at 75 %).
+    if (rigCaps && rigCaps->manufacturer == manufFlexRadio && queue) {
+        QSettings st(QStringLiteral("wfweb"), QStringLiteral("flex"));
+        const QVariant v = st.value(QStringLiteral("MicGain/") + pagePrefsRadioKey());
+        if (v.isValid()) {
+            const ushort level = ushort(qBound(0, v.toInt(), 255));
+            qInfo().noquote() << QString("Web: Flex MIC level %1 % (saved for \"%2\")")
+                                     .arg(qRound(level * 100.0 / 255)).arg(pagePrefsRadioKey());
+            queue->addUnique(priorityImmediate, queueItem(funcUSBModLevel, QVariant::fromValue<ushort>(level), false, 0));
+        }
+    }
     tunerRejected = false;   // new rig, new evidence
     txMetersPolled_ = false; // a new rig's queue holds no TX meter polls
     // Each rig keeps its own local channel list, so swapping radios doesn't
@@ -2562,6 +2574,13 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     else if (type == "setMicGain") {
         ushort val = static_cast<ushort>(qBound(0, cmd["value"].toInt(), 255));
         queue->addUnique(priorityImmediate, queueItem(funcUSBModLevel, QVariant::fromValue<ushort>(val), false, 0));
+        // Punch list 90: on a Flex this level is FlexWeb's own gain on the
+        // browser mic (no radio setting holds it), so it is kept per radio
+        // and put back when the Flex connects. Not the digital modes' level.
+        if (rigCaps && rigCaps->manufacturer == manufFlexRadio && !cmd["temp"].toBool()) {
+            QSettings st(QStringLiteral("wfweb"), QStringLiteral("flex"));
+            st.setValue(QStringLiteral("MicGain/") + pagePrefsRadioKey(), int(val));
+        }
     }
     else if (type == "setAttenuator") {
         uchar val = static_cast<uchar>(qBound(0, cmd["value"].toInt(), 255));
