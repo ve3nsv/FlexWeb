@@ -18,6 +18,14 @@ from pathlib import Path
 import pytest
 import requests
 
+import tempfile
+
+# Web users and the SmartLink sign-in live in ini files in an empty
+# directory for every wfweb a test starts (tests copy os.environ), so a
+# test never inherits users from the machine (macOS QSettings ignores
+# $HOME) and login stays off unless a test sets its own directory.
+os.environ["WFWEB_CONFIG_DIR"] = tempfile.mkdtemp(prefix="wfweb-test-config-")
+
 from mock_radio import MockIcomRadio
 from mock_serial_radio import SerialMockRadio
 

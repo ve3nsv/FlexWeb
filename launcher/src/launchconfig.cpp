@@ -15,6 +15,12 @@ QStringList LaunchConfig::toArguments(const QString &logFile) const
         if (!lanUser.isEmpty()) args << "--lan-user" << lanUser;
         if (!lanPassword.isEmpty()) args << "--lan-pass" << lanPassword;
         if (noAutoConnect) args << "--no-autoconnect";
+    } else if (transport == FlexLan) {
+        const QString host = flexHost.trimmed();
+        args << "--manufacturer" << "3" << "--lan" << (host.isEmpty() ? QString("auto") : host);
+    } else if (transport == SmartLink) {
+        const QString radio = smartLinkRadio.trimmed();
+        args << "--smartlink" << (radio.isEmpty() ? QString("auto") : radio);
     } else {
         // Nothing for the serial port when empty: the server's own "auto"
         // looks for an Icom by USB serial number.
@@ -23,6 +29,12 @@ QStringList LaunchConfig::toArguments(const QString &logFile) const
         if (!civAddress.trimmed().isEmpty()) args << "--civ" << civAddress.trimmed();
         if (!audioDevice.isEmpty()) args << "--audio-device" << audioDevice;
     }
+
+    if ((transport == FlexLan || transport == SmartLink) && (flexAudio == "opus" || flexAudio == "none"))
+        args << "--flex-audio" << flexAudio;
+    if (!ampHost.trimmed().isEmpty()) args << "--rfkit" << ampHost.trimmed();
+    if (isNetwork() && onDemandSeconds > 0) args << "--on-demand" << QString::number(onDemandSeconds);
+    if (restLan) args << "--rest";
 
     if (webPort > 0 && webPort != defaultWebPort) args << "-p" << QString::number(webPort);
     if (!nameTag.trimmed().isEmpty()) args << "-n" << nameTag.trimmed();
@@ -47,7 +59,8 @@ QString LaunchConfig::webUrl(bool https) const
 
 void LaunchConfig::load(const QSettings &s)
 {
-    transport = s.value("transport", int(Usb)).toInt() == int(Lan) ? Lan : Usb;
+    const int t = s.value("transport", int(Usb)).toInt();
+    transport = (t == Lan || t == FlexLan || t == SmartLink) ? Transport(t) : Usb;
     serialPort = s.value("serialPort").toString();
     int man = s.value("manufacturer", int(Icom)).toInt();
     manufacturer = (man == Kenwood) ? Kenwood : (man == Yaesu) ? Yaesu : Icom;
@@ -57,6 +70,12 @@ void LaunchConfig::load(const QSettings &s)
     lanUser = s.value("lanUser").toString();
     lanPassword = s.value("lanPassword").toString();
     noAutoConnect = s.value("noAutoConnect", false).toBool();
+    flexHost = s.value("flexHost", "auto").toString();
+    smartLinkRadio = s.value("smartLinkRadio", "auto").toString();
+    flexAudio = s.value("flexAudio", "auto").toString();
+    ampHost = s.value("ampHost").toString();
+    onDemandSeconds = qBound(0, s.value("onDemandSeconds", 0).toInt(), 86400);
+    restLan = s.value("restLan", false).toBool();
     webPort = s.value("webPort", defaultWebPort).toInt();
     if (webPort <= 0 || webPort > 65535) webPort = defaultWebPort;
     nameTag = s.value("nameTag").toString();
@@ -77,6 +96,12 @@ void LaunchConfig::save(QSettings &s) const
     s.setValue("lanUser", lanUser);
     s.setValue("lanPassword", lanPassword);
     s.setValue("noAutoConnect", noAutoConnect);
+    s.setValue("flexHost", flexHost);
+    s.setValue("smartLinkRadio", smartLinkRadio);
+    s.setValue("flexAudio", flexAudio);
+    s.setValue("ampHost", ampHost);
+    s.setValue("onDemandSeconds", onDemandSeconds);
+    s.setValue("restLan", restLan);
     s.setValue("webPort", webPort);
     s.setValue("nameTag", nameTag);
     s.setValue("settingsFile", settingsFile);

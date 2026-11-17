@@ -127,6 +127,40 @@ html, body {
     border-radius: 3px;
 }
 .qso-log-btn:active { background: #048; color: #000; }
+.user-btn {
+    padding: 2px 8px;
+    background: transparent;
+    border: 1px solid var(--border, #304050);
+    color: var(--text-dim, #8ea8c0);
+    font-size: 10px;
+    font-weight: bold;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    border-radius: 3px;
+    max-width: 12ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.user-btn.confirm { color: #ffb4b4; border-color: #a33; }
+/* TX lock: another browser is transmitting. */
+#txByLabel {
+    padding: 2px 8px;
+    border-radius: 3px;
+    background: #4a1010;
+    border: 1px solid #c33;
+    color: #ffd0d0;
+    font-size: 10px;
+    font-weight: bold;
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    max-width: 18ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#txByLabel.flash { animation: txByFlash 0.4s ease-in-out 3; }
+@keyframes txByFlash { 50% { background: #c33; color: #fff; } }
+body.tx-other .ptt-btn { opacity: 0.45; }
 #stepLabel { color: var(--text-faint); font-size: 10px; }
 #connDot {
     width: 8px; height: 8px; border-radius: 50%;
@@ -584,6 +618,21 @@ body.meter-needle #meterCanvas { width: auto; height: 128px; aspect-ratio: 611 /
 #audioMicOverlay .overlay-grid { flex: 0 0 auto; }
 #audioMicOverlay.visible { justify-content: center; }
 #audioMicOverlay .rx-vol-row { margin: 10px 0 0; }
+
+/* AMP / EQ / PROC overlays: a 5-column tile grid like AUDIO, then their
+   own rows under it. */
+#ampOverlay.visible, #eqOverlay.visible, #procOverlay.visible, #flexAntOverlay.visible {
+    flex-direction: column;
+    padding: 4px 12px;
+    justify-content: center;
+    overflow-y: auto;
+}
+#ampOverlay .overlay-grid, #eqOverlay .overlay-grid, #procOverlay .overlay-grid, #flexAntOverlay .overlay-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 5px; padding: 4px 0;
+    width: 100%; max-width: 720px; margin: 0 auto;
+}
 
 /* SPAN overlay */
 /* SPAN / REF is a bottom sheet, not a full cover: both settings change what
@@ -1203,6 +1252,7 @@ body.digi-open #bottomBar { grid-row: 5; }
 }
 .digi-call-cq-btn:hover { background: #003a28; border-color: #0f0; color: #0f0; }
 .digi-call-cq-btn.active { background: #004030; border-color: #0d0; color: #0f0; }
+.digi-cq-parity-btn.active { background: #004030; border-color: #0d0; color: #0f0; }
 
 /* 6 QSO message rows — compact, lives inside the msg column */
 .digi-msg-col {
@@ -1995,6 +2045,56 @@ body.digi-open #bottomBar { grid-row: 5; }
     font-size: 14px;
 }
 
+/* RF-KIT amplifier: a readout in the scope's top-right corner (left of it is
+   the rig-state stack), opening the AMP panel. Green while in OPERATE. */
+#ampIndicator {
+    left: auto;
+    right: 6px;
+    font-size: 14px;
+    color: #888;
+}
+#ampIndicator.operate { color: #3c3; }
+#ampIndicator.fault { color: #e33; }
+#ampOverlay .amp-head { display: flex; justify-content: space-between; align-items: baseline;
+    width: 100%; max-width: 720px; margin: 0 auto 8px; font-size: 13px; color: #aaa; }
+#ampOverlay .amp-head b { color: #ddd; font-size: 15px; }
+#ampOverlay .amp-bars { width: 100%; max-width: 720px; margin: 0 auto; }
+#ampOverlay .amp-bar { display: grid; grid-template-columns: 52px 1fr 92px; align-items: center;
+    gap: 8px; margin: 5px 0; font-size: 13px; color: #aaa; }
+#ampOverlay .amp-track { position: relative; height: 12px; background: #1a1d22; border-radius: 2px; overflow: hidden; }
+#ampOverlay .amp-fill { position: absolute; left: 0; top: 0; bottom: 0; background: #2f7fd0; transition: width 0.2s; }
+#ampOverlay .amp-fill.warn { background: #e09020; }
+#ampOverlay .amp-fill.bad { background: #e03030; }
+#ampOverlay .amp-val { text-align: right; color: #ddd; font-variant-numeric: tabular-nums; }
+#ampOverlay .amp-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 6px; width: 100%; max-width: 720px; margin: 10px auto; }
+#ampOverlay .amp-tile { background: #15181c; border-radius: 3px; padding: 5px 8px; font-size: 11px; color: #888; }
+#ampOverlay .amp-tile span { display: block; font-size: 14px; color: #ddd; margin-top: 2px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ampOverlay .amp-tile.bad span { color: #e33; }
+#ampOverlay .ov-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* AUDIO / TX: which of this computer's inputs is the mic, and which output
+   plays the receiver (renderAudioDevices). */
+.audio-dev-rows { width: 100%; max-width: 720px; margin: 6px auto 0; }
+.audio-dev-row { display: grid; grid-template-columns: 80px 1fr; align-items: center;
+    gap: 8px; margin: 5px 0; font-size: 12px; color: #aaa; }
+.audio-dev-row select { width: 100%; min-width: 0; background: #15181c; color: #ddd;
+    border: 1px solid #333; border-radius: 3px; padding: 6px; font-size: 13px; }
+.audio-dev-row select:disabled { opacity: 0.45; }
+.audio-dev-note { font-size: 11px; color: #777; margin-top: 2px; }
+
+/* FlexRadio EQ / PROC panels */
+.flex-dsp { width: 100%; max-width: 720px; margin: 0 auto; }
+.eq-bands { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin: 8px 0; }
+.eq-band { display: flex; flex-direction: column; align-items: center; font-size: 11px; color: #aaa; }
+.eq-band input[type=range] { writing-mode: vertical-lr; direction: rtl; height: 130px; width: 28px; accent-color: var(--accent, #2bc4c4); }
+.eq-band b { color: #ddd; font-weight: normal; font-variant-numeric: tabular-nums; margin-bottom: 2px; }
+.dsp-row { display: grid; grid-template-columns: 90px 1fr 56px; align-items: center; gap: 8px; margin: 8px 0; font-size: 12px; color: #aaa; }
+.dsp-row input[type=range] { width: 100%; accent-color: var(--accent, #2bc4c4); }
+.dsp-row b { color: #ddd; font-weight: normal; text-align: right; font-variant-numeric: tabular-nums; }
+.dsp-row:has(input:disabled) { opacity: 0.45; }
+
 /* ============ RESPONSIVE ============ */
 @media (max-height: 450px) {
     #radio { grid-template-rows: 28px 64px 16px 1fr 40px; }
@@ -2203,6 +2303,7 @@ body.digi-open #bottomBar { grid-row: 5; }
     <div id="topBar">
         <span id="txIndicator">RX</span>
         <span id="tuneLabel">TUNE</span>
+        <span id="txByLabel" hidden role="status"></span>
         <button id="modeBtn" onclick="setPanel('mode')">---</button>
         <span id="pbBars"><i></i><i></i></span>
         <span id="filterText" onclick="openFilterModal()">FIL1</span>
@@ -2211,6 +2312,7 @@ body.digi-open #bottomBar { grid-row: 5; }
         <span id="rigTag" title="Rig"></span>
         <button id="recBtn" class="rec-btn" title="Record">REC</button>
         <button id="qsoLogBtn" class="qso-log-btn" title="Log QSO">LOG</button>
+        <button id="userBtn" class="user-btn" hidden title="Signed in. Tap to sign out" onclick="userBtnClick()"></button>
         <span id="clock">--:--</span>
         <button id="fullscreenBtn" title="Full Screen" onclick="toggleFullscreen()">&#x26F6;</button>
         <button id="powerBtn" class="on" title="Power" onclick="togglePower()">&#x23FB;</button>
@@ -2296,7 +2398,14 @@ body.digi-open #bottomBar { grid-row: 5; }
                     <button class="ov-btn" onclick="stepScopeRef(1)">REF +</button>
                     <span class="scope-row-value" id="scopeRefValue">AUTO</span>
                 </div></div>
-            <div class="scope-row"><span class="scope-row-label">Speed</span>
+            <div class="scope-row"><span class="scope-row-label">Colour</span>
+<div class="overlay-grid" id="wfPaletteGrid"></div></div>
+            <div class="scope-row"><span class="scope-row-label">Spectrum</span>
+                <div class="overlay-grid">
+                    <button class="ov-btn" id="spectFillWhiteBtn" onclick="setSpectFill('white')">WHITE</button>
+                    <button class="ov-btn" id="spectFillPalBtn" onclick="setSpectFill('palette')">COLOUR</button>
+                </div></div>
+<div class="scope-row"><span class="scope-row-label">Speed</span>
                 <div class="overlay-grid">
                     <button class="ov-btn" id="wfSpeedSlowBtn" onclick="setWfSpeed('slow')">SLOW</button>
                     <button class="ov-btn active" id="wfSpeedMidBtn" onclick="setWfSpeed('mid')">MID</button>
@@ -2466,6 +2575,7 @@ body.digi-open #bottomBar { grid-row: 5; }
                     <div class="digi-msg-cq-bar">
                         <button id="digiCqParityBtn" class="digi-cq-parity-btn" onclick="toggleDigiCqParity()">TX EVEN</button>
                         <button id="digiCallCqBtn" class="digi-call-cq-btn wf-btn" onclick="digiCallCq()">CALL CQ</button>
+                        <button id="digiCall1stBtn" class="digi-cq-parity-btn" onclick="toggleDigiCall1st()" title="While calling CQ, answer the first station that replies and run the QSO to the log (WSJT-X Call 1st)">CALL 1ST</button>
                     </div>
                     <div id="digiMsgRows" class="digi-msg-rows"></div>
                 </div>
@@ -2747,9 +2857,40 @@ body.digi-open #bottomBar { grid-row: 5; }
         </div>
 
         <!-- Audio/Mic enable menu -->
+        <!-- FlexRadio graphic equalisers and TX processing (flexDsp). -->
+        <div id="eqOverlay" class="overlay">
+            <div class="overlay-title">EQUALIZER</div>
+            <div id="eqBody" style="width:100%"></div>
+        </div>
+        <div id="flexAntOverlay" class="overlay">
+            <div class="overlay-title">ANTENNAS</div>
+            <div id="flexAntBody" style="width:100%"></div>
+        </div>
+        <div id="procOverlay" class="overlay">
+            <div class="overlay-title">TX PROCESSING</div>
+            <div id="procBody" style="width:100%"></div>
+        </div>
+
+        <!-- RF-KIT amplifier (server --rfkit). Filled by renderAmpOverlay(). -->
+        <div id="ampOverlay" class="overlay">
+            <div class="overlay-title">AMPLIFIER</div>
+            <div id="ampBody" style="width:100%"></div>
+        </div>
+
         <div id="audioMicOverlay" class="overlay">
             <div class="overlay-title">AUDIO / TX</div>
             <div class="overlay-grid" id="audioMicGrid"></div>
+            <div class="audio-dev-rows">
+                <label class="audio-dev-row" id="audioInRow">
+                    <span>MIC</span>
+                    <select id="audioInSelect" onchange="pickMicDevice(this.value)"></select>
+                </label>
+                <label class="audio-dev-row" id="audioOutRow">
+                    <span>SPEAKER</span>
+                    <select id="audioOutSelect" onchange="pickSpeakerDevice(this.value)"></select>
+                </label>
+                <div class="audio-dev-note" id="audioDevNote"></div>
+            </div>
             <div class="gain-row rx-vol-row" id="audioVolRow" title="wfweb playback volume in this browser. AF is the radio's own speaker.">
                 <span class="gain-label">VOL</span>
                 <div class="gain-bar-bg"><div class="gain-bar-fill rx-vol-fill" style="width:100%"></div>
@@ -2766,6 +2907,7 @@ body.digi-open #bottomBar { grid-row: 5; }
         <div id="toneIndicator" class="spectrum-warning" style="display: none;" onclick="openToneModal()"></div>
         <div id="rfGainIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('gain')"></div>
         <div id="rxVolIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('gain')"></div>
+        <div id="ampIndicator" class="spectrum-warning" style="display: none;" onclick="setPanel('amp')" title="RF-KIT amplifier"></div>
     </div>
 
     <!-- Row 5: Bottom bar -->
@@ -3278,6 +3420,7 @@ function onTransportOpen() {
     document.getElementById('connDot').title = 'Connected';
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     send({ cmd: 'getStatus' });
+    sendTxListen(true);
     // The station callsign is server state: rigInfo brings it and we adopt
     // it (see the rigInfo handler).  Pushing our saved copy here is exactly
     // what let a stale tab overwrite the call for everyone.
@@ -3294,6 +3437,36 @@ function onTransportClose() {
     txAudioAvailable = false;
     updateWarningVisibility();
     scheduleReconnect();
+    // Web login: a refused or expired session ends here too. The page itself
+    // came through the login, so a 401 now means the session is gone.
+    try {
+        fetch('/api/v1/radio/info', { cache: 'no-store', credentials: 'same-origin' })
+            .then(function (r) { if (r.status === 401) location.href = '/login'; })
+            .catch(function () {});
+    } catch (e) {}
+}
+
+// Web login: the signed-in user in the top bar; tap twice to sign out.
+var webUser = '';
+var userBtnTimer = null;
+function setWebUser(name) {
+    webUser = name || '';
+    var b = document.getElementById('userBtn');
+    if (!b) return;
+    b.hidden = !webUser;
+    b.textContent = webUser;
+    b.classList.remove('confirm');
+}
+function userBtnClick() {
+    var b = document.getElementById('userBtn');
+    if (b.classList.contains('confirm')) {
+        location.href = '/logout';
+        return;
+    }
+    b.classList.add('confirm');
+    b.textContent = 'SIGN OUT?';
+    clearTimeout(userBtnTimer);
+    userBtnTimer = setTimeout(function () { setWebUser(webUser); }, 3000);
 }
 
 function ensureWsTransport() {
@@ -3339,13 +3512,35 @@ function handleMessage(msg) {
     // Forward to read-only consumer modules before main state-machine switch.
     if (window.Packet && window.Packet.onMessage) window.Packet.onMessage(msg);
     switch (msg.type) {
+        case 'flexDsp':
+            flexDsp = msg;
+            if (document.getElementById('eqOverlay').classList.contains('visible')) renderEqOverlay();
+            if (document.getElementById('procOverlay').classList.contains('visible')) renderProcOverlay();
+            if (document.getElementById('flexAntOverlay').classList.contains('visible')) renderFlexAntOverlay();
+            if (currentPanel === 'func') renderFuncOverlay();
+            break;
+        case 'amp':
+            ampState = msg;
+            renderAmpIndicator();
+            if (document.getElementById('ampOverlay').classList.contains('visible')) renderAmpOverlay();
+            if (currentPanel === 'func') renderFuncOverlay();
+            break;
+        case 'txState':
+            setTxOther(msg.on && !msg.mine ? (msg.by || 'another browser') : '');
+            break;
+        case 'txBusy':
+            setTxOther(msg.by || 'another browser');
+            txBusyRefused();
+            break;
         case 'rigInfo':
+            if (msg.webUser !== undefined) setWebUser(msg.webUser);
+            if (msg.ampConfigured !== undefined) { ampConfigured = !!msg.ampConfigured; renderAmpIndicator(); }
             if (msg.version) {
                 serverVersion = msg.version;
                 var el = document.getElementById('splashVersion');
-                if (el) el.textContent = 'wfweb v. ' + msg.version;
+                if (el) el.textContent = 'FlexWeb v. ' + msg.version;
                 var pv = document.getElementById('powerOffVersion');
-                if (pv) pv.textContent = 'wfweb v. ' + msg.version;
+                if (pv) pv.textContent = 'FlexWeb v. ' + msg.version;
             }
             if (msg.model) rigModelName = msg.model;
             if (msg.name !== undefined) rigTagName = msg.name || '';
@@ -3396,7 +3591,7 @@ function handleMessage(msg) {
                 if (msg.hasTuner !== undefined) updateHasTuner(!!msg.hasTuner);
                 if (msg.txMeters !== undefined) setTxMeterCaps(msg.txMeters, msg.poCal);
                 if (msg.cwSpeedRange) applyCwSpeedRange(msg.cwSpeedRange);
-                if (msg.manufacturer !== undefined) cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal';
+                if (msg.manufacturer !== undefined) { cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal'; setDigiDriveCaps(msg.manufacturer); }
                 if (msg.hasMemoryMode !== undefined) hasMemoryMode = !!msg.hasMemoryMode;
                 if (msg.memoriesLocal !== undefined) setMemoriesLocal(!!msg.memoriesLocal);
                 if (msg.memGroups !== undefined) setupMemoryGroups(msg.memGroups, msg.memStart || 0);
@@ -3435,7 +3630,7 @@ function handleMessage(msg) {
             if (msg.hasTuner !== undefined) updateHasTuner(!!msg.hasTuner);
             if (msg.txMeters !== undefined) setTxMeterCaps(msg.txMeters, msg.poCal);
                 if (msg.cwSpeedRange) applyCwSpeedRange(msg.cwSpeedRange);
-                if (msg.manufacturer !== undefined) cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal';
+                if (msg.manufacturer !== undefined) { cwKeyerType = (msg.manufacturer === 'Icom') ? 'icom' : 'ideal'; setDigiDriveCaps(msg.manufacturer); }
             if (msg.hasMemoryMode !== undefined) hasMemoryMode = !!msg.hasMemoryMode;
             if (msg.memoriesLocal !== undefined) setMemoriesLocal(!!msg.memoriesLocal);
             if (msg.memGroups !== undefined) setupMemoryGroups(msg.memGroups, msg.memStart || 0);
@@ -4173,6 +4368,9 @@ function sliderPosToHz(pos) {
 function updateTxStatus(tx) {
     var changed = (isTransmitting !== tx);
     isTransmitting = tx;
+    // The rig went back to RX by itself (another client, its own TX
+    // timeout): a latch must not re-key it or wait for a second tap.
+    if (changed && !tx && pttLatched) { pttLatched = false; clearTimeout(pttLatchTimer); pttLatchTimer = null; }
     var ind = document.getElementById('txIndicator');
     ind.textContent = tx ? 'TX' : 'RX';
     ind.classList.toggle('tx', tx);
@@ -4472,6 +4670,12 @@ var ALC_DEAD_ZONE = 0.02;      // no adjustment when ALC within target ± this
 var ALC_GAIN_DOWN = 0.06;      // proportional gain for reducing (fast)
 var ALC_GAIN_UP = 0.005;       // proportional gain for increasing (slow)
 var ALC_MIN_GAIN = 0.02;       // minimum gain floor
+// Highest FT8/FT4 drive the loop may reach. 0.5 leaves an Icom's ALC its
+// headroom; a Flex makes its set power only with the DAX audio near full
+// scale, and its server-side ALC is that drive level (flexcommander.cpp,
+// txPeakWindow), so on a Flex the loop may go to full scale and holds the
+// peak at about -2 dBFS. Set from rigInfo.manufacturer.
+var ALC_MAX_GAIN = 0.5;
 var ALC_SMOOTHED = 0;          // EMA-filtered ALC reading
 var ALC_EMA_ALPHA = 0.15;      // EMA smoothing factor (lower = smoother)
 
@@ -4710,6 +4914,218 @@ function drawTxMeterScale(ctx, barX, barW, tickY, numY, fs, tickH, face) {
         ctx.fillText(face.tail, barX + barW, numY);
     }
 }
+// ============================================================
+// FLEXRADIO EQ AND TX PROCESSING (flexDsp)
+// ============================================================
+// The radio's 8-band RX and TX graphic equalisers and its SmartSDR-style
+// TX chain (PROC NOR/DX/DX+, DEXP, MIC level, TX filter). Settings live in
+// the radio, so SmartSDR sees the same values. A slider being dragged is
+// not repainted from the server until it is let go.
+var flexDsp = null;
+var eqSide = 'rx';
+try { if (localStorage.getItem('wfEqSide') === 'tx') eqSide = 'tx'; } catch (e) {}
+var EQ_BAND_LABELS = ['63', '125', '250', '500', '1k', '2k', '4k', '8k'];
+var flexDspSendTimers = {};
+
+function sendFlexDsp(key, index, value, now) {
+    var id = key + ':' + index;
+    clearTimeout(flexDspSendTimers[id]);
+    var fire = function () { send({ cmd: 'flexDsp', key: key, index: index, value: value }); };
+    if (now) fire(); else flexDspSendTimers[id] = setTimeout(fire, 80);
+}
+
+function dspDragging(el) { return el && el.dataset.dragging === '1'; }
+
+function dspSlider(input, onValue) {
+    input.addEventListener('pointerdown', function () { input.dataset.dragging = '1'; });
+    var done = function () { input.dataset.dragging = ''; };
+    input.addEventListener('pointerup', done);
+    input.addEventListener('pointercancel', done);
+    input.addEventListener('input', function () { onValue(parseInt(input.value, 10), false); });
+    input.addEventListener('change', function () { done(); onValue(parseInt(input.value, 10), true); });
+}
+
+function dspBackButton() {
+    var back = document.createElement('button');
+    back.className = 'ov-btn back-btn';
+    back.innerHTML = '&#x21A9;';
+    back.onclick = function () { setPanel('default'); };
+    return back;
+}
+
+function renderEqOverlay() {
+    var body = document.getElementById('eqBody');
+    if (!body || !flexDsp) return;
+    var key = eqSide === 'rx' ? 'rx' : 'tx', eq = flexDsp[key + 'Eq'];
+    // Keep a slider the user is holding: rebuild only what is not in use.
+    var holding = body.querySelector('input[data-dragging="1"]');
+    if (holding && body.dataset.side === key) {
+        body.querySelectorAll('input[type=range]').forEach(function (r, i) {
+            if (!dspDragging(r)) { r.value = eq.bands[i]; r.previousSibling.textContent = fmtDb(eq.bands[i]); }
+        });
+        return;
+    }
+    body.dataset.side = key;
+    body.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'flex-dsp';
+    var grid = document.createElement('div');
+    grid.className = 'overlay-grid';
+    grid.appendChild(makeFuncBtn('RX EQ', flexDsp.rxEq.on ? 'ON' : 'OFF', eqSide === 'rx', function () {
+        eqSide = 'rx'; try { localStorage.setItem('wfEqSide', 'rx'); } catch (e) {} renderEqOverlay();
+    }));
+    grid.appendChild(makeFuncBtn('TX EQ', flexDsp.txEq.on ? 'ON' : 'OFF', eqSide === 'tx', function () {
+        eqSide = 'tx'; try { localStorage.setItem('wfEqSide', 'tx'); } catch (e) {} renderEqOverlay();
+    }));
+    grid.appendChild(makeFuncBtn(key.toUpperCase() + ' EQ', eq.on ? 'ON' : 'OFF', eq.on, function () {
+        sendFlexDsp(key + 'EqOn', 0, eq.on ? 0 : 1, true);
+    }));
+    grid.appendChild(makeFuncBtn('FLAT', 'ALL 0 dB', false, function () { sendFlexDsp(key + 'EqFlat', 0, 0, true); }));
+    grid.appendChild(dspBackButton());
+    wrap.appendChild(grid);
+
+    var bands = document.createElement('div');
+    bands.className = 'eq-bands';
+    eq.bands.forEach(function (v, i) {
+        var col = document.createElement('label');
+        col.className = 'eq-band';
+        var val = document.createElement('b');
+        val.textContent = fmtDb(v);
+        var r = document.createElement('input');
+        r.type = 'range'; r.min = -10; r.max = 10; r.step = 1; r.value = v;
+        r.setAttribute('aria-label', EQ_BAND_LABELS[i] + ' Hz');
+        dspSlider(r, function (nv, final) { val.textContent = fmtDb(nv); sendFlexDsp(key + 'EqBand', i, nv, final); });
+        var lab = document.createElement('span');
+        lab.textContent = EQ_BAND_LABELS[i];
+        col.appendChild(val); col.appendChild(r); col.appendChild(lab);
+        bands.appendChild(col);
+    });
+    wrap.appendChild(bands);
+    body.appendChild(wrap);
+}
+
+function fmtDb(v) { return (v > 0 ? '+' : '') + v; }
+
+// FUNC > ANT on a Flex: one row of the radio's receive antennas, one of its
+// transmit antennas (RX_A / XVTA and the like included). On 2 m the server
+// moves both to the transverter port by itself.
+function renderFlexAntOverlay() {
+    var body = document.getElementById('flexAntBody');
+    if (!body || !flexDsp) return;
+    body.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'flex-dsp';
+    function row(label, key, list, cur) {
+        var h = document.createElement('div');
+        h.className = 'audio-dev-note';
+        h.style.margin = '8px 0 2px';
+        h.textContent = label;
+        wrap.appendChild(h);
+        var grid = document.createElement('div');
+        grid.className = 'overlay-grid';
+        (list || []).forEach(function (name, i) {
+            grid.appendChild(makeFuncBtn(name, name === cur ? 'IN USE' : '', name === cur, function () {
+                sendFlexDsp(key, i, i, true);
+            }));
+        });
+        wrap.appendChild(grid);
+    }
+    row('RECEIVE', 'rxAnt', flexDsp.rxAntList, flexDsp.rxAnt);
+    row('TRANSMIT', 'txAnt', flexDsp.txAntList, flexDsp.txAnt);
+    var note = document.createElement('div');
+    note.className = 'audio-dev-note';
+    note.textContent = 'Tuning into 144\u2013148 MHz switches RX and TX to the transverter port; leaving 2 m puts these back.';
+    wrap.appendChild(note);
+    var g = document.createElement('div');
+    g.className = 'overlay-grid';
+    g.appendChild(dspBackButton());
+    wrap.appendChild(g);
+    body.appendChild(wrap);
+}
+
+// TX filter edges offered as steps (SmartSDR's own choices cover these).
+var TX_LO_STEPS = [0, 50, 100, 150, 200, 300, 400, 500];
+var TX_HI_STEPS = [2400, 2600, 2700, 2800, 2900, 3000, 3100, 3300, 3500, 4000];
+
+function renderProcOverlay() {
+    var body = document.getElementById('procBody');
+    if (!body || !flexDsp) return;
+    var holding = body.querySelector('input[data-dragging="1"]');
+    if (holding) {
+        body.querySelectorAll('input[type=range]').forEach(function (r) {
+            if (dspDragging(r)) return;
+            var k = r.dataset.key;
+            r.value = flexDsp[k];
+            r.nextSibling.textContent = flexDsp[k];
+        });
+        return;
+    }
+    body.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.className = 'flex-dsp';
+    var grid = document.createElement('div');
+    grid.className = 'overlay-grid';
+    grid.appendChild(makeFuncBtn('PROC', flexDsp.proc ? 'ON' : 'OFF', !!flexDsp.proc, function () {
+        sendFlexDsp('proc', 0, flexDsp.proc ? 0 : 1, true);
+    }));
+    ['NOR', 'DX', 'DX+'].forEach(function (name, lvl) {
+        grid.appendChild(makeFuncBtn(name, lvl === 0 ? 'LEVEL' : '', flexDsp.procLevel === lvl, function () {
+            sendFlexDsp('procLevel', 0, lvl, true);
+        }));
+    });
+    grid.appendChild(makeFuncBtn('DEXP', flexDsp.dexp ? 'ON' : 'OFF', !!flexDsp.dexp, function () {
+        sendFlexDsp('dexp', 0, flexDsp.dexp ? 0 : 1, true);
+    }));
+    function stepBtn(label, key, steps) {
+        var cur = flexDsp[key];
+        return makeFuncBtn(label, cur + ' Hz', false, function () {
+            var next = steps[0];
+            for (var i = 0; i < steps.length; i++) if (steps[i] > cur) { next = steps[i]; break; }
+            sendFlexDsp(key, 0, next, true);
+        });
+    }
+    grid.appendChild(stepBtn('TX LOW', 'txLo', TX_LO_STEPS));
+    grid.appendChild(stepBtn('TX HIGH', 'txHi', TX_HI_STEPS));
+    grid.appendChild(dspBackButton());
+    wrap.appendChild(grid);
+
+    function row(label, key, min, max, enabled) {
+        var r = document.createElement('label');
+        r.className = 'dsp-row';
+        var name = document.createElement('span');
+        name.textContent = label;
+        var input = document.createElement('input');
+        input.type = 'range'; input.min = min; input.max = max; input.step = 1;
+        input.value = flexDsp[key]; input.dataset.key = key; input.disabled = !enabled;
+        var val = document.createElement('b');
+        val.textContent = flexDsp[key];
+        dspSlider(input, function (v, final) { val.textContent = v; sendFlexDsp(key, 0, v, final); });
+        r.appendChild(name); r.appendChild(input); r.appendChild(val);
+        wrap.appendChild(r);
+    }
+    row('MIC LEVEL', 'micLevel', 0, 100, true);
+    row('DEXP LEVEL', 'dexpLevel', 0, 100, !!flexDsp.dexp);
+    var note = document.createElement('div');
+    note.className = 'audio-dev-note';
+    note.textContent = 'TX filter ' + flexDsp.txLo + '\u2013' + flexDsp.txHi +
+        ' Hz. TX LOW / TX HIGH step through common edges. These settings are kept in the radio.';
+    wrap.appendChild(note);
+    body.appendChild(wrap);
+}
+
+var isFlexRig = false;
+function setDigiDriveCaps(manufacturer) {
+    var flex = manufacturer === 'FlexRadio';
+    isFlexRig = flex;
+    var max = flex ? 1.0 : 0.5;
+    if (max === ALC_MAX_GAIN) return;
+    ALC_MAX_GAIN = max;
+    // A Flex starts near its working drive (about -3 dBFS) so the first
+    // transmission is not short of power while the loop climbs (it rises
+    // slowly by design); anything above the Icom ceiling is pulled back.
+    digiTxGain = flex ? Math.max(digiTxGain, 0.7) : Math.min(digiTxGain, ALC_MAX_GAIN);
+}
+
 function updateALCMeter(val) {
     alcVal = val;
     if (isTransmitting) drawMeter();
@@ -4721,8 +5137,8 @@ function updateALCMeter(val) {
         if (digiTxActive || digiTuneActive) {
             if (error > ALC_DEAD_ZONE)
                 digiTxGain = Math.max(ALC_MIN_GAIN, digiTxGain * (1 - ALC_GAIN_DOWN * error));
-            else if (error < -ALC_DEAD_ZONE && digiTxGain < 0.5)
-                digiTxGain = Math.min(0.5, digiTxGain * (1 + ALC_GAIN_UP));
+            else if (error < -ALC_DEAD_ZONE && digiTxGain < ALC_MAX_GAIN)
+                digiTxGain = Math.min(ALC_MAX_GAIN, digiTxGain * (1 + ALC_GAIN_UP));
         }
         // RADE is a full-duty constant-envelope modem: backend already applies
         // a fixed scale (RADE_TX_SCALE in radeprocessor.cpp) that leaves safe
@@ -5047,6 +5463,10 @@ function setPanel(name) {
     else if (name === 'freqinp') renderFreqInput();
     else if (name === 'cw') renderCWOverlay();
     else if (name === 'memory') openMemoryBrowser();
+    else if (name === 'flexant') { renderFlexAntOverlay(); document.getElementById('flexAntOverlay').classList.add('visible'); }
+    else if (name === 'eq') { renderEqOverlay(); document.getElementById('eqOverlay').classList.add('visible'); }
+    else if (name === 'proc') { renderProcOverlay(); document.getElementById('procOverlay').classList.add('visible'); }
+    else if (name === 'amp') { renderAmpOverlay(); document.getElementById('ampOverlay').classList.add('visible'); }
     renderBottomBar();
 }
 
@@ -5283,7 +5703,11 @@ function renderFuncOverlay() {
 
     // Antenna selector + RX antenna — only on rigs that declare more than
     // one antenna in their caps (IC-7610/785x/9100, Kenwood TS-590/890) (#76)
-    if (availableAntennas.length >= 2) {
+    if (flexDsp && flexDsp.rxAntList && flexDsp.rxAntList.length) {
+        // A Flex: separate RX and TX antennas from the radio's own lists.
+        grid.appendChild(makeFuncBtn('ANT', (flexDsp.rxAnt || '?') + (flexDsp.txAnt && flexDsp.txAnt !== flexDsp.rxAnt ? ' / ' + flexDsp.txAnt : ''),
+            false, function() { setPanel('flexant'); }));
+    } else if (availableAntennas.length >= 2) {
         grid.appendChild(makeFuncBtn('ANT', antennaName(currentAntenna), false, cycleAntenna));
         if (hasRxAnt) {
             grid.appendChild(makeFuncBtn('RX ANT', rxAntOn ? 'ON' : 'OFF', rxAntOn, function() {
@@ -5306,6 +5730,30 @@ function renderFuncOverlay() {
     grid.appendChild(makeFuncBtn('NR', nrOn ? 'ON' : 'OFF', nrOn, function() {
         send({ cmd: 'setNoiseReduction', value: !nrOn });
     }));
+
+    // AMP: the RF-KIT amplifier panel, when the server was started with --rfkit.
+    if (ampConfigured) {
+        var ampSt = !ampState || !ampState.connected ? 'OFFLINE' : (ampState.operate ? 'OPERATE' : 'STANDBY');
+        grid.appendChild(makeFuncBtn('AMP', ampSt, !!(ampState && ampState.connected && ampState.operate), function() {
+            setPanel('amp');
+        }));
+    }
+
+    // PTT: HOLD (press and hold) or LATCH (tap on, tap off).
+    grid.appendChild(makeFuncBtn('PTT', pttLatchMode ? 'LATCH' : 'HOLD', pttLatchMode, function() {
+        setPttLatchMode(!pttLatchMode);
+        renderFuncOverlay();
+    }));
+
+    // EQ and PROC: the Flex's own equalisers and TX audio processing, once
+    // the server has reported them (flexDsp).
+    if (flexDsp) {
+        var eqOn = flexDsp.rxEq.on || flexDsp.txEq.on;
+        grid.appendChild(makeFuncBtn('EQ', (flexDsp.rxEq.on ? 'RX' : '') + (flexDsp.rxEq.on && flexDsp.txEq.on ? '+' : '') +
+            (flexDsp.txEq.on ? 'TX' : '') || 'OFF', eqOn, function() { setPanel('eq'); }));
+        grid.appendChild(makeFuncBtn('PROC', flexDsp.proc ? ['NOR', 'DX', 'DX+'][flexDsp.procLevel] || 'ON' : 'OFF',
+            !!flexDsp.proc, function() { setPanel('proc'); }));
+    }
 
     // FIL opens the FILTER window (FIL1/2/3, width, twin PBT, shape) the way
     // DUP and TONE open theirs; the tile carries the passband it's set to.
@@ -5360,6 +5808,128 @@ function renderFuncOverlay() {
     document.getElementById('funcOverlay').classList.add('visible');
 }
 
+// ============================================================
+// RF-KIT AMPLIFIER (server --rfkit; ported from AetherSDR's RF-KIT applet)
+// ============================================================
+// The server polls the amplifier and pushes {type:'amp'} snapshots. Controls
+// never latch locally: the panel repaints from the amplifier's own reply.
+var ampConfigured = false;
+var ampState = null;
+
+function ampEsc(t) {
+    return String(t === undefined || t === null ? '' : t).replace(/[&<>"]/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+}
+
+function renderAmpIndicator() {
+    var el = document.getElementById('ampIndicator');
+    if (!el) return;
+    if (!ampConfigured) { el.style.display = 'none'; return; }
+    el.style.display = '';
+    el.classList.remove('operate', 'fault');
+    if (!ampState || !ampState.connected) { el.textContent = 'AMP OFFLINE'; el.classList.add('fault'); return; }
+    var fwd = ampState.fwd !== undefined ? ' ' + ampState.fwd + ' W' : '';
+    el.textContent = 'AMP ' + (ampState.operate ? 'OPR' : 'STBY') + fwd;
+    if (ampState.ampError) el.classList.add('fault');
+    else if (ampState.operate) el.classList.add('operate');
+}
+
+function ampBar(label, value, max, text, level) {
+    var pct = value === undefined ? 0 : Math.max(0, Math.min(100, value / max * 100));
+    return '<div class="amp-bar"><span>' + label + '</span><div class="amp-track"><div class="amp-fill' +
+        (level ? ' ' + level : '') + '" style="width:' + pct + '%"></div></div><span class="amp-val">' +
+        (value === undefined ? '\u2014' : text) + '</span></div>';
+}
+
+function ampTile(label, value, bad) {
+    return '<div class="amp-tile' + (bad ? ' bad' : '') + '">' + label + '<span>' +
+        (value === undefined || value === '' ? '\u2014' : ampEsc(value)) + '</span></div>';
+}
+
+function renderAmpOverlay() {
+    var body = document.getElementById('ampBody');
+    if (!body) return;
+    var a = ampState || {};
+    var up = !!a.connected;
+    var html = '<div class="amp-head"><b>' + ampEsc(a.device || 'RF-KIT') + '</b><span>' +
+        (up ? 'connected ' : 'offline ') + ampEsc(a.target || '') + '</span></div>';
+    if (!up && a.error) html += '<div class="amp-head"><span style="color:#e33">' + ampEsc(a.error) + '</span></div>';
+
+    // Fixed scales matching the amplifier's own display (see AetherSDR's
+    // rfkit-amplifier-design.md). Reflected power and SWR stay at baseline
+    // below 1 W forward.
+    var keyed = up && a.fwd !== undefined && a.fwd >= 1;
+    var swr = keyed ? a.swr : undefined;
+    var swrLevel = swr >= 2 ? 'bad' : (swr >= 1.5 ? 'warn' : '');
+    var ref = keyed ? a.ref : undefined;
+    var refLevel = '';
+    if (keyed && a.fwd > 0) {
+        var rho = Math.sqrt(a.ref / a.fwd), s = rho < 1 ? (1 + rho) / (1 - rho) : 99;
+        refLevel = s >= 2 ? 'bad' : (s >= 1.5 ? 'warn' : '');
+    }
+    html += '<div class="amp-bars">' +
+        ampBar('FWD', up ? a.fwd : undefined, 1600, (a.fwd || 0) + ' W') +
+        ampBar('REF', ref, 200, (ref || 0) + ' W', refLevel) +
+        ampBar('SWR', swr === undefined ? undefined : Math.min(swr, 5) - 1, 4,
+               swr === undefined ? '' : swr.toFixed(2) + ':1', swrLevel) +
+        '</div>';
+
+    html += '<div class="amp-tiles">' +
+        ampTile('BAND', up ? a.band : undefined) +
+        ampTile('FREQ', up ? a.freq : undefined) +
+        ampTile('TEMP', up && a.temp !== undefined ? a.temp.toFixed(0) + ' \u00b0C' : undefined, a.temp >= 60) +
+        ampTile('VOLTS', up && a.volts !== undefined ? a.volts.toFixed(1) + ' V' : undefined) +
+        ampTile('CURRENT', up && a.amps !== undefined ? a.amps.toFixed(1) + ' A' : undefined) +
+        ampTile('TUNER', up ? a.tuner : undefined) +
+        ampTile('INTERFACE', up ? a.iface : undefined) +
+        ampTile('STATUS', up ? a.status : undefined) +
+        (up && a.ampError ? ampTile('ERROR', a.ampError, true) : '') +
+        '</div>';
+    body.innerHTML = html;
+
+    var grid = document.createElement('div');
+    grid.className = 'overlay-grid';
+    var opBtn = makeFuncBtn('OPERATE', up ? (a.operate ? 'ON' : 'STANDBY') : '\u2014', up && !!a.operate, function () {
+        send({ cmd: 'ampOperate', value: !(ampState && ampState.operate) });
+    });
+    opBtn.disabled = !up;
+    grid.appendChild(opBtn);
+    var ants = (up && a.antennas) || [];
+    for (var n = 1; n <= 4; n++) {
+        var ant = null;
+        for (var i = 0; i < ants.length; i++) if (!ants[i].external && ants[i].num === n) ant = ants[i];
+        (function (num, info) {
+            var active = !!(info && info.state === 'active');
+            var b = makeFuncBtn('ANT ' + num, info ? info.state.toUpperCase() : '\u2014', active, function () {
+                send({ cmd: 'ampAntenna', value: num });
+            });
+            b.disabled = !up || !info || info.state === 'disabled' || active;
+            grid.appendChild(b);
+        })(n, ant);
+    }
+    // The external antenna is shown, never switched (see the design note).
+    for (var j = 0; j < ants.length; j++) {
+        if (ants[j].external && ants[j].state === 'active') {
+            var ext = makeFuncBtn(ants[j].label || 'EXT', 'ACTIVE', true, function () {});
+            ext.disabled = true;
+            grid.appendChild(ext);
+        }
+    }
+    var reset = makeFuncBtn('RESET', 'ERROR', false, function () {
+        if (confirm('Reset the amplifier error state?\n\nThe error latch protects the amplifier; reset only once the cause is fixed.'))
+            send({ cmd: 'ampErrorReset' });
+    });
+    reset.disabled = !up;
+    grid.appendChild(reset);
+    var back = document.createElement('button');
+    back.className = 'ov-btn back-btn';
+    back.innerHTML = '&#x21A9;';
+    back.onclick = function () { setPanel('default'); };
+    grid.appendChild(back);
+    body.appendChild(grid);
+}
+
 function makeFuncBtn(label, state, active, onclick) {
     var btn = document.createElement('button');
     btn.className = 'ov-btn' + (active ? ' active' : '');
@@ -5400,6 +5970,19 @@ function renderAudioMicOverlay() {
         grid.appendChild(buf);
     }
 
+    // Intercom: what this browser hears while another browser transmits.
+    if (audioAvailable) {
+        var tl = makeFuncBtn('TX LISTEN', txListenLabel(), txListenMode !== 'off', cycleTxListen);
+        tl.title = 'While another browser transmits: OPERATOR = their microphone, ON-AIR = the radio\'s monitor, OFF = silence.';
+        grid.appendChild(tl);
+        var tv = makeFuncBtn('LISTEN VOL', txListenVol + '%', txListenVol !== 100, cycleTxListenVol);
+        tv.title = 'Volume of the TX listen audio, separate from the receiver volume.';
+        grid.appendChild(tv);
+        var td = makeFuncBtn('DIGI LISTEN', txListenDigi ? 'ON' : 'OFF', txListenDigi, toggleTxListenDigi);
+        td.title = 'Also listen while another browser transmits FT8, JS8 or other data modes.';
+        grid.appendChild(td);
+    }
+
     // Fill remaining slots + back
     var total = grid.children.length;
     var cols = 5;
@@ -5418,6 +6001,96 @@ function renderAudioMicOverlay() {
     grid.appendChild(back);
 
     document.getElementById('audioMicOverlay').classList.add('visible');
+    renderAudioDevices();
+}
+
+// ---- Input / output device pickers (AUDIO / TX) ----------------------------
+// MIC sets the same choice the TX AUDIO button cycles (wfMicDeviceId).
+// SPEAKER routes this page's sound (receiver, CW tone, FT8 monitor) to one
+// output with AudioContext.setSinkId (Chrome / Edge 110+), kept in
+// wfSpeakerId; other browsers play to the system default.
+var speakerDeviceId = '';
+try { speakerDeviceId = localStorage.getItem('wfSpeakerId') || ''; } catch (e) {}
+var speakerDevices = [];
+
+function canPickSpeaker() {
+    return !!(window.AudioContext && AudioContext.prototype && 'setSinkId' in AudioContext.prototype);
+}
+
+// Route one AudioContext to the chosen output. Called for every context the
+// page creates; a vanished device falls back to the default quietly.
+function applySpeaker(ctx) {
+    if (!ctx || !canPickSpeaker() || ctx.state === 'closed') return;
+    try {
+        var p = ctx.setSinkId(speakerDeviceId || '');
+        if (p && p.catch) p.catch(function (e) { console.warn('[Audio] output device:', e && e.message); });
+    } catch (e) {}
+}
+
+function renderAudioDevices() {
+    var inSel = document.getElementById('audioInSelect');
+    var outSel = document.getElementById('audioOutSelect');
+    var note = document.getElementById('audioDevNote');
+    if (!inSel || !outSel) return;
+    document.getElementById('audioInRow').style.display = (txAudioAvailable && window.isSecureContext) ? '' : 'none';
+    document.getElementById('audioOutRow').style.display = audioAvailable ? '' : 'none';
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+        note.textContent = 'This browser does not list its audio devices.';
+        return;
+    }
+    navigator.mediaDevices.enumerateDevices().then(function (devs) {
+        micDevices = devs.filter(function (d) { return d.kind === 'audioinput'; });
+        speakerDevices = devs.filter(function (d) {
+            return d.kind === 'audiooutput' && d.deviceId !== 'default' && d.deviceId !== 'communications';
+        });
+        var unnamed = false;
+        function fill(sel, first, list, current, prefix) {
+            sel.innerHTML = '';
+            var o = document.createElement('option');
+            o.value = ''; o.textContent = first; sel.appendChild(o);
+            list.forEach(function (d, i) {
+                if (!d.deviceId) return;
+                var op = document.createElement('option');
+                op.value = d.deviceId;
+                op.textContent = d.label || (prefix + ' ' + (i + 1));
+                if (!d.label) unnamed = true;
+                sel.appendChild(op);
+            });
+            sel.value = current;
+            if (sel.value !== current) sel.value = '';   // a saved device that is gone
+        }
+        fill(inSel, 'AUTO (browser default, not the radio\'s codec)', micRealDevices(), micDeviceId, 'Input');
+        fill(outSel, 'System default', speakerDevices, speakerDeviceId, 'Output');
+        outSel.disabled = !canPickSpeaker();
+        var msgs = [];
+        if (unnamed) msgs.push('Turn TX AUDIO on once so the browser shows the device names.');
+        if (!canPickSpeaker()) msgs.push('This browser always plays to the system default output; Chrome or Edge can choose one.');
+        note.textContent = msgs.join(' ');
+    }).catch(function () {});
+}
+
+function pickMicDevice(id) {
+    micDeviceId = id || '';
+    saveMicDevice();
+    // Restart the running mic on the new input; when off, the choice is used
+    // the next time TX AUDIO is turned on.
+    if (micEnabled) { stopMic(); startMic(); }
+    else micRepaint();
+}
+
+function pickSpeakerDevice(id) {
+    speakerDeviceId = id || '';
+    try { localStorage.setItem('wfSpeakerId', speakerDeviceId); } catch (e) {}
+    applySpeaker(audioCtx);
+    applySpeaker(digiTxCtx);
+    if (cwSidetone && cwSidetone.ctx) applySpeaker(cwSidetone.ctx);
+}
+
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', function () {
+        var ov = document.getElementById('audioMicOverlay');
+        if (ov && ov.classList.contains('visible')) renderAudioDevices();
+    });
 }
 
 // A rig's preamp and attenuator lists can be band-dependent: on the IC-705
@@ -6523,7 +7196,90 @@ function updateWarningVisibility() {
     updateDupIndicator();
 }
 
+// Intercom during TX (server webServer::forwardOperatorAudio): what this
+// browser hears while ANOTHER browser transmits. OFF = silence, OPERATOR =
+// the operator's microphone straight through, ON-AIR = the radio's monitor
+// of the transmission. Data modes stay silent unless DIGI LISTEN is on.
+var txListenMode = 'op';
+var txListenVol = 100;
+var txListenDigi = false;
+try {
+    txListenMode = localStorage.getItem('wfTxListen') || 'op';
+    txListenVol = parseInt(localStorage.getItem('wfTxListenVol'), 10) || 100;
+    txListenDigi = localStorage.getItem('wfTxListenDigi') === '1';
+} catch (e) {}
+var txListenSent = null;
+function txListenEffective() {
+    var digi = /^(DIG|RTTY|PKT|FT|JS8)|-D$/.test(currentMode || '');   // DIGU/DIGL, RTTY, Icom USB-D...
+    return (digi && !txListenDigi) ? 'off' : txListenMode;
+}
+function sendTxListen(force) {
+    var m = txListenEffective();
+    if (!force && m === txListenSent) return;
+    txListenSent = m;
+    send({ cmd: 'setTxListen', mode: m });
+}
+function txListenLabel() {
+    return txListenMode === 'op' ? 'OPERATOR' : txListenMode === 'air' ? 'ON-AIR' : 'OFF';
+}
+function cycleTxListen() {
+    txListenMode = txListenMode === 'op' ? 'air' : txListenMode === 'air' ? 'off' : 'op';
+    try { localStorage.setItem('wfTxListen', txListenMode); } catch (e) {}
+    sendTxListen(true);
+    renderAudioMicOverlay();
+}
+function cycleTxListenVol() {
+    var steps = [25, 50, 75, 100, 150, 200];
+    var i = steps.indexOf(txListenVol);
+    txListenVol = steps[(i + 1) % steps.length];
+    try { localStorage.setItem('wfTxListenVol', String(txListenVol)); } catch (e) {}
+    renderAudioMicOverlay();
+}
+function toggleTxListenDigi() {
+    txListenDigi = !txListenDigi;
+    try { localStorage.setItem('wfTxListenDigi', txListenDigi ? '1' : '0'); } catch (e) {}
+    sendTxListen(true);
+    renderAudioMicOverlay();
+}
+// The rig's mode decides "data mode" for every browser; re-check it each
+// second (only a change is sent).
+setInterval(function () { if (ws && ws.readyState === WebSocket.OPEN) sendTxListen(false); }, 1000);
+
+// TX lock (server webServer::broadcastTxState): another browser has the
+// radio. Our PTT is held and the press says who is transmitting.
+var txOtherBy = '';
+function setTxOther(by) {
+    txOtherBy = by || '';
+    var el = document.getElementById('txByLabel');
+    if (el) {
+        el.hidden = !txOtherBy;
+        el.textContent = txOtherBy ? 'TX: ' + txOtherBy : '';
+        el.title = txOtherBy ? txOtherBy + ' is transmitting' : '';
+    }
+    document.body.classList.toggle('tx-other', !!txOtherBy);
+}
+function flashTxOther() {
+    var el = document.getElementById('txByLabel');
+    if (!el) return;
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    el.classList.add('flash');
+}
+// The server refused our key-up: drop whatever on this page was about to
+// transmit (latched PTT, FT8/JS8 TX), without unkeying the other operator.
+function txBusyRefused() {
+    flashTxOther();
+    if (pttLatched) {
+        pttLatched = false;
+        clearTimeout(pttLatchTimer);
+        pttLatchTimer = null;
+    }
+    try { if (typeof digiTxActive !== 'undefined' && digiTxActive && typeof haltDigiTx === 'function') haltDigiTx(); } catch (e) {}
+    console.warn('[PTT] refused: ' + txOtherBy + ' is transmitting');
+}
+
 function handlePTTPress() {
+    if (txOtherBy) { flashTxOther(); return false; }
     // Skip audio/mic checks for CW mode (uses radio's internal keyer)
     var isCW = (currentMode === 'CW' || currentMode === 'CW-R');
     if (isCW) return true;
@@ -6559,6 +7315,39 @@ function handlePTTPress() {
 // PTT with TX audio drain delay
 var pttReleaseTimer = null;
 
+// FUNC > PTT: HOLD (press and hold, the default) or LATCH (tap to key, tap
+// again to unkey), kept per browser in wfPttMode. A latched transmission is
+// also released by Escape, by the TX time limit below, and by the server if
+// this browser disconnects (webServer: pttClient).
+var pttLatchMode = false;
+try { pttLatchMode = localStorage.getItem('wfPttMode') === 'latch'; } catch (e) {}
+var pttLatched = false;
+var pttLatchTimer = null;
+var PTT_LATCH_MAX_MS = 5 * 60 * 1000;
+
+function setPttLatchMode(on) {
+    if (!on && pttLatched) pttUnlatch();
+    pttLatchMode = !!on;
+    try { localStorage.setItem('wfPttMode', pttLatchMode ? 'latch' : 'hold'); } catch (e) {}
+}
+
+function pttLatchOn() {
+    pttLatched = true;
+    clearTimeout(pttLatchTimer);
+    pttLatchTimer = setTimeout(function () {
+        if (!pttLatched) return;
+        console.warn('[PTT] latched TX reached ' + (PTT_LATCH_MAX_MS / 60000) + ' min, releasing');
+        pttUnlatch();
+    }, PTT_LATCH_MAX_MS);
+}
+
+function pttUnlatch() {
+    pttLatched = false;
+    clearTimeout(pttLatchTimer);
+    pttLatchTimer = null;
+    releasePTT();
+}
+
 function releasePTT() {
     // Cancel any pending release
     if (pttReleaseTimer) {
@@ -6581,14 +7370,19 @@ function releasePTT() {
     function isPTT(e) { return e.target && e.target.classList && e.target.classList.contains('ptt-btn'); }
     function pttOn(e) {
         e.preventDefault();
+        // LATCH: a tap while latched (or while the rig is transmitting from
+        // this latch) is the release; the pointer-up after a keying tap is
+        // ignored.
+        if (pttLatchMode && (pttLatched || isTransmitting)) { pttUnlatch(); return; }
         if (!handlePTTPress()) return;
         if (pttReleaseTimer) {
             clearTimeout(pttReleaseTimer);
             pttReleaseTimer = null;
         }
-        pttPointerActive = true;
         flushAudio();
         send({ cmd: 'setPTT', value: true });
+        if (pttLatchMode) { pttLatchOn(); return; }
+        pttPointerActive = true;
     }
     // Press: detected on bar via delegation
     bar.addEventListener('pointerdown', function(e) {
@@ -7079,6 +7873,7 @@ function setAudioSessionType(type) {
 // gesture, and show AUDIO PAUSED for as long as the context is not running.
 function createRxAudioCtx() {
     var ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: audioSampleRate });
+    applySpeaker(ctx);
     ctx.onstatechange = function() {
         console.log('[Audio] RX AudioContext ' + ctx.state);
         updateWarningVisibility();
@@ -7451,11 +8246,18 @@ function handleAudioData(buffer) {
     if (buffer.byteLength < 8) return;
     if (audioCtx && audioCtx.state !== 'running') resumeRxAudio(false);
     var pcmData = new Int16Array(buffer, 6);
+    // Intercom: byte 1 = 0x01 marks the transmitting operator's own audio
+    // (TX LISTEN = OPERATOR); while another browser transmits, it and the
+    // radio's monitor play at this browser's LISTEN volume.
+    var intercom = (new Uint8Array(buffer, 1, 1)[0] & 0x01) !== 0;
+    var gain = (intercom || txOtherBy) ? txListenVol / 100 : 1;
     var floatData = new Float32Array(pcmData.length);
-    for (var i = 0; i < pcmData.length; i++) floatData[i] = pcmData[i] / 32768.0;
-    if (digiRxEnabled && digiRxBuffer) processDigiAudioChunk(pcmData);
-    if (typeof window._js8ProcessAudioChunk === 'function') window._js8ProcessAudioChunk(pcmData);
-    if (toneScanDetector) feedToneScan(pcmData);
+    for (var i = 0; i < pcmData.length; i++) floatData[i] = Math.max(-1, Math.min(1, pcmData[i] / 32768.0 * gain));
+    if (!intercom) {
+        if (digiRxEnabled && digiRxBuffer) processDigiAudioChunk(pcmData);
+        if (typeof window._js8ProcessAudioChunk === 'function') window._js8ProcessAudioChunk(pcmData);
+        if (toneScanDetector) feedToneScan(pcmData);
+    }
     Recorder.feedRx(pcmData, audioSampleRate);
 
     if (audioUseWorklet && audioWorkletNode) audioWorkletNode.port.postMessage(floatData, [floatData.buffer]);
@@ -7524,15 +8326,66 @@ function spectCountsPerDb() { return spectAmpMax / SPECT_DB_SPAN; }
 
 // Waterfall palette: the floor is a deep navy (only below-floor dips darken
 // further), signals climb through blue and cyan into near-white peaks.
+// Waterfall colour schemes: wfweb's own, plus AetherSDR's set (the
+// SmartSDR-style rainbow and the rest), picked under SPAN > Colour and kept
+// in localStorage wfPalette.
+var WF_PALETTES = {
+    wfweb:     { name: 'WFWEB',  stops: [[0.00, [1, 3, 18]], [0.20, [8, 18, 76]], [0.50, [28, 84, 216]], [0.72, [63, 184, 232]], [0.88, [150, 214, 240]], [1.00, [242, 250, 255]]] },
+    rainbow:   { name: 'RAINBOW', stops: [[0.00, [0, 0, 0]], [0.15, [0, 0, 128]], [0.30, [0, 64, 255]], [0.45, [0, 200, 255]], [0.60, [0, 220, 0]], [0.80, [255, 255, 0]], [1.00, [255, 0, 0]]] },
+    purple:    { name: 'PURPLE', stops: [[0.00, [0, 0, 0]], [0.15, [0, 0, 255]], [0.30, [0, 255, 0]], [0.45, [255, 255, 0]], [0.60, [255, 0, 0]], [0.75, [128, 0, 128]], [1.00, [255, 255, 255]]] },
+    bluegreen: { name: 'BLUE-GRN', stops: [[0.00, [0, 0, 0]], [0.25, [0, 30, 120]], [0.50, [0, 100, 180]], [0.75, [0, 200, 130]], [1.00, [220, 255, 220]]] },
+    glacier:   { name: 'GLACIER', stops: [[0.00, [5, 24, 60]], [0.30, [10, 90, 210]], [0.55, [60, 160, 255]], [0.80, [168, 220, 255]], [1.00, [255, 255, 255]]] },
+    fire:      { name: 'FIRE',   stops: [[0.00, [0, 0, 0]], [0.25, [128, 0, 0]], [0.50, [220, 80, 0]], [0.75, [255, 200, 0]], [1.00, [255, 255, 220]]] },
+    plasma:    { name: 'PLASMA', stops: [[0.00, [0, 0, 0]], [0.25, [80, 0, 140]], [0.50, [200, 0, 120]], [0.75, [240, 120, 0]], [1.00, [255, 255, 80]]] },
+    grey:      { name: 'GREY',   stops: [[0.00, [0, 0, 0]], [1.00, [255, 255, 255]]] }
+};
+var wfPalette = 'wfweb';
+try { var savedPal = localStorage.getItem('wfPalette'); if (WF_PALETTES[savedPal]) wfPalette = savedPal; } catch (e) {}
+
+function setWfPalette(key) {
+    if (!WF_PALETTES[key]) return;
+    wfPalette = key;
+    try { localStorage.setItem('wfPalette', key); } catch (e) {}
+    buildColorTable();
+    renderWfPaletteButtons();
+    // Repaint the history in the new colours rather than leaving a seam.
+    if (wfImageData) { wfFillBlank(wfImageData.data, 0, wfImageData.data.length); wfBufDirty = true; }
+}
+
+// The spectrum trace: wfweb's white, or filled in the waterfall palette so a
+// signal is the same colour in both (localStorage wfSpectFill).
+var spectFill = 'white';
+try { if (localStorage.getItem('wfSpectFill') === 'palette') spectFill = 'palette'; } catch (e) {}
+
+function setSpectFill(mode) {
+    spectFill = mode === 'palette' ? 'palette' : 'white';
+    try { localStorage.setItem('wfSpectFill', spectFill); } catch (e) {}
+    renderWfPaletteButtons();
+}
+
+function renderWfPaletteButtons() {
+    var wb = document.getElementById('spectFillWhiteBtn'), pb = document.getElementById('spectFillPalBtn');
+    if (wb) wb.classList.toggle('active', spectFill === 'white');
+    if (pb) pb.classList.toggle('active', spectFill === 'palette');
+    var grid = document.getElementById('wfPaletteGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    Object.keys(WF_PALETTES).forEach(function (key) {
+        var b = document.createElement('button');
+        b.className = 'ov-btn' + (key === wfPalette ? ' active' : '');
+        b.textContent = WF_PALETTES[key].name;
+        var st = WF_PALETTES[key].stops;
+        b.style.borderBottom = '3px solid transparent';
+        b.style.borderImage = 'linear-gradient(90deg,' + st.map(function (x) {
+            return 'rgb(' + x[1].join(',') + ') ' + (x[0] * 100) + '%';
+        }).join(',') + ') 1';
+        b.onclick = function () { setWfPalette(key); };
+        grid.appendChild(b);
+    });
+}
+
 function buildColorTable() {
-    var stops = [
-        [0.00, [1, 3, 18]],
-        [0.20, [8, 18, 76]],
-        [0.50, [28, 84, 216]],
-        [0.72, [63, 184, 232]],
-        [0.88, [150, 214, 240]],
-        [1.00, [242, 250, 255]]
-    ];
+    var stops = (WF_PALETTES[wfPalette] || WF_PALETTES.wfweb).stops;
     colorTable = new Array(WF_LUT_MAX + 1);
     for (var i = 0; i <= WF_LUT_MAX; i++) {
         var t = i / WF_LUT_MAX, upper = stops.length - 1;
@@ -8047,6 +8900,28 @@ function renderScope() {
     if (more) scopeScheduleAnim();
 }
 
+// Frequency scale: labels on round multiples of a 1/2/5 step chosen for
+// about one label per 90 px (7.160 7.170 7.180 ... rather than fifths of
+// the span, which land on odd values whenever the VFO is not round), kept
+// clear of the corners where the edge readouts sit. Shown with as many
+// decimals as the step needs.
+function spectTicks(w) {
+    if (!(spectStartFreq > 0 && spectEndFreq > spectStartFreq) || w <= 0) return [];
+    var spanKHz = (spectEndFreq - spectStartFreq) * 1000;
+    var want = Math.max(2, Math.min(10, Math.floor(w / 90)));
+    var raw = spanKHz / want, mag = Math.pow(10, Math.floor(Math.log10(raw))), step = mag;
+    [1, 2, 5, 10].some(function (m) { step = m * mag; return step >= raw * 0.999; });
+    var dec = Math.max(0, Math.min(6, 3 - Math.floor(Math.log10(step) + 1e-9)));
+    if (spectStartFreq >= 1000) dec = Math.max(dec, 1);
+    var startK = spectStartFreq * 1000, out = [];
+    for (var k = Math.ceil(startK / step) * step; k <= spectEndFreq * 1000 + 1e-6; k += step) {
+        var x = (k - startK) / spanKHz * w;
+        if (x < 30 || x > w - 30) continue;
+        out.push({ x: x, label: (k / 1000).toFixed(dec) });
+    }
+    return out;
+}
+
 function drawSpectrum() {
     var canvas = document.getElementById('spectrumCanvas');
     var ctx = canvas.getContext('2d');
@@ -8063,7 +8938,14 @@ function drawSpectrum() {
     ctx.lineWidth = 0.7;
     ctx.beginPath();
     for (var gi = 1; gi < 3; gi++) { var gy = (plotH / 3) * gi; ctx.moveTo(0, gy); ctx.lineTo(w, gy); }
-    for (var gx = 1; gx < 8; gx++) { var gxx = (w / 8) * gx; ctx.moveTo(gxx, 0); ctx.lineTo(gxx, plotH); }
+    // Vertical lines on the labelled frequencies (spectTicks), so the scale
+    // and the grid agree; evenly split while no sweep has arrived.
+    var ticks = spectTicks(w);
+    if (ticks.length) {
+        for (var tk = 0; tk < ticks.length; tk++) { ctx.moveTo(ticks[tk].x, 0); ctx.lineTo(ticks[tk].x, plotH); }
+    } else {
+        for (var gx = 1; gx < 8; gx++) { var gxx = (w / 8) * gx; ctx.moveTo(gxx, 0); ctx.lineTo(gxx, plotH); }
+    }
     ctx.stroke();
 
     // Y scale: the rig's fixed scale (spectAmpMax counts ≈ 45 dB), with
@@ -8111,7 +8993,18 @@ function drawSpectrum() {
     // (spectAdvanceTween). The per-bin zigzag IS the grass: nothing is
     // smoothed across bins, only drawn between them.
     var easing = spectAdvanceTween();
-    ctx.fillStyle = 'rgb(237,242,247)';
+    if (spectFill === 'palette' && colorTable) {
+        // Vertical gradient: each height takes the waterfall colour of the
+        // level drawn there (barY run backwards), so the two views agree.
+        var top = plotH * 0.06, grad = ctx.createLinearGradient(0, plotH, 0, top);
+        for (var gs = 0; gs <= 24; gs++) {
+            var gc = colorTable[wfColorIndex(floor + (gs / 24) * spectAmpMax)];
+            grad.addColorStop(gs / 24, 'rgb(' + gc[0] + ',' + gc[1] + ',' + gc[2] + ')');
+        }
+        ctx.fillStyle = grad;
+    } else {
+        ctx.fillStyle = 'rgb(237,242,247)';
+    }
     fillTrace(spectShown);
 
     // Passband indicator bar, hung off the VFO marker
@@ -8169,20 +9062,12 @@ function drawSpectrum() {
         }
     }
 
-    // Freq labels
-    if (spectStartFreq > 0 && spectEndFreq > spectStartFreq) {
+    // Freq labels, on round frequencies (spectTicks)
+    if (ticks.length) {
         ctx.fillStyle = '#555';
         ctx.font = '9px sans-serif';
         ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-        for (var li = 0; li <= 5; li++) {
-            // On fixed glass the corner labels would sit under the edge
-            // readouts (spanEdgeLeft/Right show the exact edges there).
-            if (scopeMode !== 0 && (li === 0 || li === 5)) continue;
-            var frac = li / 5;
-            var freq = spectStartFreq + (spectEndFreq - spectStartFreq) * frac;
-            var label = freq >= 1000 ? freq.toFixed(1) : freq >= 100 ? freq.toFixed(2) : freq.toFixed(3);
-            ctx.fillText(label, frac * w, plotH + 2);
-        }
+        for (var li = 0; li < ticks.length; li++) ctx.fillText(ticks[li].label, ticks[li].x, plotH + 2);
     }
     return easing;
 }
@@ -8491,6 +9376,8 @@ document.addEventListener('keydown', function(e) {
         // immediately and leave overlays/panels in place. ESC pressed
         // again with nothing TXing falls through to the overlay close.
         if (typeof haltDigiTx === 'function' && haltDigiTx()) return;
+        // A latched PTT is released the same way.
+        if (pttLatched) { pttUnlatch(); return; }
         // Then hide overlays
         hideAllOverlays();
         closeMemoryModal();
@@ -8700,7 +9587,7 @@ var cwPitchHz = 600;            // the radio's CW PITCH; 600 Hz until it reports
 var cwKeyerType = 'ideal';      // 'icom' = the Icom keyer's measured dot table (rigInfo.manufacturer)
 var cwSidetone = new WfCwSidetone({
     enabled: (function() { try { return localStorage.getItem('wfCwSidetone') !== '0'; } catch (e) { return true; } })(),
-    createContext: function() { return new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); },
+    createContext: function() { var c = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' }); applySpeaker(c); return c; },
     pitch: function() { return cwPitchHz; },
     gain: function() { return 0.2 * rxVolumeGain(); }
 });
@@ -9219,6 +10106,7 @@ function getDxCall() { return ((document.getElementById('digiDxCall') || {}).val
 function initDigiTxCtx() {
     if (digiTxCtx && digiTxCtx.state !== 'closed') return; // already ready
     digiTxCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: audioSampleRate || 48000 });
+    applySpeaker(digiTxCtx);
     digiTxPacerReady = false; // new context — processor not yet registered
     digiTuneWorkletReady = false;
     digiTxCtx.resume().then(function() {
@@ -10067,6 +10955,51 @@ function toggleDigiCqParity() {
     if (btn) btn.textContent = digiCqParity === 0 ? 'TX EVEN' : 'TX ODD';
 }
 
+// CALL 1ST (WSJT-X "Call 1st"): while a CQ is armed, the first decode
+// addressed to us starts the QSO as if its row had been clicked, and the
+// auto-sequencer takes it to the log. Kept per browser in wfDigiCall1st.
+var digiCall1st = false;
+try { digiCall1st = localStorage.getItem('wfDigiCall1st') === '1'; } catch (e) {}
+function toggleDigiCall1st() {
+    digiCall1st = !digiCall1st;
+    try { localStorage.setItem('wfDigiCall1st', digiCall1st ? '1' : '0'); } catch (e) {}
+    var b = document.getElementById('digiCall1stBtn');
+    if (b) b.classList.toggle('active', digiCall1st);
+}
+
+// A reply to our CQ ("<MY> <CALLER> <grid|report>"): take the caller.
+// Returns true when it started a QSO.
+function digiCall1stTake(parts, snr, dSlot) {
+    var myCall = getMyCall();
+    if (!digiCall1st || !digiTxEnabled || !digiTxQueued || digiTxQueued.indexOf('CQ ') !== 0) return false;
+    if (parts.length < 2 || parts[0] !== myCall || !parts[1] || parts[1] === myCall) return false;
+    var tok = parts[2] || '';
+    if (tok === 'RR73' || tok === 'RRR' || tok === '73') return false;   // not the start of a QSO
+    var caller = parts[1];
+    var dxEl = document.getElementById('digiDxCall');
+    if (dxEl) dxEl.value = caller;
+    digiQsoPartner = caller;
+    digiQsoPartnerBusyWith = '';
+    var r = Math.round(snr || 0), ourSnrStr = (r >= 0 ? '+' : '') + r;
+    if (/^R[-+]?\d+$/i.test(tok)) {
+        digiQsoState = 'RREPORT';                 // they skipped ahead: R-report → RR73
+        digiTheirReport = digiReportFromToken(tok);
+        digiOurReport = ourSnrStr;
+    } else if (/^[-+]?\d+$/.test(tok)) {
+        digiQsoState = 'REPORT';                  // plain report → R-report
+        digiTheirReport = digiReportFromToken(tok);
+        digiOurReport = ourSnrStr;
+    } else {
+        digiQsoState = 'ANSWERED';                // grid → our plain report
+        digiTheirReport = '';
+        digiOurReport = ourSnrStr;
+    }
+    console.log('[DIGI QSO] CALL 1ST: answering ' + caller + ' (' + tok + ') state=' + digiQsoState);
+    armMessageForQsoState(dSlot);
+    updateDigiStatus('Call 1st: ' + caller, '');
+    return true;
+}
+
 // Start calling CQ: enable TX, arm the CQ message, use the user-selected parity
 function digiCallCq() {
     if (!checkDigiCallGrid()) return;
@@ -10463,6 +11396,9 @@ function handleDigiAutoQso(decodes, decodedSlotIndex) {
         // Each decode's slot index (prefer per-decode if present, fall back to argument)
         var dSlot = (decodes[i].slotIndex !== undefined) ? decodes[i].slotIndex : decodedSlotIndex;
 
+        if (digiQsoState === 'IDLE' && !multi && digiCall1stTake(parts, decodes[i].snr, dSlot)) {
+            break;
+        }
         if (digiQsoState === 'IDLE') {
             // Look for CQ <CALL> <GRID> — only auto-arm if the user has already
             // targeted this specific station in the DX field. Never auto-select
@@ -11178,7 +12114,8 @@ function streamDigiAudio(samples12k, onDone, onFirstChunk) {
             monSrc.onended = function () {
                 if (digiMonitorSrc === monSrc) digiMonitorSrc = null;
             };
-            monSrc.start();
+            // Started with PTT (sendInt16Chunk), not with the first audio
+            // chunk, so the monitor does not run ahead of the transmitter.
         }
     } catch (e) {
         console.warn('[DIGI stream] sidetone error:', e);
@@ -11208,7 +12145,10 @@ function streamDigiAudio(samples12k, onDone, onFirstChunk) {
     var chunksSent = 0;
     // Fire PTT after ~100 ms of audio is in the ALSA buffer (≈9 batches of 512 samples
     // at 48 kHz = 96 ms) so ALSA has enough cushion to survive brief main-thread stalls.
-    var PTT_AFTER_CHUNKS = 9;
+    // A Flex keys at once: its server holds the DAX audio until the radio
+    // reports it is on the air (flexcommander.cpp, txPending), so nothing is
+    // lost and the transmission is not delayed by the cushion.
+    var PTT_AFTER_CHUNKS = isFlexRig ? 1 : 9;
 
     function sendInt16Chunk(i16buf) {
         if (!txAudioReady()) {
@@ -11232,6 +12172,7 @@ function streamDigiAudio(samples12k, onDone, onFirstChunk) {
         if (chunksSent === PTT_AFTER_CHUNKS) {
             console.log('[DIGI stream] PTT trigger threshold reached (' + chunksSent + ' chunks)');
             if (onFirstChunk) onFirstChunk();
+            if (monSrc) { try { monSrc.start(); } catch (e) {} }
         }
     }
 
@@ -12305,6 +13246,8 @@ function initDigiHandlers() {
     }
 
     // Hold TX Freq button
+    var call1stBtn = document.getElementById('digiCall1stBtn');
+    if (call1stBtn) call1stBtn.classList.toggle('active', digiCall1st);
     var holdTxBtn = document.getElementById('digiHoldTxBtn');
     if (holdTxBtn) {
         holdTxBtn.addEventListener('click', function() {
@@ -12359,6 +13302,7 @@ console.log('=== WFWEB starting (server version available after rigInfo) ===');
 
 setMobileViewportHeight();
 buildColorTable();
+renderWfPaletteButtons();
 loadScopeSettings();
 initSliderTracking();
 initCWHandlers();

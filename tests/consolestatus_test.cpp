@@ -68,7 +68,7 @@ int main()
     // --- a roomy terminal shows everything ---
     {
         const QStringList lines = ConsoleStatus::render(full, 80, 24);
-        require(contains(lines, "wfweb 9.9.9 - IC-7300 [shack]"), "title with model and name tag");
+        require(contains(lines, "FlexWeb 9.9.9 - IC-7300 [shack]"), "title with model and name tag");
         require(contains(lines, "up 2d 01:02:03"), "uptime");
         require(contains(lines, "https://shack-pi:8080/"), "every URL listed");
         require(contains(lines, "self-signed"), "certificate note with https");
@@ -86,7 +86,7 @@ int main()
     {
         const QStringList lines = ConsoleStatus::render(full, 80, 4);
         require(lines.size() == 4, "exactly fills a 4-row terminal");
-        require(contains(lines, "wfweb 9.9.9"), "title kept");
+        require(contains(lines, "FlexWeb 9.9.9"), "title kept");
         require(contains(lines, "Open in a browser"), "heading kept");
         require(contains(lines, "https://192.168.1.42:8080/"), "first URL kept");
         require(contains(lines, "[l] live log"), "key hints kept");

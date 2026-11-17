@@ -16,7 +16,9 @@
 class QSettings;
 
 struct LaunchConfig {
-    enum Transport { Usb = 0, Lan = 1 };
+    // FlexLan / SmartLink: a FlexRadio on the LAN (--manufacturer 3 --lan)
+    // or through FlexRadio's SmartLink service (--smartlink).
+    enum Transport { Usb = 0, Lan = 1, FlexLan = 2, SmartLink = 3 };
     enum Manufacturer { Icom = 0, Kenwood = 1, Yaesu = 2 };
 
     static const int defaultWebPort = 8080;
@@ -34,6 +36,18 @@ struct LaunchConfig {
     QString lanUser;
     QString lanPassword;
     bool noAutoConnect = false;  // --no-autoconnect (LAN only)
+
+    // FlexRadio
+    QString flexHost = "auto";   // IP, hostname or "auto" (discovery)
+    QString smartLinkRadio = "auto";  // serial, radio name or "auto"
+    QString flexAudio = "auto";  // --flex-audio auto|opus|none
+
+    // Station (any network rig)
+    QString ampHost;             // --rfkit host[:port]; empty = no amplifier
+    int onDemandSeconds = 0;     // --on-demand N; 0 = stay connected
+    bool restLan = false;        // --rest
+
+    bool isNetwork() const { return transport != Usb; }
 
     // Server
     int webPort = defaultWebPort;

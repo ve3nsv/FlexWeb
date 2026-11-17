@@ -51,7 +51,8 @@ SOURCES += \
     src/portowner.cpp \
     src/serverprocess.cpp \
     src/statuspoller.cpp \
-    src/mainwindow.cpp
+    src/mainwindow.cpp \
+    ../src/webauth.cpp
 
 HEADERS += \
     src/launchconfig.h \
@@ -60,4 +61,9 @@ HEADERS += \
     src/portowner.h \
     src/serverprocess.h \
     src/statuspoller.h \
-    src/mainwindow.h
+    src/mainwindow.h \
+    ../include/webauth.h
+
+# FlexWeb build number (include/wfweb_version.h): CI exports FLEXWEB_BUILD.
+FLEXWEB_BUILD_NO = $$(FLEXWEB_BUILD)
+!isEmpty(FLEXWEB_BUILD_NO): DEFINES += FLEXWEB_BUILD=\\\"$$FLEXWEB_BUILD_NO\\\"

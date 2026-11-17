@@ -7,6 +7,8 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # FlexWeb version 1.0.<build> (include/wfweb_version.h, read by qmake).
+  FLEXWEB_BUILD: ${{ github.run_number }}
 
 jobs:
   build-linux-ubuntu2404:
@@ -63,7 +65,14 @@ jobs:
       - name: Run tests
         run: |
           sudo apt-get install -y python3-pytest python3-requests
-          python3 -m pytest tests/ -v
+          # Failures also go out as annotations, readable without the log.
+          # POSIX sh: the Debian container jobs run steps with sh, not bash.
+          set +e
+          python3 -m pytest tests/ -v -rfE --tb=short > pytest.log 2>&1
+          rc=$?
+          cat pytest.log
+          grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
+          exit $rc
 
       - name: Get version
         id: version
@@ -193,7 +202,14 @@ jobs:
       - name: Run tests
         run: |
           apt-get install -y python3-pytest python3-requests
-          python3 -m pytest tests/ -v
+          # Failures also go out as annotations, readable without the log.
+          # POSIX sh: the Debian container jobs run steps with sh, not bash.
+          set +e
+          python3 -m pytest tests/ -v -rfE --tb=short > pytest.log 2>&1
+          rc=$?
+          cat pytest.log
+          grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
+          exit $rc
 
       - name: Get version
         id: version
@@ -322,7 +338,14 @@ jobs:
       - name: Run tests
         run: |
           apt-get install -y python3-pytest python3-requests
-          python3 -m pytest tests/ -v
+          # Failures also go out as annotations, readable without the log.
+          # POSIX sh: the Debian container jobs run steps with sh, not bash.
+          set +e
+          python3 -m pytest tests/ -v -rfE --tb=short > pytest.log 2>&1
+          rc=$?
+          cat pytest.log
+          grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
+          exit $rc
 
       - name: Get version
         id: version
@@ -602,7 +625,14 @@ jobs:
       - name: Run tests
         run: |
           pip3 install --break-system-packages pytest requests
-          python3 -m pytest tests/ -v
+          # Failures also go out as annotations, readable without the log.
+          # POSIX sh: the Debian container jobs run steps with sh, not bash.
+          set +e
+          python3 -m pytest tests/ -v -rfE --tb=short > pytest.log 2>&1
+          rc=$?
+          cat pytest.log
+          grep -E "^(FAILED|ERROR) " pytest.log | cut -c1-900 | sed 's/^/::error title=pytest::/'
+          exit $rc
 
       - name: Package zip
         run: |
@@ -653,6 +683,31 @@ jobs:
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
+
+      # Real OpenSSL 1.1.1 for Qt 5.15's TLS *client* side (SmartLink sign-in
+      # and broker). OpenSSL 3 copied under the 1.1 names serves wfweb's HTTPS,
+      # but a client handshake fails: Qt 5 cannot resolve
+      # SSL_get_peer_certificate / EVP_PKEY_base_id in it.
+      - name: Cache OpenSSL 1.1.1w
+        id: openssl111
+        uses: actions/cache@v4
+        with:
+          path: C:\openssl111
+          key: openssl-1.1.1w-msvc-x64-v1
+
+      - name: Build OpenSSL 1.1.1w
+        if: steps.openssl111.outputs.cache-hit != 'true'
+        shell: cmd
+        run: |
+          curl -fsSL -o "%RUNNER_TEMP%\ossl.tar.gz" https://github.com/openssl/openssl/releases/download/OpenSSL_1_1_1w/openssl-1.1.1w.tar.gz || exit /b 1
+          cd /d "%RUNNER_TEMP%" && tar -xzf ossl.tar.gz || exit /b 1
+          cd openssl-1.1.1w
+          set "PERL=perl"
+          if exist C:\Strawberry\perl\bin\perl.exe set "PERL=C:\Strawberry\perl\bin\perl.exe"
+          "%PERL%" Configure VC-WIN64A no-asm no-tests --prefix=C:\openssl111 --openssldir=C:\openssl111\ssl || exit /b 1
+          nmake /S || exit /b 1
+          nmake /S install_sw || exit /b 1
+          dir C:\openssl111\bin
 
       - name: Build RADE custom Opus (MSYS2)
         shell: C:\msys64\usr\bin\bash.exe -l {0}
@@ -728,7 +783,13 @@ jobs:
         shell: cmd
         run: |
           qmake wfweb.pro CONFIG+=release "VCPKG_DIR=C:/vcpkg/installed/x64-windows" "DEFINES-=FTDI_SUPPORT"
-          nmake release
+          nmake release > build.log 2>&1
+          set RC=%ERRORLEVEL%
+          type build.log
+          if not "%RC%"=="0" (
+            powershell -NoProfile -Command "Select-String -Path build.log -Pattern ' error |error C|error LNK|fatal error' | Select-Object -First 25 | ForEach-Object { '::error title=MSVC::' + $_.Line.Trim() }"
+            exit /b %RC%
+          )
 
       # Separate Qt Widgets exe that composes wfweb's command line and runs
       # it as a child process (launcher/README.md). Lands next to wfweb.exe.
@@ -737,7 +798,13 @@ jobs:
         run: |
           cd launcher
           qmake launcher.pro CONFIG+=release
-          nmake release
+          nmake release > launcher-build.log 2>&1
+          set RC=%ERRORLEVEL%
+          type launcher-build.log
+          if not "%RC%"=="0" (
+            powershell -NoProfile -Command "Select-String -Path launcher-build.log -Pattern ' error |error C|error LNK|fatal error' | Select-Object -First 25 | ForEach-Object { '::error title=MSVC launcher::' + $_.Line.Trim() }"
+            exit /b %RC%
+          )
 
       - name: Deploy Qt runtime
         shell: cmd
@@ -764,7 +831,14 @@ jobs:
             if (Test-Path $src) { Copy-Item $src $out -Force }
           }
 
-          # OpenSSL 1.1 aliases for Qt 5.15
+          # OpenSSL 1.1.1w built above: what Qt 5.15 actually loads.
+          foreach ($dll in @("libssl-1_1-x64.dll", "libcrypto-1_1-x64.dll")) {
+            $src = Join-Path "C:\openssl111\bin" $dll
+            if (!(Test-Path $src)) { Write-Host "::error title=OpenSSL::$dll missing"; exit 1 }
+            Copy-Item $src $out -Force
+          }
+
+          # OpenSSL 1.1 aliases for Qt 5.15 (fallback only)
           if (!(Test-Path "$out\libssl-1_1-x64.dll") -and (Test-Path "$out\libssl-3-x64.dll")) {
             Copy-Item "$out\libssl-3-x64.dll" "$out\libssl-1_1-x64.dll"
           }

@@ -40,6 +40,17 @@
 #include "logcategories.h"
 
 #include "direwolfprocessor.h"
+#include "smartlinkclient.h"
+#include "webauth.h"
+
+#include <QEventLoop>
+#include <QTimer>
+#include <string>
+#ifndef Q_OS_WIN
+#include <termios.h>
+#else
+#include <io.h>
+#endif
 
 bool debugMode=false;
 
@@ -168,6 +179,162 @@ void initDaemon() {
 void messageHandler(QtMsgType type, const QMessageLogContext& context, const QString& msg);
 #endif
 
+// Read a line from the console without echoing it (the SmartLink password).
+static std::string readHidden()
+{
+    std::string line;
+#ifdef Q_OS_WIN
+    HANDLE h = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode = 0;
+    const bool console = GetConsoleMode(h, &mode);
+    if (console) SetConsoleMode(h, mode & ~ENABLE_ECHO_INPUT);
+    std::getline(std::cin, line);
+    if (console) SetConsoleMode(h, mode);
+#else
+    termios old {};
+    const bool tty = tcgetattr(STDIN_FILENO, &old) == 0;
+    if (tty) {
+        termios quiet = old;
+        quiet.c_lflag &= ~tcflag_t(ECHO);
+        tcsetattr(STDIN_FILENO, TCSANOW, &quiet);
+    }
+    std::getline(std::cin, line);
+    if (tty) tcsetattr(STDIN_FILENO, TCSANOW, &old);
+#endif
+    std::cout << "\n";
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    return line;
+}
+
+static bool stdinIsTerminal()
+{
+#ifdef Q_OS_WIN
+    return _isatty(_fileno(stdin)) != 0;
+#else
+    return isatty(STDIN_FILENO) != 0;
+#endif
+}
+
+// wfweb --add-user / --passwd <name>: on a terminal ask twice without echo;
+// from a pipe (the Windows launcher) read one line.
+static int webUserPassword(const QString& name, bool mustBeNew)
+{
+    if (!webAuth::validUserName(name)) {
+        std::cout << "User names are 1-32 letters, digits, '.', '_' or '-'.\n";
+        return 1;
+    }
+    if (mustBeNew && webAuth::userExists(name)) {
+        std::cout << "User " << name.toStdString() << " already exists; use --passwd to change the password.\n";
+        return 1;
+    }
+    if (!mustBeNew && !webAuth::userExists(name)) {
+        std::cout << "No user " << name.toStdString() << ".\n";
+        return 1;
+    }
+    QString pw;
+    if (stdinIsTerminal()) {
+        std::cout << "Password for " << name.toStdString() << ": " << std::flush;
+        pw = QString::fromStdString(readHidden());
+        std::cout << "Again: " << std::flush;
+        if (QString::fromStdString(readHidden()) != pw) {
+            std::cout << "The passwords do not match.\n";
+            return 1;
+        }
+    } else {
+        std::string line;
+        std::getline(std::cin, line);
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        pw = QString::fromStdString(line);
+    }
+    if (pw.size() < 8) {
+        std::cout << "Use at least 8 characters.\n";
+        return 1;
+    }
+    if (!webAuth::setPassword(name, pw)) {
+        std::cout << "Could not save the user.\n";
+        return 1;
+    }
+    std::cout << (mustBeNew ? "Added " : "Changed the password of ") << name.toStdString()
+              << ". Web login is on (" << webAuth::users().size() << " user(s)).\n";
+    return 0;
+}
+
+static int smartLinkRun(const QString& email, const QString& password);
+
+// wfweb --smartlink-login [email]: sign in to the FlexRadio account once,
+// keep the refresh token (not the password), list the account's radios.
+static int smartLinkLogin(QString email)
+{
+    if (email.isEmpty()) {
+        std::cout << "FlexRadio SmartLink account e-mail: " << std::flush;
+        std::string e;
+        std::getline(std::cin, e);
+        email = QString::fromStdString(e).trimmed();
+    }
+    if (email.isEmpty()) {
+        std::cout << "No e-mail given.\n";
+        return 1;
+    }
+    std::cout << "Password (not shown, not stored): " << std::flush;
+    const QString password = QString::fromStdString(readHidden());
+    smartLinkClient::forgetCertPins();
+    return smartLinkRun(email, password);
+}
+
+// wfweb --smartlink-radios: the account's radios with the stored sign-in
+// (the Windows launcher's radio list). Exit code 2 = not signed in.
+static int smartLinkRadios()
+{
+    if (!smartLinkClient::haveStoredToken()) {
+        std::cout << "Not signed in to SmartLink.\n";
+        return 2;
+    }
+    return smartLinkRun(QString(), QString());
+}
+
+// One SmartLink session: sign in (password, or the stored token when the
+// password is empty), print the radio list, sign out of the broker.
+static int smartLinkRun(const QString& email, const QString& password)
+{
+    smartLinkClient client;
+    QEventLoop loop;
+    int rc = 1;
+    QObject::connect(&client, &smartLinkClient::authFailed, &loop, [&](const QString& err) {
+        std::cout << "Sign-in failed: " << err.toStdString() << "\n";
+        loop.quit();
+    });
+    QObject::connect(&client, &smartLinkClient::authenticated, &loop, [&]() {
+        std::cout << "Signed in. Asking SmartLink for your radios...\n";
+    });
+    QObject::connect(&client, &smartLinkClient::radioList, &loop, [&](const QList<smartLinkRadio>& radios) {
+        rc = 0;
+        if (radios.isEmpty())
+            std::cout << "No radios are online on this account right now (the sign-in is saved).\n";
+        for (const smartLinkRadio& r : radios) {
+            std::cout << QString("  %1  \"%2\"  serial %3  %4  %5")
+                .arg(r.model, r.nickname, r.serial, r.status,
+                     r.needsHolePunch ? "(no forwarded/UPnP ports: wfweb cannot reach it yet)"
+                                      : QString("(%1 TLS %2 UDP %3)").arg(r.publicIp).arg(r.publicTlsPort).arg(r.publicUdpPort))
+                .toStdString() << "\n";
+        }
+        std::cout << "\nThe sign-in is saved. Start wfweb with\n"
+                     "  wfweb --smartlink <serial or radio name>\n"
+                     "(--smartlink auto picks the only radio on the account).\n";
+        loop.quit();
+    });
+    QTimer::singleShot(30000, &loop, [&]() {
+        std::cout << "SmartLink did not answer within 30 s.\n";
+        loop.quit();
+    });
+    if (password.isEmpty())
+        client.loginWithStoredToken();
+    else
+        client.login(email, password);
+    loop.exec();
+    client.close();
+    return rc;
+}
+
 int main(int argc, char *argv[])
 {
 #ifndef Q_OS_WIN
@@ -217,7 +384,8 @@ int main(int argc, char *argv[])
         "  -s --settings <file>    Settings .ini file\n"
         "  -p --port <port>        Web server port\n"
         "  -S --no-web             Disable web server, enable rig server\n"
-        "  --lan <ip>              Connect via LAN to IP (enables LAN mode)\n"
+        "  --lan <ip>              Connect via LAN to IP (enables LAN mode). FlexRadio:\n"
+        "                          '--lan auto' finds the radio by its discovery broadcast\n"
         "  --lan-control <port>    LAN control port (default 50001)\n"
         "  --lan-serial <port>     LAN serial port (default 50002)\n"
         "  --lan-audio <port>      LAN audio port (default 50003)\n"
@@ -230,7 +398,7 @@ int main(int argc, char *argv[])
         "                          case-insensitive substring (e.g. 'USB Audio CODEC').\n"
         "                          With multiple matches, the Windows/system default wins.\n"
         "                          Use '--audio-device list' to show available devices\n"
-        "  --manufacturer <id>     Manufacturer ID (0=Icom, 1=Kenwood, 2=Yaesu)\n"
+        "  --manufacturer <id>     Manufacturer ID (0=Icom, 1=Kenwood, 2=Yaesu, 3=FlexRadio)\n"
         "  --rigctld-port <port>   Enable Hamlib rigctld TCP on the given port (default 4532)\n"
         "  --no-rigctld            Disable rigctld even if enabled in settings\n"
         "  --rigctld-bind-all      Bind rigctld to 0.0.0.0 (default: 127.0.0.1 only)\n"
@@ -239,6 +407,11 @@ int main(int argc, char *argv[])
         "  --no-autoconnect        Start without connecting to the rig (LAN only; connect\n"
         "                          later with the web UI Reconnect button). Also enabled\n"
         "                          by setting WFWEB_NO_AUTOCONNECT=1 in the environment\n"
+        "  --on-demand [seconds]   Connect to the rig only while a browser has the page\n"
+        "                          open, and release it this many seconds (default 30)\n"
+        "                          after the last one closes, so other programs can use\n"
+        "                          the radio meanwhile (LAN only). Also enabled by\n"
+        "                          setting WFWEB_ON_DEMAND=<seconds> in the environment\n"
         "  --no-tui                Print the plain log on an interactive terminal instead\n"
         "                          of the status page. Also enabled by setting\n"
         "                          WFWEB_NO_TUI=1 in the environment\n"
@@ -247,6 +420,26 @@ int main(int argc, char *argv[])
         "                          program (GridTracker, JTAlert, Log4OM, ...) which\n"
         "                          listens for the WSJT-X UDP protocol; port 2237 if omitted\n"
         "  --no-remote-log         Disable remote logging even if enabled in settings\n"
+        "  --smartlink <radio>     FlexRadio over the internet through SmartLink: the\n"
+        "                          radio's serial or name, or 'auto' (implies\n"
+        "                          --manufacturer 3). Sign in once with --smartlink-login\n"
+        "  --smartlink-login [email]  Sign in to SmartLink, list the account's radios, exit.\n"
+        "                          Keeps a sign-in token, never the password\n"
+        "  --smartlink-radios      List the SmartLink account's radios (stored sign-in)\n"
+        "  --smartlink-logout      Forget the SmartLink sign-in\n"
+        "  --flex-audio <mode>     FlexRadio receive audio: opus (~50 kbit/s), none\n"
+        "                          (uncompressed, ~1.5 Mbit/s) or auto (default: Opus\n"
+        "                          over SmartLink, uncompressed on the LAN)\n"
+        "  --add-user <name>       Add a web page user (asks for the password). With at\n"
+        "                          least one user, the page asks to sign in\n"
+        "  --passwd <name>         Change a web user's password\n"
+        "  --remove-user <name>    Remove a web user (none left = login off)\n"
+        "  --list-users            List the web users\n"
+        "  --rest                  Open the plain-HTTP REST port (web port + 1) to the\n"
+        "                          LAN; default is 127.0.0.1 only. With web users, LAN\n"
+        "                          requests need HTTP Basic auth\n"
+        "  --rfkit <host[:port]>   RF-KIT (RF2K-S) amplifier on the LAN (REST API, port\n"
+        "                          8080 if omitted); shown under FUNC > AMP\n"
         "  --remote-log-decodes    Also forward FT8/FT4 decodes to the remote logger\n"
         "  -l --logfile <file>     Log file\n"
         "  -b --background         Run as daemon (not Windows)\n"
@@ -256,14 +449,14 @@ int main(int argc, char *argv[])
         "  -v --version            Show version\n"
         "  -? --help               Show this help\n");
 #ifdef BUILD_WFSERVER
-    const QString version = QString("wfweb version: %1 (Git:%2 on %3 at %4 by %5@%6)\nOperating System: %7 (%8)\nBuild Qt Version %9. Current Qt Version: %10\n")
-        .arg(QString(WFWEB_VERSION))
+    const QString version = QString("FlexWeb version: %1 (Git:%2 on %3 at %4 by %5@%6)\nOperating System: %7 (%8)\nBuild Qt Version %9. Current Qt Version: %10\n")
+        .arg(QString(FLEXWEB_VERSION) + " (based on wfweb " WFWEB_VERSION ")")
         .arg(GITSHORT).arg(__DATE__).arg(__TIME__).arg(UNAME).arg(HOST)
         .arg(QSysInfo::prettyProductName()).arg(QSysInfo::buildCpuArchitecture())
         .arg(QT_VERSION_STR).arg(qVersion());
 #else
-    const QString version = QString("wfweb version: %1 (Git:%2 on %3 at %4 by %5@%6)\nOperating System: %7 (%8)\nBuild Qt Version %9. Current Qt Version: %10\n")
-        .arg(QString(WFWEB_VERSION))
+    const QString version = QString("FlexWeb version: %1 (Git:%2 on %3 at %4 by %5@%6)\nOperating System: %7 (%8)\nBuild Qt Version %9. Current Qt Version: %10\n")
+        .arg(QString(FLEXWEB_VERSION) + " (based on wfweb " WFWEB_VERSION ")")
         .arg(GITSHORT).arg(__DATE__).arg(__TIME__).arg(UNAME).arg(HOST)
         .arg(QSysInfo::prettyProductName()).arg(QSysInfo::buildCpuArchitecture())
         .arg(QT_VERSION_STR).arg(qVersion());
@@ -460,6 +653,64 @@ int main(int argc, char *argv[])
             if (argc > c + 1) overrides.remoteLogTarget = argv[++c];
             else { std::cout << "Error: --remote-log requires host[:port]\n"; return -1; }
         }
+        else if (currentArg == "--smartlink")
+        {
+            if (argc > c + 1) overrides.lanIP = QString("smartlink:") + argv[++c];
+            else { std::cout << "Error: --smartlink requires a radio serial or name (or auto)\n"; return -1; }
+        }
+        else if (currentArg == "--smartlink-login")
+        {
+            QString email;
+            if (argc > c + 1 && argv[c + 1][0] != '-') email = argv[++c];
+            return smartLinkLogin(email);
+        }
+        else if (currentArg == "--add-user" || currentArg == "--passwd")
+        {
+            if (argc <= c + 1) { std::cout << "Error: " << currentArg.toStdString() << " requires a user name\n"; return -1; }
+            return webUserPassword(QString(argv[++c]), currentArg == "--add-user");
+        }
+        else if (currentArg == "--remove-user")
+        {
+            if (argc <= c + 1) { std::cout << "Error: --remove-user requires a user name\n"; return -1; }
+            const QString name = argv[++c];
+            if (!webAuth::removeUser(name)) { std::cout << "No user " << name.toStdString() << ".\n"; return 1; }
+            std::cout << "Removed " << name.toStdString() << ".";
+            std::cout << (webAuth::hasUsers() ? "\n" : " No users left: web login is off.\n");
+            return 0;
+        }
+        else if (currentArg == "--list-users")
+        {
+            const QStringList u = webAuth::users();
+            if (u.isEmpty()) std::cout << "No web users: login is off.\n";
+            for (const QString& n : u) std::cout << n.toStdString() << "\n";
+            return 0;
+        }
+        else if (currentArg == "--flex-audio")
+        {
+            const QString v = argc > c + 1 ? QString(argv[++c]).toLower() : QString();
+            if (v != "opus" && v != "none" && v != "auto") { std::cout << "Error: --flex-audio takes opus, none or auto\n"; return -1; }
+            qputenv("WFWEB_FLEX_AUDIO", v.toLatin1());
+        }
+        else if (currentArg == "--rest")
+        {
+            overrides.restLan = true;
+        }
+        else if (currentArg == "--smartlink-radios")
+        {
+            return smartLinkRadios();
+        }
+        else if (currentArg == "--smartlink-logout")
+        {
+            smartLinkClient::forgetCredentials();
+            smartLinkClient::forgetCertPins();
+            std::cout << "SmartLink sign-in removed.\n";
+            return 0;
+        }
+        else if (currentArg == "--rfkit")
+        {
+            if (argc > c + 1) overrides.rfkit = argv[++c];
+            else { std::cout << "Error: --rfkit requires host[:port]\n"; return -1; }
+        }
         else if (currentArg == "--no-remote-log") overrides.noRemoteLog = true;
         else if (currentArg == "--remote-log-decodes") overrides.remoteLogDecodes = true;
         else if (currentArg == "--lan-control")
@@ -582,6 +833,20 @@ int main(int argc, char *argv[])
         {
             overrides.noAutoConnect = true;
         }
+        else if (currentArg == "--on-demand")
+        {
+            // Optional idle time: only a plain number is taken as one.
+            overrides.onDemandIdle = 30;
+            if (argc > c + 1) {
+                bool ok = false;
+                int secs = QString(argv[c + 1]).toInt(&ok);
+                if (ok) {
+                    if (secs < 1) { std::cout << "Error: --on-demand needs at least 1 second\n"; return -1; }
+                    overrides.onDemandIdle = secs;
+                    ++c;
+                }
+            }
+        }
         else if (currentArg == "--no-tui")
         {
             noTui = true;
@@ -604,9 +869,17 @@ int main(int argc, char *argv[])
 
     }
 
+    // --smartlink is FlexRadio only.
+    if (overrides.lanIP.startsWith("smartlink:") && overrides.manufacturer < 0)
+        overrides.manufacturer = 3;
+
     // Container-friendly alternative to --no-autoconnect (issue #70)
     if (qEnvironmentVariableIntValue("WFWEB_NO_AUTOCONNECT") > 0)
         overrides.noAutoConnect = true;
+    if (overrides.onDemandIdle == 0 && qEnvironmentVariableIntValue("WFWEB_ON_DEMAND") > 0)
+        overrides.onDemandIdle = qEnvironmentVariableIntValue("WFWEB_ON_DEMAND");
+    if (qEnvironmentVariableIntValue("WFWEB_REST") > 0)
+        overrides.restLan = true;
     if (qEnvironmentVariableIntValue("WFWEB_NO_TUI") > 0)
         noTui = true;
 

@@ -23,6 +23,8 @@ class QPushButton;
 class QRadioButton;
 class QSpinBox;
 class QSystemTrayIcon;
+class QTabWidget;
+class QListWidget;
 
 // A combo box that announces its popup, so the serial port and audio device
 // lists are refreshed at the moment the user looks at them.
@@ -92,6 +94,22 @@ private:
     // From the log, shown until the REST poll reports the rig connected.
     void setRigHint(const QString &text, bool ok);
 
+    // FlexRadio / SmartLink / station options, the web users tab.
+    void updateTransportWidgets();
+    // Runs wfweb.exe once with these arguments (no window), feeding stdin;
+    // returns its exit code (-1 = could not run) and its output.
+    int runServerTool(const QStringList &args, const QByteArray &input, QString *output, int timeoutMs = 45000);
+    void smartLinkSignIn();
+    void smartLinkRefresh();
+    void smartLinkSignOut();
+    void updateSmartLinkStatus();
+    void fillSmartLinkRadios(const QString &output);
+    void refreshUsers();
+    void addWebUser();
+    void changeWebPassword();
+    void removeWebUser();
+    bool askNewPassword(const QString &user, QString *password);
+
     void setAutostart(bool enabled);
     bool autostartEnabled() const;
 
@@ -122,6 +140,34 @@ private:
     QCheckBox *m_noAutoConnectCheck = nullptr;
     QList<QWidget *> m_usbWidgets;
     QList<QWidget *> m_lanWidgets;
+    QTabWidget *m_tabs = nullptr;
+
+    // FlexRadio
+    QRadioButton *m_flexRadio = nullptr;
+    QRadioButton *m_smartRadio = nullptr;
+    QLineEdit *m_flexHostEdit = nullptr;
+    QComboBox *m_flexAudioCombo = nullptr;
+    QComboBox *m_smartRadioCombo = nullptr;
+    QPushButton *m_smartSignInButton = nullptr;
+    QPushButton *m_smartRefreshButton = nullptr;
+    QPushButton *m_smartSignOutButton = nullptr;
+    QLabel *m_smartStatusLabel = nullptr;
+    QList<QWidget *> m_flexWidgets;
+    QList<QWidget *> m_smartWidgets;
+    QList<QWidget *> m_flexAudioWidgets;
+
+    // Station
+    QLineEdit *m_ampEdit = nullptr;
+    QSpinBox *m_onDemandSpin = nullptr;
+    QList<QWidget *> m_networkWidgets;
+    QCheckBox *m_restLanCheck = nullptr;
+
+    // Web users
+    QListWidget *m_userList = nullptr;
+    QLabel *m_loginLabel = nullptr;
+    QPushButton *m_userAddButton = nullptr;
+    QPushButton *m_userPasswdButton = nullptr;
+    QPushButton *m_userRemoveButton = nullptr;
 
     // Server
     QGroupBox *m_serverGroup = nullptr;
