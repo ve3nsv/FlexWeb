@@ -3,8 +3,10 @@
 wfweb runs with two --radio profiles: a Flex (mock SmartSDR radio, with an
 RF-KIT amplifier) and an Icom LAN radio (mock IC-7610). The page's RADIO
 menu sends selectRadio: the server closes the Flex, opens the Icom, and
-the amplifier goes with the Flex. Then back again. On demand: no radio is
-contacted until a browser connects."""
+the amplifier - the station's, named by the Flex's profile - stays
+available with the Icom (punch list 89b: the amp page works whatever radio
+is selected). Then back again. On demand: no radio is contacted until a
+browser connects."""
 from __future__ import annotations
 
 import asyncio
@@ -154,7 +156,8 @@ def test_switch_flex_icom(tmp_path):
         assert _wait(lambda: len(icom.civ_log) > 5, 20), "the Icom was not opened:\n" + server_log()
         flex_cmds = len(flex.commands)
         info = _rig_info(web_port, 1)
-        assert info.get("ampConfigured") is False, "the amplifier stayed on with the Icom"
+        # Punch list 89b: the station's amplifier stays with any radio.
+        assert info.get("ampConfigured") is True, "the amplifier went away with the Icom"
         pp = info.get("pagePrefs") or {}
         assert pp.get("radioKey") == "Icom" and "wfSpeed" not in pp.get("radio", {}) \
             and pp.get("user", {}).get("wfLook") == "classic", f"the Flex's settings leaked or the user's were lost: {pp}"
@@ -178,7 +181,7 @@ def test_switch_flex_icom(tmp_path):
         assert len(icom.civ_log) == settled, "the Icom is still polled after switching away"
         assert settled >= icom_frames
         info = _rig_info(web_port, 0)
-        assert info.get("ampConfigured") is True, "the amplifier did not come back with the Flex"
+        assert info.get("ampConfigured") is True, "no amplifier with the Flex again"
         assert (info.get("pagePrefs") or {}).get("radio", {}).get("wfSpeed") == "FAST", \
             "the Flex's settings did not come back with it"
         assert "Radio: switching from" in server_log()
