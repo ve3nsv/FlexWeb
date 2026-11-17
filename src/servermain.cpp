@@ -114,7 +114,11 @@ servermain::servermain(const QString settingsFile, const cmdLineOverrides& overr
             if (rfkit.isEmpty() && settings)
                 rfkit = settings->value("Amplifier/Rfkit", QString()).toString();
             // With --radio profiles the amplifier is the radio's own (punch list 73b).
-            if (profileIndex >= 0) rfkit = profiles[profileIndex].amp;
+            if (profileIndex >= 0) {
+                rfkit = stationAmp(profileIndex);
+                QMetaObject::invokeMethod(web, "setAmpOwnedByRig", Qt::QueuedConnection,
+                                          Q_ARG(bool, !profiles[profileIndex].amp.isEmpty()));
+            }
             // Punch list 42: keep the RF2K-S awake while a user is on.
             QMetaObject::invokeMethod(web, "setAmpKeepAwake", Qt::QueuedConnection,
                                       Q_ARG(int, settings ? settings->value("Amplifier/KeepAwakeSecs", 60).toInt() : 60));
@@ -1161,6 +1165,15 @@ void servermain::closeCurrentRig()
     rigPoweredOn = true;
 }
 
+QString servermain::stationAmp(int index) const
+{
+    if (index >= 0 && index < profiles.size() && !profiles[index].amp.isEmpty())
+        return profiles[index].amp;
+    for (const radioProfile &p : profiles)
+        if (!p.amp.isEmpty()) return p.amp;
+    return QString();
+}
+
 void servermain::switchRadio(int index, QString who)
 {
     if (index < 0 || index >= profiles.size()) return;
@@ -1172,7 +1185,8 @@ void servermain::switchRadio(int index, QString who)
     setManufacturer(prefs.manufacturer);   // that kind's rig files
     if (settings) { settings->setValue("Radios/Last", p.name); settings->sync(); }
     if (web != Q_NULLPTR) {
-        QMetaObject::invokeMethod(web, "configureRfkit", Qt::QueuedConnection, Q_ARG(QString, p.amp));
+        QMetaObject::invokeMethod(web, "setAmpOwnedByRig", Qt::QueuedConnection, Q_ARG(bool, !p.amp.isEmpty()));
+        QMetaObject::invokeMethod(web, "configureRfkit", Qt::QueuedConnection, Q_ARG(QString, stationAmp(index)));
         QMetaObject::invokeMethod(web, "setInstanceName", Qt::QueuedConnection, Q_ARG(QString, p.name));
     }
     openRig();

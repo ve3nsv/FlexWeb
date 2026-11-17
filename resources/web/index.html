@@ -121,6 +121,7 @@ html, body {
 .radio-choices.many { display: flex; }
 .radio-choices button { padding: 7px 14px; font-size: 13px; color: #ccc; background: transparent; border: 1px solid #444; border-radius: 6px; cursor: pointer; }
 .radio-choices button.cur { color: #0cf; border-color: #0aa; cursor: default; }
+.radio-choices button.amp-choice, #discScreen .radio-choices button.amp-choice { margin-left: 14px; color: #f5c46b; border-color: #8a6a2a; }
 #rigTag:empty { display: none; }
 /* Server CPU (punch list 17): the whole machine's load, amber above 70 %,
    red above 90 %; tap for FlexWeb's own share, cores and memory. */
@@ -4348,7 +4349,7 @@ function handleMessage(msg) {
             if (msg.webLogin !== undefined) webLoginOn = !!msg.webLogin;
             if (msg.txOpus !== undefined) serverTxOpus = !!msg.txOpus;
             if (msg.reporterMessage !== undefined) setReporterMessageField(msg.reporterMessage);
-            if (msg.ampConfigured !== undefined) { ampConfigured = !!msg.ampConfigured; renderAmpIndicator(); }
+            if (msg.ampConfigured !== undefined) { ampConfigured = !!msg.ampConfigured; renderAmpIndicator(); renderRadioChoices(); }
             if (msg.radios) { radioList = msg.radios; radioIndex = msg.radioIndex; updateRadioTag(); }
             if (radioPickAfterReconnect >= 0) {
                 var rp = radioPickAfterReconnect;
@@ -8602,8 +8603,20 @@ function pickRadio(i) {
 function renderRadioChoices() {
     document.querySelectorAll('.radio-choices').forEach(function (box) {
         box.innerHTML = '';
-        box.classList.toggle('many', radioList.length > 1);
-        if (radioList.length < 2) return;
+        var radios = radioList.length > 1;
+        box.classList.toggle('many', radios || ampConfigured);
+        // Punch list 89b: the amplifier page from the splash, power-off and
+        // Disconnected screens too - it never connects the radio.
+        var addAmp = function () {
+            if (!ampConfigured) return;
+            var a = document.createElement('button');
+            a.className = 'amp-choice';
+            a.textContent = 'AMP';
+            a.title = 'Open the amplifier page (new tab). It does not connect or hold the radio.';
+            a.addEventListener('click', function (e) { e.stopPropagation(); window.open('/amp', 'wfAmpPage'); });
+            box.appendChild(a);
+        };
+        if (!radios) { addAmp(); return; }
         var lbl = document.createElement('span');
         lbl.textContent = 'RADIO';
         box.appendChild(lbl);
@@ -8616,6 +8629,7 @@ function renderRadioChoices() {
             b.addEventListener('click', function (e) { e.stopPropagation(); pickRadio(i); });
             box.appendChild(b);
         });
+        addAmp();
     });
 }
 function renderRadioOverlay() {

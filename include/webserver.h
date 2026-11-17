@@ -157,6 +157,10 @@ public slots:
     // --rfkit host[:port]: an RF-KIT (RF2K-S) amplifier on the LAN, shown in
     // the AMP panel. Runs on the web thread; empty = no amplifier.
     void configureRfkit(const QString &target);
+    // Punch list 89b: the amp stays with the station whatever radio is
+    // chosen; only the radio it belongs to keys it (fast polling, the over's
+    // peak). false while another radio is selected.
+    void setAmpOwnedByRig(bool owned);
     // Punch list 42: the RF2K-S is woken when someone who may transmit
     // connects and kept awake every `secs` while they are on (0 = wake only,
     // no repeats). [Amplifier] KeepAwakeSecs, default 60.
@@ -827,6 +831,7 @@ private:
     // (ms since epoch; 0 = answering). Sent as noAnswerMs while connected.
     qint64 ampSilentSinceMs_ = 0;
     bool ampTxRig_ = false, ampTxAir_ = false;
+    bool ampOwnedByRig_ = true;   // punch list 89b, setAmpOwnedByRig
     bool ampKeyedPublished_ = false;   // the `keyed` last sent to the pages
     void updateAmpAwake(bool ampJustConnected = false);
     void updateAmpTx();
