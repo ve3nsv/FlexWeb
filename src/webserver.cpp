@@ -7891,6 +7891,7 @@ void webServer::setAmpOwnedByRig(bool owned)
     ampOwnedByRig_ = owned;
     if (!owned) { ampTxRig_ = false; ampTxAir_ = false; }
     updateAmpTx();
+    updateAmpAwake();   // punch list 89c: keep-awake follows the selected radio
 }
 
 void webServer::configureRfkit(const QString &target)
@@ -8182,10 +8183,13 @@ void webServer::setAmpKeepAwake(int secs)
 // browser leaves, the repeats stop and the amp's own sleep timer runs.
 void webServer::updateAmpAwake(bool ampJustConnected)
 {
+    // Punch list 89c: woken and kept awake for a signed-in user while the
+    // radio it belongs to is selected, or from the amp page; with another
+    // radio selected the amp is only read and its own sleep timer runs.
     bool want = false;
     if (rfkit_ && rfkit_->isConnected())
         for (QWebSocket *c : wsClients)
-            if (!isGuest(c)) { want = true; break; }
+            if (!isGuest(c) && (ampOwnedByRig_ || isAmpOnly(c))) { want = true; break; }
     if (!ampKeepAwake_) {
         ampKeepAwake_ = new QTimer(this);
         ampKeepAwake_->setInterval(qMax(1, ampKeepAwakeSecs_) * 1000);
@@ -8202,7 +8206,8 @@ void webServer::updateAmpAwake(bool ampJustConnected)
         publishAmp();
         if (ampKeepAwakeSecs_) ampKeepAwake_->start();
     } else if (!want && ampAwakeWanted_) {
-        qCInfo(logWebServer) << "RF-KIT amplifier: no user on, keep-awake stopped (the amp's sleep timer runs)";
+        qCInfo(logWebServer) << (ampOwnedByRig_ ? "RF-KIT amplifier: no user on, keep-awake stopped (the amp's sleep timer runs)"
+                                                : "RF-KIT amplifier: another radio is selected and no amp page is open, keep-awake stopped (the amp's sleep timer runs)");
         ampKeepAwake_->stop();
         if (ampWaking_) { ampWaking_ = false; publishAmp(); }
     }

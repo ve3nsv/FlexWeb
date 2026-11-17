@@ -1557,6 +1557,13 @@ TUNE state after a mock radio reconnect matches the radio.
        radio). The RADIO row of the splash, power-off and Disconnected
        screens has an AMP button (shown without a RADIO list too) that
        opens /amp.
+    c. User, 2026-11-17: with the amp kept across radios (89b), anyone
+       signed in on another radio would have kept the RF2K-S awake. Now
+       (webServer::updateAmpAwake) it is woken and kept awake for a
+       signed-in user only while the radio it belongs to is selected or
+       from an amp page; with another radio selected it is only read and
+       its own sleep timer runs. Polling still stops 30 s after the last
+       browser (IdleGraceSecs), as before.
 
 88. "Powering on, please wait" spins for ever (user, 2026-11-16, screen
     shot of the IC-9700; small). A radio that never answers Power On left
