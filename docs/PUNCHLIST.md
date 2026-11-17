@@ -1564,6 +1564,12 @@ TUNE state after a mock radio reconnect matches the radio.
        from an amp page; with another radio selected it is only read and
        its own sleep timer runs. Polling still stops 30 s after the last
        browser (IdleGraceSecs), as before.
+    d. User, 2026-11-17 (screen recording, Aether layout): the TX CONTROLS'
+       TUNE button jumped a line each time it was pressed. The AMP applet's
+       hint line ("Key TUNE first, then TUNE") was there only while not
+       transmitting, so keying TUNE made the applet a line shorter and
+       moved everything under it. Done: the line is always there (a fixed
+       15 px, one line, empty when there is nothing to say).
 
 88. "Powering on, please wait" spins for ever (user, 2026-11-16, screen
     shot of the IC-9700; small). A radio that never answers Power On left
