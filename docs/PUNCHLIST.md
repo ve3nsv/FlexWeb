@@ -1525,6 +1525,16 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+93. The RF2K-S on the IC-7610's page (user, 2026-11-25; small). "The
+    RF2K should only be shown on the Flex 6400 or its own page." Since 89b
+    the amp is the station's and stays configured with any radio, and the
+    radio page showed it with all of them. Done: while the selected radio
+    does not own the amp (`ampOwnedByRig_` false) the radio page's rigInfo
+    has `ampConfigured` false (no AMP panel, indicator or AMP page button),
+    amp / ampRefused messages go to the /amp page only, and amp commands
+    from the radio page are dropped. /amp and the Flex's page are as before.
+    tests/test_radio_switch.py.
+
 92. The IC-7610's S meter slow (user, 2026-11-25; small). Every Icom log
     since 11-03 has "powerRigOn() called, current rigPoweredOn= true":
     Power On pressed on a rig that was on. powerRigOn started the power
