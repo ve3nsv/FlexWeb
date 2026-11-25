@@ -1525,6 +1525,19 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+92. The IC-7610's S meter slow (user, 2026-11-25; small). Every Icom log
+    since 11-03 has "powerRigOn() called, current rigPoweredOn= true":
+    Power On pressed on a rig that was on. powerRigOn started the power
+    probe (queue cleared, one frequency read every 2 s) and only an off ->
+    on change put the polls back, so for the rest of the session the S
+    meter and every other polled value ran at that rate ("Periodic polling
+    restored" never appears for an Icom). Done: Power On on a rig already
+    on sends the command and keeps the polls ("Power On: the rig is already
+    on - polling kept"); a rig not yet connected still gets them from
+    receiveRigCaps. tests/test_power_on_polling.py. Not changed: on an
+    IC-7610 the S meter shares the Highest slot with the second receiver's
+    and the overflow read (~420 ms each, tests/test_meter_polling.py).
+
 91. Steve's IC-7610 never connects over Tailscale (user logs, 2026-11-25,
     1.0.164; small). The route was fixed and the login accepted, the radio
     sent its capabilities ("Name: IC-7610 ... CIV: 98") and then nothing:
