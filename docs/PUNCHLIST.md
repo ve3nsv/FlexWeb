@@ -1525,6 +1525,22 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+91. Steve's IC-7610 never connects over Tailscale (user logs, 2026-11-25,
+    1.0.164; small). The route was fixed and the login accepted, the radio
+    sent its capabilities ("Name: IC-7610 ... CIV: 98") and then nothing:
+    no "Got Connection status", so the CI-V and audio streams never opened
+    and "Searching for rig via LAN" repeated for ever. The first "I am here"
+    took ~1.5 s, so three "Are you there" were answered; each answer sent
+    "Are you ready" and each "I am ready" a login with a new token request
+    (the three replies, 9001 / 40126 / 28385, were the same every run:
+    rand() was never seeded). The 7610 granted all three logins and sent
+    no status; the IC-9700 at .217, one answer away, connected. Done:
+    icomUdpHandler sends one login per connection (`loginSent`; a later
+    "I am ready" is logged as a duplicate), the token request comes from
+    QRandomGenerator. tests/mock_radio.py `dup_handshake` answers every
+    handshake packet twice and, like the 7610, withholds the status after
+    a second login; tests/test_lan_slow_handshake.py.
+
 90. The Flex's MIC level resets on every connection (user, 2026-11-17;
     small). On a Flex the MIC slider is FlexWeb's own gain on the browser
     mic (flexCommander::modLevel, 75 % = unity) - no radio setting holds
