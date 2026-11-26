@@ -17,7 +17,6 @@ import time
 from pathlib import Path
 
 import pytest
-import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from mock_radio import MockIcomRadio  # noqa: E402
@@ -31,17 +30,6 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
-def _wait_for_connected(url: str, timeout: float) -> bool:
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        try:
-            r = requests.get(url, timeout=2)
-            if r.status_code == 200 and r.json().get("info", r.json()).get("connected"):
-                return True
-        except (requests.RequestException, ValueError):
-            pass
-        time.sleep(0.3)
-    return False
 
 
 def test_duplicate_handshake_answers_send_one_login(tmp_path):
@@ -78,9 +66,18 @@ def test_duplicate_handshake_answers_send_one_login(tmp_path):
         return f"(server {'exited ' + str(exit_code) if exit_code is not None else 'running'})" + text
 
     try:
-        ok = _wait_for_connected(f"http://127.0.0.1:{web_port + 1}/api/v1/radio/info", 30.0)
+        # Not the REST "connected" flag: with --civ the rig's caps load before
+        # any LAN contact, so it is true at once, before the first "Are you
+        # there" (500 ms) - the test once counted logins at 0.3 s. What counts
+        # is the CI-V stream: it opens only after the radio's connection
+        # status, which the mock withholds after a second login.
+        end = time.monotonic() + 30.0
+        while time.monotonic() < end and not radio.civ_log:
+            time.sleep(0.2)
+        time.sleep(2.0)                 # any duplicate login would be in by now
+        ok = bool(radio.civ_log)
         assert radio.logins == 1, f"{radio.logins} logins sent for one connection " + evidence()
-        assert ok, "the rig did not connect " + evidence()
+        assert ok, "no CI-V traffic: the streams never opened " + evidence()
     finally:
         proc.terminate()
         try:
