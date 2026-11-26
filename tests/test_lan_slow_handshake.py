@@ -60,17 +60,27 @@ def test_duplicate_handshake_answers_send_one_login(tmp_path):
     env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=f"{home}/.config", WFWEB_NO_TUI="1",
                WFWEB_CONFIG_DIR=home)
     logfile = tmp_path / "wfweb.log"
+    outfile = open(tmp_path / "stdout.txt", "wb")
     web_port = _find_free_port()
     proc = subprocess.Popen(
         [str(WFWEB_BIN), "-p", str(web_port), "-l", str(logfile), "--lan", "127.0.0.1",
          "--lan-control", str(radio.control_port), "--lan-user", "testuser",
          "--lan-pass", "testpass", "--civ", "0x98"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+        stdout=outfile, stderr=subprocess.STDOUT, env=env)
     ok = False
+
+    def evidence():
+        text = ""
+        for f in (logfile, tmp_path / "stdout.txt"):
+            if f.exists():
+                text += f"\n=== {f.name} ===\n" + f.read_text(errors="replace")[-5000:]
+        exit_code = proc.poll()
+        return f"(server {'exited ' + str(exit_code) if exit_code is not None else 'running'})" + text
+
     try:
         ok = _wait_for_connected(f"http://127.0.0.1:{web_port + 1}/api/v1/radio/info", 30.0)
-        assert radio.logins == 1, f"{radio.logins} logins sent for one connection"
-        assert ok, "the rig did not connect"
+        assert radio.logins == 1, f"{radio.logins} logins sent for one connection " + evidence()
+        assert ok, "the rig did not connect " + evidence()
     finally:
         proc.terminate()
         try:
@@ -78,7 +88,6 @@ def test_duplicate_handshake_answers_send_one_login(tmp_path):
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+        outfile.close()
         loop.call_soon_threadsafe(loop.stop)
         t.join(timeout=2)
-        if (not ok or radio.logins != 1) and logfile.exists():
-            print(logfile.read_text(errors="replace")[-6000:])
