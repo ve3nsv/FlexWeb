@@ -1612,10 +1612,13 @@ TUNE state after a mock radio reconnect matches the radio.
     temporary level is sent with temp and not kept. An Icom's USB MOD
     level is the radio's own setting and is untouched.
     tests/test_flex.py test_mic_level_kept_across_connections.
-    2026-11-26 (CI 176): the commander's own report of its level could
-    land after the restore and win ([100, 100, 192]). Now receiveCache
-    sends the saved level again (posted, three tries) until the Flex
-    reports it; a setMicGain from the page ends the restore.
+    2026-11-26 (CI 176, 177): the commander is reused across on-demand
+    reconnects and kept the digital modes' temporary level (192); its own
+    report could land after the restore and win ([100, 100, 192]). Now
+    resetSession starts every connection at 75 % (modLevel 191), and for
+    5 s after the caps receiveCache resends the saved level whenever
+    another is reported (posted, three tries); a setMicGain from the page
+    ends the restore.
 
 89. The amplifier on a page of its own (user, 2026-11-16; medium). The
     RF2K-S panel as a separate tab or a phone next to the amp, with the

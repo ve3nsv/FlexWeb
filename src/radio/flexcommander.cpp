@@ -342,6 +342,10 @@ void flexCommander::resetSession()
     handshakeDone = false;
     rigIdentified = false;
     infoDone = false;
+    // Punch list 90: every connection starts at 75 % (unity); a level the
+    // digital modes set (temp) must not outlive the session. The saved
+    // level is put back by webServer::receiveRigCaps.
+    modLevel = 191;
     sliceId = -1;
     sliceCreatePending = false;
     resumeHz = 0;
