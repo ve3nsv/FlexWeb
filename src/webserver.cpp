@@ -585,6 +585,11 @@ void webServer::receiveRigCaps(rigCapabilities *caps)
             qInfo().noquote() << QString("Web: Flex MIC level %1 % (saved for \"%2\")")
                                      .arg(qRound(level * 100.0 / 255)).arg(pagePrefsRadioKey());
             queue->addUnique(priorityImmediate, queueItem(funcUSBModLevel, QVariant::fromValue<ushort>(level), false, 0));
+            // The commander pushes its own level as it connects, and that
+            // report can land after this one: receiveCache sends the saved
+            // level again until the Flex reports it (a few tries at most).
+            flexMicRestore_ = level;
+            flexMicRestoreTries_ = 3;
         }
     }
     tunerRejected = false;   // new rig, new evidence
@@ -2575,6 +2580,7 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
     }
     else if (type == "setMicGain") {
         ushort val = static_cast<ushort>(qBound(0, cmd["value"].toInt(), 255));
+        flexMicRestore_ = -1;   // the page's own level wins over a restore in flight
         queue->addUnique(priorityImmediate, queueItem(funcUSBModLevel, QVariant::fromValue<ushort>(val), false, 0));
         // Punch list 90: on a Flex this level is FlexWeb's own gain on the
         // browser mic (no radio setting holds it), so it is kept per radio
@@ -4970,6 +4976,19 @@ void webServer::receiveCache(cacheItem item)
         break;
     case funcUSBModLevel:
         update["micGain"] = item.value.toInt();
+        if (flexMicRestore_ >= 0) {
+            if (item.value.toInt() == flexMicRestore_ || flexMicRestoreTries_ <= 0) {
+                flexMicRestore_ = -1;
+            } else {
+                --flexMicRestoreTries_;
+                // Posted: the queue must not be touched from inside receiveCache.
+                const ushort level = ushort(flexMicRestore_);
+                QTimer::singleShot(0, this, [this, level]() {
+                    if (queue && flexMicRestore_ == level)
+                        queue->addUnique(priorityImmediate, queueItem(funcUSBModLevel, QVariant::fromValue<ushort>(level), false, 0));
+                });
+            }
+        }
         break;
     case funcScopeWaveData:
     {
