@@ -1525,6 +1525,19 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+94. "Radio is powered off" while the LAN radio is being opened (review of
+    the 2026-11-25 logs; small). On demand the page opens the radio, so
+    its first rigInfo has no rig and showed "Radio is powered off" with
+    Power On - pressed on every page load (every Icom log since 11-03 has
+    powerRigOn with the rig on, the cause of 92). Done: when the LAN link
+    is up and the radio has not answered, the overlay says "Connecting to
+    <radio>..." with the spinner and no Power On (`showRigConnecting`,
+    the Power On wait reused: the status after rigConnected ends it, 30 s
+    without an answer offers Power On with the reason, a link that closes
+    shows Connect LAN at once). A radio that answers as off still gets
+    "Radio is powered off". tests/power_overlay_sim.mjs via
+    tests/test_power_overlay.py.
+
 93. The RF2K-S on the IC-7610's page (user, 2026-11-25; small). "The
     RF2K should only be shown on the Flex 6400 or its own page." Since 89b
     the amp is the station's and stays configured with any radio, and the

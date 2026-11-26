@@ -48,6 +48,20 @@ RF2K-S amplifier:
   60 s). Giving up early made the amp's web server fail on the closed
   connections and stop answering for minutes. The wake after a reconnect
   waits 3 s.
+- With several radios, the amp appears on the radio page only with the
+  radio it belongs to (the Flex); with the others it is on the /amp page
+  only.
+
+Icom over LAN:
+- A radio far away (an IC-7610 over Tailscale) connects: FlexWeb sent one
+  login for every handshake answer that came back, and the radio, given
+  three, never opened its control and audio streams. One login now, with
+  a properly random token request.
+- The S meter and every other polled reading no longer slow to once every
+  2 s after Power On is pressed on a radio that is already on.
+- While the radio is being opened the page says "Connecting to <radio>..."
+  instead of "Radio is powered off" with a Power On button; Power On is
+  offered if it has not answered in 30 s.
 
 Naming:
 - "FlexWeb" instead of "wfweb" in the radio's error messages, the browser
