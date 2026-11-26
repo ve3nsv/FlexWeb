@@ -29,6 +29,7 @@
 #include "logbook.h"
 #include "webauth.h"
 #include "serverload.h"
+#include "radioreach.h"
 #include "nnrstage.h"
 namespace AetherSDR { class RfkitConnection; }
 
@@ -152,7 +153,9 @@ public slots:
     void setInstanceName(const QString &name);
     // Punch list 73: the --radio profiles for the page's RADIO menu, and the
     // one in use; onRadioSwitched once servermain has opened the new one.
-    void setRadioProfiles(QStringList names, QStringList types, int index);
+    // targets: "host:port" per radio (port 0 = the type's default), for the
+    // radio check (punch list 95).
+    void setRadioProfiles(QStringList names, QStringList types, QStringList targets, int index);
     void onRadioSwitched(int index, QString who);
     // --rfkit host[:port]: an RF-KIT (RF2K-S) amplifier on the LAN, shown in
     // the AMP panel. Runs on the web thread; empty = no amplifier.
@@ -590,7 +593,10 @@ private:
     QWebSocket *pttClient = nullptr;
     QStringList radioNames_, radioTypes_;   // punch list 73
     int radioIndex_ = -1;
+    RadioReach *radioReach_ = nullptr;      // punch list 95: who answers
     void addRadiosTo(QJsonObject &o) const;
+    void sendRadioReach();
+    void updateRadioReachActive();
     // Punch list 76: page settings per user and per radio, kept here
     // (QSettings "wfweb"/"pageprefs") instead of in each browser.
     QString pagePrefsUser(QWebSocket *c) const;

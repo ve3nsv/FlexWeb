@@ -121,6 +121,7 @@ class MockIcomRadio(CivRadioBase):
         # capabilities but never the connection status.
         self.dup_handshake: bool = False
         self.logins: int = 0
+        self.are_you_there: int = 0     # punch list 95: radio checks count here too
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -200,6 +201,7 @@ class MockIcomRadio(CivRadioBase):
     def _handle_audio(self, data, addr, ptype, sender_id, proto):
         n = len(data)
         if n == _HEADER_SIZE and ptype == _PT_ARE_YOU_THERE:
+            self.are_you_there += 1
             proto.send(self._ctrl_pkt(_PT_I_AM_HERE, 0, sender_id), addr)
             return
         if n == _HEADER_SIZE and ptype == _PT_ARE_YOU_READY:
