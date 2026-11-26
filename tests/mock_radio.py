@@ -201,7 +201,6 @@ class MockIcomRadio(CivRadioBase):
     def _handle_audio(self, data, addr, ptype, sender_id, proto):
         n = len(data)
         if n == _HEADER_SIZE and ptype == _PT_ARE_YOU_THERE:
-            self.are_you_there += 1
             proto.send(self._ctrl_pkt(_PT_I_AM_HERE, 0, sender_id), addr)
             return
         if n == _HEADER_SIZE and ptype == _PT_ARE_YOU_READY:
@@ -224,6 +223,7 @@ class MockIcomRadio(CivRadioBase):
         times = 2 if self.dup_handshake else 1
 
         if n == _HEADER_SIZE and ptype == _PT_ARE_YOU_THERE:
+            self.are_you_there += 1
             for _ in range(times):
                 proto.send(self._ctrl_pkt(_PT_I_AM_HERE, 0, sender_id), addr)
             return
