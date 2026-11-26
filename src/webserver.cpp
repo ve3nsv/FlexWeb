@@ -8026,7 +8026,8 @@ void webServer::configureRfkit(const QString &target)
         o["text"] = reason;
         qCInfo(logWebServer).noquote() << "RF-KIT amplifier refused" << what + ":" << reason;
         if (ampCmdClient_ && wsClients.contains(ampCmdClient_.data())) sendJsonTo(ampCmdClient_.data(), o);
-        else for (QWebSocket *c : wsClients) if (!isGuest(c)) sendJsonTo(c, o);
+        else for (QWebSocket *c : wsClients)
+            if (!isGuest(c) && (ampOwnedByRig_ || isAmpOnly(c))) sendJsonTo(c, o);   // punch list 93
     });
     connect(rfkit_, &RfkitConnection::statusUpdated, this, [this](const Rfkit::Status &st) {
         QJsonObject o;
