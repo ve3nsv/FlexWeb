@@ -4433,6 +4433,11 @@ function handleMessage(msg) {
             } else {
                 // Radio not detected — likely powered off
                 updatePowerState(false);
+                // Punch list 94: a LAN radio the server is still opening
+                // (on demand, the page itself started it) is not off - say
+                // so, instead of "Radio is powered off" and a Power On
+                // that was pressed on every page load.
+                if (isLan && lanConnected) showRigConnecting();
             }
             break;
         case 'rigConnected':
@@ -11133,11 +11138,29 @@ function doPowerOn() {
     clearTimeout(powerOnTimer);
     powerOnTimer = setTimeout(powerOnNoAnswer, 30000);
 }
+// Punch list 94: the LAN link is being opened and the radio has not
+// answered yet. The Power On wait (spinner, 30 s "did not answer") is reused;
+// the status that follows rigConnected (powerState) ends it either way.
+var rigConnecting = false;
+function showRigConnecting() {
+    rigPoweringOn = true;
+    rigConnecting = true;
+    var msg = document.getElementById('powerOffMsg');
+    var pOnBtn = document.getElementById('powerOnBtn');
+    var spin = document.getElementById('powerOnSpinner');
+    var name = (radioList[radioIndex] || {}).name || rigModelName || 'the radio';
+    if (msg) msg.textContent = 'Connecting to ' + name + '\u2026';
+    if (pOnBtn) pOnBtn.style.display = 'none';
+    if (spin) spin.style.display = 'block';
+    clearTimeout(powerOnTimer);
+    powerOnTimer = setTimeout(powerOnNoAnswer, 30000);
+}
 var powerOnTimer = null;
 function powerOnNoAnswer() {
     powerOnTimer = null;
     if (!rigPoweringOn) return;
     rigPoweringOn = false;
+    rigConnecting = false;
     var spin = document.getElementById('powerOnSpinner');
     if (spin) spin.style.display = 'none';
     refreshPowerOffButtons();
@@ -11147,6 +11170,7 @@ function powerOnNoAnswer() {
 }
 function updatePowerState(on) {
     clearTimeout(powerOnTimer); powerOnTimer = null;
+    rigConnecting = false;
     rigPoweredOn = on;
     var btn = document.getElementById('powerBtn');
     var overlay = document.getElementById('powerOffOverlay');
@@ -11182,6 +11206,15 @@ function updateLanStatus(il, conn) {
     if (conn) radioReleasedBy = '';
     isLan = il;
     lanConnected = conn;
+    if (rigConnecting && !conn) {
+        // Punch list 94: the link closed while connecting - back to the
+        // Connect LAN button now, not after the 30 s wait.
+        rigConnecting = false;
+        rigPoweringOn = false;
+        clearTimeout(powerOnTimer); powerOnTimer = null;
+        var cspin = document.getElementById('powerOnSpinner');
+        if (cspin) cspin.style.display = 'none';
+    }
     if (isLan && !lanConnected) {
         // Disconnected from the radio — show the off-screen overlay so the
         // user can reach the Connect button regardless of power state.

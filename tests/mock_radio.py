@@ -114,6 +114,14 @@ class MockIcomRadio(CivRadioBase):
         # (monotonic time, PCM payload bytes) - test_lan_tx_audio.py
         self.tx_audio: list[tuple[float, bytes]] = []
 
+        # A slow path (punch list 91): every handshake answer arrives twice,
+        # as when several "Are you there" are in flight before the first
+        # "I am here" comes back. Like Steve's IC-7610 seen over Tailscale,
+        # a radio that granted more than one login then sends its
+        # capabilities but never the connection status.
+        self.dup_handshake: bool = False
+        self.logins: int = 0
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
@@ -211,22 +219,27 @@ class MockIcomRadio(CivRadioBase):
 
     def _handle_ctrl(self, data, addr, ptype, sender_id, proto):
         n = len(data)
+        times = 2 if self.dup_handshake else 1
 
         if n == _HEADER_SIZE and ptype == _PT_ARE_YOU_THERE:
-            proto.send(self._ctrl_pkt(_PT_I_AM_HERE, 0, sender_id), addr)
+            for _ in range(times):
+                proto.send(self._ctrl_pkt(_PT_I_AM_HERE, 0, sender_id), addr)
             return
         if n == _HEADER_SIZE and ptype == _PT_ARE_YOU_READY:
-            proto.send(self._ctrl_pkt(_PT_ARE_YOU_READY, 0, sender_id), addr)
+            for _ in range(times):
+                proto.send(self._ctrl_pkt(_PT_ARE_YOU_READY, 0, sender_id), addr)
             return
         if n == _PING_SIZE and ptype == _PT_PING and data[0x10] == 0x00:
             proto.send(self._ping_reply(data, sender_id), addr)
             return
         if n == 0x80:
+            self.logins += 1
             proto.send(self._login_response(data, sender_id), addr)
             return
         if n == 0x40 and data[0x15] == 0x02:
             proto.send(self._capabilities_packet(sender_id), addr)
-            proto.send(self._conninfo_packet(sender_id), addr)
+            if not (self.dup_handshake and self.logins > 1):
+                proto.send(self._conninfo_packet(sender_id), addr)
             return
         if n == 0x40 and data[0x15] in (0x01, 0x05):
             return

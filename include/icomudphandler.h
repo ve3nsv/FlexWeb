@@ -41,6 +41,7 @@ public:
     ~icomUdpHandler();
 
 	bool streamOpened = false;
+	bool loginSent = false;   // one login per connection (duplicate "I am ready" ignored)
 
 	icomUdpCivData* civ = Q_NULLPTR;
 	icomUdpAudio* audio = Q_NULLPTR;

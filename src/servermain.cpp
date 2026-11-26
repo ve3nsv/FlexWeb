@@ -1471,6 +1471,16 @@ void servermain::powerRigOn()
     }
 
     emit sendPowerOn();
+    // Already on (Power On pressed while the rig is on, or before it has
+    // answered): the probe below cleared the queue down to one frequency
+    // read every 2 s and only an off -> on change put the polls back, so
+    // the S meter, mode etc. stayed at that rate for the whole session
+    // (punch list 92). A rig that has not connected yet gets its polls from
+    // receiveRigCaps.
+    if (rigPoweredOn) {
+        qInfo(logSystem()) << "Power On: the rig is already on - polling kept";
+        return;
+    }
     // Start heartbeat probe while rig boots; after 5 seconds
     // force-reinitialize even if echo detection hasn't fired yet.
     startPowerProbe();

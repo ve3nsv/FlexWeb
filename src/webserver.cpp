@@ -3019,6 +3019,11 @@ void webServer::handleCommand(QWebSocket *client, const QJsonObject &cmd)
         queue->add(priorityImmediate, queueItem(funcKeySpeed, QVariant::fromValue<ushort>(wpm), false, 0));
         qCDebug(logWebServer) << "setCWSpeed:" << wpm << "WPM";
     }
+    else if (type.startsWith("amp") && type != "ampState" && !ampOwnedByRig_ && !isAmpOnly(client)) {
+        // Punch list 93: the radio page has no amp on a radio that does not
+        // own it (the panel is hidden there); the /amp page still has it.
+        return;
+    }
     else if (type.startsWith("amp") && type != "ampState" && !ampControlAllowed(client)) {
         // Amp controls are refused, not just hidden on the page: anyone who
         // can open the page could otherwise switch a kilowatt amplifier.
@@ -4390,11 +4395,13 @@ void webServer::sendCurrentState(QWebSocket *client)
     info["stationCallsign"] = reporterCallsign;
     info["stationGrid"] = reporterGrid;
     info["reporterMessage"] = reporterMessage;
-    info["ampConfigured"] = !rfkitTarget_.isEmpty();
+    // Punch list 93: the radio page shows the amp only on the radio that
+    // owns it (the Flex); the /amp page shows it whatever is selected.
+    info["ampConfigured"] = !rfkitTarget_.isEmpty() && ampOwnedByRig_;
     addRadiosTo(info);
 
     sendJsonTo(client, info);
-    if (!rfkitTarget_.isEmpty() && !ampJson_.isEmpty())
+    if (!rfkitTarget_.isEmpty() && ampOwnedByRig_ && !ampJson_.isEmpty())
         sendJsonTo(client, ampJson_);
     if (!flexDspJson_.isEmpty()) {
         QJsonObject d = flexDspJson_;
@@ -5281,8 +5288,16 @@ void webServer::sendJsonToAll(const QJsonObject &obj)
                   || t == QLatin1String("txState") || t == QLatin1String("serverLoad")
                   || t == QLatin1String("radioSwitched");
     }
+    // Punch list 93: amp messages reach the radio page only while the
+    // selected radio owns the amp.
+    bool ampMsg = false;
+    if (!ampOwnedByRig_) {
+        const QString t = obj.value(QStringLiteral("type")).toString();
+        ampMsg = t == QLatin1String("amp") || t == QLatin1String("ampRefused");
+    }
     for (QWebSocket *client : wsClients) {
         if (!forAmpPage && ampOnly_.contains(client)) continue;
+        if (ampMsg && !ampOnly_.contains(client)) continue;
         client->sendTextMessage(QString::fromUtf8(data));
     }
 }
@@ -8012,7 +8027,8 @@ void webServer::configureRfkit(const QString &target)
         o["text"] = reason;
         qCInfo(logWebServer).noquote() << "RF-KIT amplifier refused" << what + ":" << reason;
         if (ampCmdClient_ && wsClients.contains(ampCmdClient_.data())) sendJsonTo(ampCmdClient_.data(), o);
-        else for (QWebSocket *c : wsClients) if (!isGuest(c)) sendJsonTo(c, o);
+        else for (QWebSocket *c : wsClients)
+            if (!isGuest(c) && (ampOwnedByRig_ || isAmpOnly(c))) sendJsonTo(c, o);   // punch list 93
     });
     connect(rfkit_, &RfkitConnection::statusUpdated, this, [this](const Rfkit::Status &st) {
         QJsonObject o;

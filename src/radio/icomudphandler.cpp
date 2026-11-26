@@ -2,6 +2,7 @@
 // This code is heavily based on "Kappanhang" by HA2NON, ES1AKOS and W6EL!
 
 #include "icomudphandler.h"
+#include <QRandomGenerator>
 
 #include <QElapsedTimer>
 #include <memory>
@@ -275,8 +276,20 @@ void icomUdpHandler::dataReceived()
                 // This is "I am ready" in response to "Are you ready" so send login.
                 else if (in->type == 0x06)
                 {
-                    qInfo(logUdp()) << this->metaObject()->className() << ": Received I am ready";
-                    sendLogin(); // send login packet
+                    // One login per connection. On a slow path (Tailscale to
+                    // Steve's IC-7610, ~1.5 s to the first answer) several
+                    // "Are you there" go out before "I am here" comes back;
+                    // each is answered, each answer sent "Are you ready" and
+                    // each "I am ready" a login with a new token request. The
+                    // 7610 granted all three, sent its capabilities and never
+                    // the connection status, so the streams never opened.
+                    if (loginSent) {
+                        qInfo(logUdp()) << this->metaObject()->className() << ": Received I am ready (duplicate, login already sent)";
+                    } else {
+                        qInfo(logUdp()) << this->metaObject()->className() << ": Received I am ready";
+                        loginSent = true;
+                        sendLogin(); // send login packet
+                    }
                 }
                 break;
             }
@@ -756,7 +769,7 @@ void icomUdpHandler::sendLogin() // Only used on control stream.
 
     qInfo(logUdp()) << this->metaObject()->className() << ": Sending login packet";
 
-    tokRequest = static_cast<quint16>(rand() | rand() << 8); // Generate random token request.
+    tokRequest = static_cast<quint16>(QRandomGenerator::global()->generate()); // rand() was never seeded: the same value every run
 
     QByteArray usernameEncoded;
     QByteArray passwordEncoded;

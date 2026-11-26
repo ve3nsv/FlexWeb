@@ -1618,6 +1618,58 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+94. "Radio is powered off" while the LAN radio is being opened (review of
+    the 2026-11-25 logs; small). On demand the page opens the radio, so
+    its first rigInfo has no rig and showed "Radio is powered off" with
+    Power On - pressed on every page load (every Icom log since 11-03 has
+    powerRigOn with the rig on, the cause of 92). Done: when the LAN link
+    is up and the radio has not answered, the overlay says "Connecting to
+    <radio>..." with the spinner and no Power On (`showRigConnecting`,
+    the Power On wait reused: the status after rigConnected ends it, 30 s
+    without an answer offers Power On with the reason, a link that closes
+    shows Connect LAN at once). A radio that answers as off still gets
+    "Radio is powered off". tests/power_overlay_sim.mjs via
+    tests/test_power_overlay.py.
+
+93. The RF2K-S on the IC-7610's page (user, 2026-11-25; small). "The
+    RF2K should only be shown on the Flex 6400 or its own page." Since 89b
+    the amp is the station's and stays configured with any radio, and the
+    radio page showed it with all of them. Done: while the selected radio
+    does not own the amp (`ampOwnedByRig_` false) the radio page's rigInfo
+    has `ampConfigured` false (no AMP panel, indicator or AMP page button),
+    amp / ampRefused messages go to the /amp page only, and amp commands
+    from the radio page are dropped. /amp and the Flex's page are as before.
+    tests/test_radio_switch.py.
+
+92. The IC-7610's S meter slow (user, 2026-11-25; small). Every Icom log
+    since 11-03 has "powerRigOn() called, current rigPoweredOn= true":
+    Power On pressed on a rig that was on. powerRigOn started the power
+    probe (queue cleared, one frequency read every 2 s) and only an off ->
+    on change put the polls back, so for the rest of the session the S
+    meter and every other polled value ran at that rate ("Periodic polling
+    restored" never appears for an Icom). Done: Power On on a rig already
+    on sends the command and keeps the polls ("Power On: the rig is already
+    on - polling kept"); a rig not yet connected still gets them from
+    receiveRigCaps. tests/test_power_on_polling.py. Not changed: on an
+    IC-7610 the S meter shares the Highest slot with the second receiver's
+    and the overflow read (~420 ms each, tests/test_meter_polling.py).
+
+91. Steve's IC-7610 never connects over Tailscale (user logs, 2026-11-25,
+    1.0.164; small). The route was fixed and the login accepted, the radio
+    sent its capabilities ("Name: IC-7610 ... CIV: 98") and then nothing:
+    no "Got Connection status", so the CI-V and audio streams never opened
+    and "Searching for rig via LAN" repeated for ever. The first "I am here"
+    took ~1.5 s, so three "Are you there" were answered; each answer sent
+    "Are you ready" and each "I am ready" a login with a new token request
+    (the three replies, 9001 / 40126 / 28385, were the same every run:
+    rand() was never seeded). The 7610 granted all three logins and sent
+    no status; the IC-9700 at .217, one answer away, connected. Done:
+    icomUdpHandler sends one login per connection (`loginSent`; a later
+    "I am ready" is logged as a duplicate), the token request comes from
+    QRandomGenerator. tests/mock_radio.py `dup_handshake` answers every
+    handshake packet twice and, like the 7610, withholds the status after
+    a second login; tests/test_lan_slow_handshake.py.
+
 90. The Flex's MIC level resets on every connection (user, 2026-11-17;
     small). On a Flex the MIC slider is FlexWeb's own gain on the browser
     mic (flexCommander::modLevel, 75 % = unity) - no radio setting holds

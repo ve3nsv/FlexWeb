@@ -4,8 +4,8 @@ wfweb runs with two --radio profiles: a Flex (mock SmartSDR radio, with an
 RF-KIT amplifier) and an Icom LAN radio (mock IC-7610). The page's RADIO
 menu sends selectRadio: the server closes the Flex, opens the Icom, and
 the amplifier - the station's, named by the Flex's profile - stays
-available with the Icom (punch list 89b: the amp page works whatever radio
-is selected). Then back again. On demand: no radio is contacted until a
+available on the amp page with the Icom (punch list 89b) but leaves the
+radio page (punch list 93). Then back again. On demand: no radio is contacted until a
 browser connects."""
 from __future__ import annotations
 
@@ -156,8 +156,16 @@ def test_switch_flex_icom(tmp_path):
         assert _wait(lambda: len(icom.civ_log) > 5, 20), "the Icom was not opened:\n" + server_log()
         flex_cmds = len(flex.commands)
         info = _rig_info(web_port, 1)
-        # Punch list 89b: the station's amplifier stays with any radio.
-        assert info.get("ampConfigured") is True, "the amplifier went away with the Icom"
+        # Punch list 93: the radio page shows the amp only with the radio
+        # that owns it; the amp page (89b) keeps it whatever is selected.
+        assert info.get("ampConfigured") is False, "the Flex's amplifier shown on the Icom's page"
+        st, asock, abuf = _ws(web_port, None, "/?amp=1")
+        assert " 101" in st, st
+        try:
+            ainfo = _first(_Reader(asock, abuf), lambda m: m.get("type") == "ampPageInfo")
+            assert ainfo and ainfo.get("ampConfigured") is True, "the amp page lost the amplifier with the Icom"
+        finally:
+            asock.close()
         pp = info.get("pagePrefs") or {}
         assert pp.get("radioKey") == "Icom" and "wfSpeed" not in pp.get("radio", {}) \
             and pp.get("user", {}).get("wfLook") == "classic", f"the Flex's settings leaked or the user's were lost: {pp}"
