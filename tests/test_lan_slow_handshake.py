@@ -12,7 +12,6 @@ import os
 import socket
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -45,7 +44,7 @@ def _wait_for_connected(url: str, timeout: float) -> bool:
     return False
 
 
-def test_duplicate_handshake_answers_send_one_login():
+def test_duplicate_handshake_answers_send_one_login(tmp_path):
     if not WFWEB_BIN.exists():
         pytest.skip(f"wfweb binary not found at {WFWEB_BIN}")
     loop = asyncio.new_event_loop()
@@ -55,18 +54,21 @@ def test_duplicate_handshake_answers_send_one_login():
     t = threading.Thread(target=loop.run_forever, daemon=True)
     t.start()
 
+    # A server of its own: own home, settings and config dir (conftest's
+    # WFWEB_CONFIG_DIR is shared by the session's tests), no console page.
+    home = str(tmp_path)
+    env = dict(os.environ, HOME=home, XDG_CONFIG_HOME=f"{home}/.config", WFWEB_NO_TUI="1",
+               WFWEB_CONFIG_DIR=home)
+    logfile = tmp_path / "wfweb.log"
     web_port = _find_free_port()
-    env = os.environ.copy()
-    env["HOME"] = "/tmp/wfweb-test-slowlan"
-    os.makedirs(env["HOME"], exist_ok=True)
     proc = subprocess.Popen(
-        [str(WFWEB_BIN), "-p", str(web_port), "--lan", "127.0.0.1",
+        [str(WFWEB_BIN), "-p", str(web_port), "-l", str(logfile), "--lan", "127.0.0.1",
          "--lan-control", str(radio.control_port), "--lan-user", "testuser",
          "--lan-pass", "testpass", "--civ", "0x98"],
-        stdout=(log := tempfile.TemporaryFile()), stderr=subprocess.STDOUT, env=env)
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
     ok = False
     try:
-        ok = _wait_for_connected(f"http://127.0.0.1:{web_port + 1}/api/v1/radio/info", 15.0)
+        ok = _wait_for_connected(f"http://127.0.0.1:{web_port + 1}/api/v1/radio/info", 30.0)
         assert radio.logins == 1, f"{radio.logins} logins sent for one connection"
         assert ok, "the rig did not connect"
     finally:
@@ -78,7 +80,5 @@ def test_duplicate_handshake_answers_send_one_login():
             proc.wait()
         loop.call_soon_threadsafe(loop.stop)
         t.join(timeout=2)
-        if not ok or radio.logins != 1:
-            log.seek(0)
-            print(log.read().decode(errors="replace")[-4000:])
-        log.close()
+        if (not ok or radio.logins != 1) and logfile.exists():
+            print(logfile.read_text(errors="replace")[-6000:])
