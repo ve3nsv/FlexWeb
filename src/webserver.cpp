@@ -586,10 +586,12 @@ void webServer::receiveRigCaps(rigCapabilities *caps)
                                      .arg(qRound(level * 100.0 / 255)).arg(pagePrefsRadioKey());
             queue->addUnique(priorityImmediate, queueItem(funcUSBModLevel, QVariant::fromValue<ushort>(level), false, 0));
             // The commander pushes its own level as it connects, and that
-            // report can land after this one: receiveCache sends the saved
-            // level again until the Flex reports it (a few tries at most).
+            // report can land after this one (CI 176 / 177): for 5 s,
+            // receiveCache sends the saved level again whenever another is
+            // reported (three times at most).
             flexMicRestore_ = level;
             flexMicRestoreTries_ = 3;
+            flexMicRestoreUntil_ = QDateTime::currentMSecsSinceEpoch() + 5000;
         }
     }
     tunerRejected = false;   // new rig, new evidence
@@ -4978,9 +4980,9 @@ void webServer::receiveCache(cacheItem item)
     case funcUSBModLevel:
         update["micGain"] = item.value.toInt();
         if (flexMicRestore_ >= 0) {
-            if (item.value.toInt() == flexMicRestore_ || flexMicRestoreTries_ <= 0) {
+            if (flexMicRestoreTries_ <= 0 || QDateTime::currentMSecsSinceEpoch() > flexMicRestoreUntil_) {
                 flexMicRestore_ = -1;
-            } else {
+            } else if (item.value.toInt() != flexMicRestore_) {
                 --flexMicRestoreTries_;
                 // Posted: the queue must not be touched from inside receiveCache.
                 const ushort level = ushort(flexMicRestore_);

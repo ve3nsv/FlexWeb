@@ -596,6 +596,7 @@ private:
     RadioReach *radioReach_ = nullptr;      // punch list 95: who answers
     int flexMicRestore_ = -1;               // punch list 90: saved Flex MIC level not yet reported back
     int flexMicRestoreTries_ = 0;
+    qint64 flexMicRestoreUntil_ = 0;
     void addRadiosTo(QJsonObject &o) const;
     void sendRadioReach();
     void updateRadioReachActive();
