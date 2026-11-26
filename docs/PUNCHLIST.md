@@ -1618,6 +1618,30 @@ TUNE state after a mock radio reconnect matches the radio.
     TUNE. tests/digi_monitor_sim.mjs via tests/test_digi_monitor.py.
     Server page only (the Standalone page keeps the fixed level).
 
+95. Show the radios that do not answer (user, 2026-11-26; medium). "Can
+    you have Flexweb ping the endpoints periodically and show them as down
+    when they don't respond?" Steve's IC-7610 had dropped off his network
+    (no ping from the PC or from steve-gw, its Tailscale route still
+    advertised) and the only sign was "LAN: no answer" in the log. Done:
+    `RadioReach` (src/radioreach.cpp, owned by webServer) checks every
+    radio of the RADIO menu every 30 s while a radio page is open, in the
+    radio's own protocol rather than ICMP (which needs privileges on
+    Windows and says nothing of the control service): an Icom gets an "Are
+    you there" on its control port (three over 1.2 s, any "I am here" in
+    3 s; no login follows), a Flex at an address a TCP connect to 4992,
+    closed at once; SmartLink and Flex "auto" are not checked. The radio
+    in use is not probed while its link is up. rigInfo `radios[]` carries
+    `reach` (up / down / "") and `reachWhy` (no answer / refused / no
+    address); a change is broadcast as `{type:'radioReach'}`. Page: the
+    RADIO choices (splash, Disconnected, power-off screens) show a radio
+    that does not answer in red, dashed; FUNC > RADIO shows NO ANSWER /
+    REFUSED; "Connecting to <radio>..." adds "It is not answering on the
+    network". Log: "Radio check: "<name>" (<host>) is not answering (...)"
+    / "is answering again", changes only. The amp is not probed (the
+    RF2K-S takes one connection at a time; it has its own NO ANSWER).
+    tests/test_radio_reach.py (mock Icom + a dead port; no check without a
+    browser, no login); tests/power_overlay_sim.mjs.
+
 94. "Radio is powered off" while the LAN radio is being opened (review of
     the 2026-11-25 logs; small). On demand the page opens the radio, so
     its first rigInfo has no rig and showed "Radio is powered off" with

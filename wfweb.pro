@@ -382,6 +382,7 @@ SOURCES += \
     src/rfkitconnection.cpp \
     src/rfkitprotocol.cpp \
     src/serverload.cpp \
+    src/radioreach.cpp \
     src/radio/yaesuserver.cpp \
     src/radio/yaesuudpaudio.cpp \
     src/radio/yaesuudpbase.cpp \
@@ -473,6 +474,7 @@ HEADERS  += \
     include/rfkitconnection.h \
     include/rfkitprotocol.h \
     include/serverload.h \
+    include/radioreach.h \
     include/yaesuserver.h \
     include/yaesuudpaudio.h \
     include/yaesuudpbase.h \

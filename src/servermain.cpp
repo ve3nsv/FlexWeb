@@ -1126,10 +1126,20 @@ void servermain::applyProfile(int index)
 void servermain::sendProfilesToWeb()
 {
     if (!web || profiles.isEmpty()) return;
-    QStringList names, types;
-    for (const radioProfile &p : profiles) { names << p.name; types << p.type; }
+    QStringList names, types, targets;
+    for (const radioProfile &p : profiles) {
+        names << p.name;
+        types << p.type;
+        // The address the radio check tries (punch list 95), tidied as the
+        // link does (a pasted URL or "host:port").
+        int port = 0;
+        QString host = p.type == QLatin1String("icomlan") ? cleanLanHost(p.host, &port, nullptr) : p.host;
+        if (p.controlPort > 0) port = p.controlPort;
+        targets << QString("%1:%2").arg(host).arg(port);
+    }
     QMetaObject::invokeMethod(web, "setRadioProfiles", Qt::QueuedConnection,
-                              Q_ARG(QStringList, names), Q_ARG(QStringList, types), Q_ARG(int, profileIndex));
+                              Q_ARG(QStringList, names), Q_ARG(QStringList, types),
+                              Q_ARG(QStringList, targets), Q_ARG(int, profileIndex));
 }
 
 // Close the radio link and take the commander down, so the next radio can

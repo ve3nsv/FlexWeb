@@ -59,6 +59,18 @@ run('updatePowerState(false); showRigConnecting(); updateLanStatus(true, false);
 check(el('lanConnBtn').textContent === 'Connect LAN' && el('lanConnBtn').style.display === '', 'Connect LAN at once');
 check(el('powerOnSpinner').style.display === 'none', 'spinner stopped when the link closed');
 
+// Punch list 95: the server's check says the radio is not answering; the
+// connecting screen says so (and only updates the text on a refresh).
+run('radioList = [{ name: "IC-7610" }]; updatePowerState(false); showRigConnecting();');
+const nTimers = timers.length;
+run('radioList = [{ name: "IC-7610", reach: "down", reachWhy: "no answer" }]; showRigConnecting(true);');
+check(/^Connecting to IC-7610… It is not answering on the network/.test(el('powerOffMsg').textContent),
+      'not answering: ' + el('powerOffMsg').textContent);
+check(timers.length === nTimers, 'a refresh starts no second wait');
+run('radioList = [{ name: "IC-7610", reach: "up" }]; showRigConnecting(true);');
+check(el('powerOffMsg').textContent === 'Connecting to IC-7610…', 'answering again: ' + el('powerOffMsg').textContent);
+run('updatePowerState(true); radioList = [{ name: "IC-7610" }];');
+
 // A radio that answers as off still gets "Radio is powered off" + Power On.
 run('updateLanStatus(true, true); updatePowerState(false);');
 check(el('powerOffMsg').textContent === 'Radio is powered off' && el('powerOnBtn').style.display === '',

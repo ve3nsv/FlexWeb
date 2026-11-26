@@ -1917,6 +1917,7 @@ void webServer::onWsNewConnection()
     if (ampPage) {
         // Punch list 89: the amp page polls the amp, never the radio.
         updateAmpPolling();
+        updateRadioReachActive();
         if (!isGuest(pSocket)) QTimer::singleShot(0, this, [this]() { updateAmpAwake(); });
         sendAmpPageState(pSocket);
         scheduleClientsBroadcast();
@@ -1924,6 +1925,7 @@ void webServer::onWsNewConnection()
     }
     onDemandBrowserArrived();
     updateAmpPolling();
+    updateRadioReachActive();
     // A signed-in operator takes the radio back from tuning guests and
     // listeners (punch list 40, 41).
     if (!user.isEmpty() && !isGuest(pSocket)) {
@@ -2032,6 +2034,7 @@ void webServer::onWsDisconnected()
         broadcastGuestMode();
         updateAmpAwake();
         updateAmpPolling();
+        updateRadioReachActive();
         onDemandBrowserLeft();
     }
 }
@@ -10578,11 +10581,45 @@ void webServer::onFlexNnrGain(float gain, bool active)
     sendJsonToAll(o);
 }
 
-void webServer::setRadioProfiles(QStringList names, QStringList types, int index)
+void webServer::setRadioProfiles(QStringList names, QStringList types, QStringList targets, int index)
 {
     radioNames_ = names;
     radioTypes_ = types;
     radioIndex_ = index;
+    // Punch list 95: every radio of the menu is checked every 30 s; the page
+    // marks the ones that do not answer.
+    if (!radioReach_) {
+        radioReach_ = new RadioReach(this);
+        radioReach_->linkUp = [this](int i) { return i == radioIndex_ && lanConnected && rigCaps != nullptr; };
+        radioReach_->changed = [this]() { sendRadioReach(); };
+    }
+    QVector<RadioReach::Target> list;
+    for (int i = 0; i < names.size(); ++i) {
+        RadioReach::Target t;
+        t.name = names[i];
+        t.type = i < types.size() ? types[i] : QString();
+        const QString hp = i < targets.size() ? targets[i] : QString();
+        const int colon = hp.lastIndexOf(QLatin1Char(':'));
+        t.host = colon > 0 ? hp.left(colon) : hp;
+        t.port = colon > 0 ? quint16(hp.mid(colon + 1).toUInt()) : 0;
+        list << t;
+    }
+    radioReach_->setTargets(list);
+    updateRadioReachActive();
+}
+
+void webServer::updateRadioReachActive()
+{
+    if (radioReach_) radioReach_->setActive(wsClients.size() > ampOnly_.size());
+}
+
+void webServer::sendRadioReach()
+{
+    if (radioNames_.isEmpty()) return;
+    QJsonObject o;
+    addRadiosTo(o);
+    o["type"] = "radioReach";
+    sendJsonToAll(o);
 }
 
 QString webServer::pagePrefsUser(QWebSocket *c) const
@@ -10630,6 +10667,10 @@ void webServer::addRadiosTo(QJsonObject &o) const
         QJsonObject r;
         r["name"] = radioNames_[i];
         r["type"] = i < radioTypes_.size() ? radioTypes_[i] : QString();
+        if (radioReach_) {
+            r["reach"] = radioReach_->state(i);
+            if (!radioReach_->why(i).isEmpty()) r["reachWhy"] = radioReach_->why(i);
+        }
         list.append(r);
     }
     o["radios"] = list;
